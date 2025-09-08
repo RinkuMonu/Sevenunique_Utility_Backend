@@ -71,28 +71,13 @@ const userSchema = new mongoose.Schema(
         trim: true,
       },
     },
-    permissions: {
-      type: [String],
-      default: function () {
-        const roleAccess = {
-          SuperAdmin: [
-            "company:manage",
-            "user:manage",
-            "wallet:all",
-            "kyc:approve",
-            "reports:view",
-          ],
-          Admin: ["user:create", "user:view", "wallet:credit", "reports:view"],
-          Distributor: ["retailer:create", "wallet:view", "transactions:view"],
-          Retailer: ["transactions:create", "wallet:view"],
-        };
-        return roleAccess[this.role] || [];
-      },
-    },
-    companyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Company",
-    },
+ rolePermissions: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PermissionByRole"
+  },
+ extraPermissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Permission" }],
+restrictedPermissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Permission" }],
+
     questions: [
       {
         question: { type: String, required: true },
@@ -184,4 +169,5 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("User", userSchema);
+
+module.exports = mongoose.model('User', userSchema);
