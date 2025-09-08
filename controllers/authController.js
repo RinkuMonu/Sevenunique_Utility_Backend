@@ -2,7 +2,7 @@ const User = require("../models/userModel.js");
 const { generateOtp, verifyOtp } = require("../services/otpService");
 const { sendOtp } = require("../services/smsService");
 const { generateJwtToken } = require("../services/jwtService");
-const { parse } = require('json2csv');
+const { parse } = require("json2csv");
 const userMetaModel = require("../models/userMetaModel.js");
 const PayIn = require("../models/payInModel.js");
 const PayOut = require("../models/payOutModel.js");
@@ -36,7 +36,9 @@ const verifyOTPController = async (req, res) => {
     const { mobileNumber, otp } = req.body;
 
     if (!mobileNumber || !otp) {
-      return res.status(400).json({ message: "Mobile number and OTP are required" });
+      return res
+        .status(400)
+        .json({ message: "Mobile number and OTP are required" });
     }
     const verificationResult = await verifyOtp(mobileNumber, otp);
     if (!verificationResult.success) {
@@ -57,7 +59,9 @@ const loginController = async (req, res) => {
     const { mobileNumber, otp } = req.body;
 
     if (!mobileNumber || !otp) {
-      return res.status(400).json({ message: "Mobile number and OTP are required" });
+      return res
+        .status(400)
+        .json({ message: "Mobile number and OTP are required" });
     }
     const verificationResult = await verifyOtp(mobileNumber, otp);
     if (!verificationResult.success) {
@@ -69,7 +73,9 @@ const loginController = async (req, res) => {
       return res.status(404).json({ message: "No user found" });
     }
     if (user.status === false) {
-      return res.status(403).json({ message: "Your account is blocked. Please contact support." });
+      return res
+        .status(403)
+        .json({ message: "Your account is blocked. Please contact support." });
     }
 
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
@@ -79,7 +85,7 @@ const loginController = async (req, res) => {
       user: {
         id: user._id,
         mobileNumber: user.mobileNumber,
-        token
+        token,
       },
     });
   } catch (error) {
@@ -99,7 +105,7 @@ const registerUser = async (req, res) => {
       role,
       distributorId,
       businessName,
-      businessType
+      businessType,
     } = req.body;
 
     let user = await User.findOne({ $or: [{ email }, { mobileNumber }] });
@@ -109,15 +115,19 @@ const registerUser = async (req, res) => {
 
     let adminUser;
     if (!distributorId) {
-      adminUser = await User.findOne({ role: 'Admin' });
+      adminUser = await User.findOne({ role: "Admin" });
     }
 
     let shopPhotoPaths = [];
     if (req.files?.shopPhoto) {
-      shopPhotoPaths = req.files.shopPhoto.map(file => `/uploads/${file.filename}`);
+      shopPhotoPaths = req.files.shopPhoto.map(
+        (file) => `/uploads/${file.filename}`
+      );
     }
 
-    const ownerPhoto = req.files?.ownerPhoto ? `/uploads/${req.files.ownerPhoto[0].filename}` : "";
+    const ownerPhoto = req.files?.ownerPhoto
+      ? `/uploads/${req.files.ownerPhoto[0].filename}`
+      : "";
 
     let newUserObj = {
       name,
@@ -136,7 +146,11 @@ const registerUser = async (req, res) => {
     };
 
     let NewUser = await User.create(newUserObj);
-    const token = generateJwtToken(NewUser._id, NewUser.role, NewUser.mobileNumber);
+    const token = generateJwtToken(
+      NewUser._id,
+      NewUser.role,
+      NewUser.mobileNumber
+    );
 
     // ✅ Lead API call using axios
     try {
@@ -147,8 +161,8 @@ const registerUser = async (req, res) => {
           name: NewUser.name,
           mobile_number: NewUser.mobileNumber,
           email: NewUser.email,
-          address:NewUser.address,
-          client_type:NewUser.role,
+          address: NewUser.address,
+          client_type: NewUser.role,
           notes: "Lead from FinUnique small private limited",
         },
         {
@@ -161,20 +175,22 @@ const registerUser = async (req, res) => {
 
       console.log("Lead API Response:", leadResponse.data);
     } catch (leadError) {
-      console.error("Error sending lead data:", leadError.response ? leadError.response.data : leadError.message);
+      console.error(
+        "Error sending lead data:",
+        leadError.response ? leadError.response.data : leadError.message
+      );
     }
 
     return res.status(200).json({
       message: "Registration successful",
       newUser: NewUser,
-      token
+      token,
     });
   } catch (error) {
     console.error("Error in registerUser controller:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 const updateProfileController = async (req, res) => {
   try {
@@ -193,7 +209,7 @@ const updateProfileController = async (req, res) => {
         fullAddress: address.fullAddress,
         city: address.city,
         state: address.state,
-        country: address.country || 'India'
+        country: address.country || "India",
       };
     }
     if (pinCode) user.pinCode = pinCode;
@@ -216,8 +232,14 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-    let user = await User.findById(req.user.id, '-mpin -commissionPackage -meta -aadharDetails -panDetails');
-    let userMeta = await userMetaModel.findOne({ userId: req.user.id }).populate('services.serviceId', '-providers -serviceFor') || {};
+    let user = await User.findById(
+      req.user.id,
+      "-mpin -commissionPackage -meta -aadharDetails -panDetails"
+    );
+    let userMeta =
+      (await userMetaModel
+        .findOne({ userId: req.user.id })
+        .populate("services.serviceId", "-providers -serviceFor")) || {};
     if (!user) {
       return res.status(404).json({ message: "No user found" });
     }
@@ -235,19 +257,19 @@ const getUsersWithFilters = async (req, res) => {
       role,
       from,
       to,
-      sortBy = 'name',
-      order = 'asc',
+      sortBy = "name",
+      order = "asc",
       page = 1,
       limit = 10,
-      exportCsv = 'false'
+      exportCsv = "false",
     } = req.query;
 
     const filter = {};
 
     if (keyword) {
       filter.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { email: { $regex: keyword, $options: 'i' } },
+        { name: { $regex: keyword, $options: "i" } },
+        { email: { $regex: keyword, $options: "i" } },
       ];
     }
 
@@ -263,39 +285,39 @@ const getUsersWithFilters = async (req, res) => {
 
     const loggedInUser = req.user;
 
-    if (loggedInUser.role === 'Distributor') {
+    if (loggedInUser.role === "Distributor") {
       filter.distributorId = loggedInUser.id;
     }
 
     const sort = {};
-    sort[sortBy] = order === 'asc' ? 1 : -1;
+    sort[sortBy] = order === "asc" ? 1 : -1;
 
     const skip = (page - 1) * limit;
 
     const users = await User.find(filter)
       .sort(sort)
-      .skip(exportCsv === 'true' ? 0 : skip)
-      .limit(exportCsv === 'true' ? Number.MAX_SAFE_INTEGER : parseInt(limit));
+      .skip(exportCsv === "true" ? 0 : skip)
+      .limit(exportCsv === "true" ? Number.MAX_SAFE_INTEGER : parseInt(limit));
 
-    if (exportCsv === 'true') {
+    if (exportCsv === "true") {
       const fields = [
-        '_id',
-        'name',
-        'email',
-        'role',
-        'mobileNumber',
-        'status',
-        'distributorId',
-        'isKycVerified',
-        'eWallet',
-        'cappingMoney',
-        'createdAt',
-        'updatedAt'
+        "_id",
+        "name",
+        "email",
+        "role",
+        "mobileNumber",
+        "status",
+        "distributorId",
+        "isKycVerified",
+        "eWallet",
+        "cappingMoney",
+        "createdAt",
+        "updatedAt",
       ];
 
       const csv = parse(users, { fields });
-      res.header('Content-Type', 'text/csv');
-      res.header('Content-Disposition', 'attachment; filename=users.csv');
+      res.header("Content-Type", "text/csv");
+      res.header("Content-Disposition", "attachment; filename=users.csv");
       return res.send(csv);
     }
     const totalUsers = await User.countDocuments(filter);
@@ -321,7 +343,9 @@ const updateUserStatus = async (req, res) => {
     const userId = req.params.id;
 
     if (!userId || status === undefined) {
-      return res.status(400).json({ message: "User ID and status are required" });
+      return res
+        .status(400)
+        .json({ message: "User ID and status are required" });
     }
     const user = await User.findById(userId);
 
@@ -347,7 +371,15 @@ const updateUserDetails = async (req, res) => {
   try {
     const userId = req.params.id;
 
-    const { role, status, isAccountActive, commissionPackage, cappingMoney, eWallet, meta } = req.body;
+    const {
+      role,
+      status,
+      isAccountActive,
+      commissionPackage,
+      cappingMoney,
+      eWallet,
+      meta,
+    } = req.body;
 
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
@@ -368,7 +400,7 @@ const updateUserDetails = async (req, res) => {
 
     await user.save();
     return res.status(200).json({
-      message: "User details updated successfully"
+      message: "User details updated successfully",
     });
   } catch (error) {
     console.error("Error in updateUserDetails:", error);
@@ -376,7 +408,7 @@ const updateUserDetails = async (req, res) => {
   }
 };
 
-const Transaction = require('../models/transactionModel.js');
+const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 
 const startOfToday = new Date();
@@ -392,21 +424,21 @@ const getDashboardStats = async (req, res, next) => {
         name: user.name,
         role: user.role,
         wallet: user.eWallet,
-      }
+      },
     };
 
     const matchToday = {
-      createdAt: { $gte: startOfToday }
+      createdAt: { $gte: startOfToday },
     };
 
-    const matchUser = (field = 'userId') => ({ [field]: user._id });
-    const matchTodayUser = (field = 'userId') => ({
+    const matchUser = (field = "userId") => ({ [field]: user._id });
+    const matchTodayUser = (field = "userId") => ({
       [field]: user._id,
-      createdAt: { $gte: startOfToday }
+      createdAt: { $gte: startOfToday },
     });
 
     // Admin dashboard
-    if (role === 'Admin') {
+    if (role === "Admin") {
       const [
         totalUsers,
         totalRetailers,
@@ -423,24 +455,32 @@ const getDashboardStats = async (req, res, next) => {
         failedTxns,
         successTxns,
         activeUsers,
-        activeServices
+        activeServices,
+        activeRetailers,
+        activeDistributors,
       ] = await Promise.all([
         User.countDocuments(),
-        User.countDocuments({ role: 'Retailer' }),
-        User.countDocuments({ role: 'Distributor' }),
+        User.countDocuments({ role: "Retailer" }),
+        User.countDocuments({ role: "Distributor" }),
         AEPSWithdrawal.countDocuments(),
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
-        PayOut.aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }]),
-        PayIn.aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }]),
-        User.aggregate([{ $group: { _id: null, total: { $sum: "$eWallet" } } }]),
+        PayOut.aggregate([
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        PayIn.aggregate([
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        User.aggregate([
+          { $group: { _id: null, total: { $sum: "$eWallet" } } },
+        ]),
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
           {
             $match: {
-              createdAt: { $gte: startOfToday }
-            }
+              createdAt: { $gte: startOfToday },
+            },
           },
           {
             $facet: {
@@ -449,39 +489,42 @@ const getDashboardStats = async (req, res, next) => {
                   $group: {
                     _id: "$transaction_type",
                     totalAmount: { $sum: "$amount" },
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               byStatus: [
                 {
                   $group: {
                     _id: "$status",
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               overall: [
                 {
                   $group: {
                     _id: null,
                     totalTransactions: { $sum: 1 },
-                    totalAmount: { $sum: "$amount" }
-                  }
-                }
-              ]
-            }
-          }
+                    totalAmount: { $sum: "$amount" },
+                  },
+                },
+              ],
+            },
+          },
         ]),
         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
         Transaction.countDocuments({ ...matchToday, status: "Success" }),
         User.countDocuments({ status: true }),
-        servicesModal.countDocuments({ "isActive": true })
+        servicesModal.countDocuments({ isActive: true }),
+        User.countDocuments({ role: "Retailer", status: true }),
+        User.countDocuments({ role: "Distributor", status: true }),
       ]);
 
-      const successRate = successTxns + failedTxns > 0
-        ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
-        : "0.00";
+      const successRate =
+        successTxns + failedTxns > 0
+          ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+          : "0.00";
 
       stats.overview = {
         totalUsers,
@@ -490,6 +533,8 @@ const getDashboardStats = async (req, res, next) => {
         totalAEPS: totalAepsTxns,
         totalDMT: totalDmtTxns,
         totalBBPS: totalBbpsTxns,
+        activeRetailers,
+        activeDistributors,
         totalPayoutAmount: totalPayouts[0]?.total || 0,
         totalPayInAmount: totalPayIn[0]?.total || 0,
         totalWalletBalance: totalWalletBalance[0]?.total || 0,
@@ -500,11 +545,10 @@ const getDashboardStats = async (req, res, next) => {
           payoutCount: todayPayouts,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns
-        }
+          failedTransactions: failedTxns,
+        },
       };
-
-    } else if (role === 'Distributor') {
+    } else if (role === "Distributor") {
       const [
         myRetailers,
         myCommission,
@@ -516,26 +560,25 @@ const getDashboardStats = async (req, res, next) => {
         todayTxns,
         failedTxns,
         successTxns,
-
       ] = await Promise.all([
-        User.countDocuments({ distributorId: user._id, role: 'Retailer' }),
+        User.countDocuments({ distributorId: user._id, role: "Retailer" }),
         PayIn.aggregate([
           { $match: { userId: user._id, status: "Success" } },
-          { $group: { _id: null, total: { $sum: "$amount" } } }
+          { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         AEPSWithdrawal.countDocuments({ userId: user._id }),
         DmtReport.countDocuments({ user_id: user._id }),
         User.aggregate([
           { $match: { distributorId: user._id } },
-          { $group: { _id: null, total: { $sum: "$eWallet" } } }
+          { $group: { _id: null, total: { $sum: "$eWallet" } } },
         ]),
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
           {
             $match: {
-              createdAt: { $gte: startOfToday }
-            }
+              createdAt: { $gte: startOfToday },
+            },
           },
           {
             $facet: {
@@ -544,37 +587,44 @@ const getDashboardStats = async (req, res, next) => {
                   $group: {
                     _id: "$transaction_type",
                     totalAmount: { $sum: "$amount" },
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               byStatus: [
                 {
                   $group: {
                     _id: "$status",
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               overall: [
                 {
                   $group: {
                     _id: null,
                     totalTransactions: { $sum: 1 },
-                    totalAmount: { $sum: "$amount" }
-                  }
-                }
-              ]
-            }
-          }
+                    totalAmount: { $sum: "$amount" },
+                  },
+                },
+              ],
+            },
+          },
         ]),
-        Transaction.countDocuments({ ...matchTodayUser('user_id'), status: "Failed" }),
-        Transaction.countDocuments({ ...matchTodayUser('user_id'), status: "Success" }),
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Failed",
+        }),
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Success",
+        }),
       ]);
 
-      const successRate = successTxns + failedTxns > 0
-        ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
-        : "0.00";
+      const successRate =
+        successTxns + failedTxns > 0
+          ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+          : "0.00";
 
       stats.distributor = {
         retailersUnderYou: myRetailers,
@@ -587,11 +637,10 @@ const getDashboardStats = async (req, res, next) => {
           payoutCount: todayPayout,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns
-        }
+          failedTransactions: failedTxns,
+        },
       };
-
-    } else if (['Retailer', 'User'].includes(role)) {
+    } else if (["Retailer", "User"].includes(role)) {
       const [
         aeps,
         dmt,
@@ -601,19 +650,21 @@ const getDashboardStats = async (req, res, next) => {
         todayPayout,
         todayTxns,
         failedTxns,
-        successTxns
+        successTxns,
       ] = await Promise.all([
         AEPSWithdrawal.countDocuments({ userId: user._id }),
         DmtReport.countDocuments({ user_id: user._id }),
         BbpsHistory.countDocuments({ userId: user._id }),
-        Transaction.find({ user_id: user._id }).sort({ createdAt: -1 }).limit(5),
+        Transaction.find({ user_id: user._id })
+          .sort({ createdAt: -1 })
+          .limit(5),
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
           {
             $match: {
-              createdAt: { $gte: startOfToday }
-            }
+              createdAt: { $gte: startOfToday },
+            },
           },
           {
             $facet: {
@@ -622,37 +673,44 @@ const getDashboardStats = async (req, res, next) => {
                   $group: {
                     _id: "$transaction_type",
                     totalAmount: { $sum: "$amount" },
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               byStatus: [
                 {
                   $group: {
                     _id: "$status",
-                    count: { $sum: 1 }
-                  }
-                }
+                    count: { $sum: 1 },
+                  },
+                },
               ],
               overall: [
                 {
                   $group: {
                     _id: null,
                     totalTransactions: { $sum: 1 },
-                    totalAmount: { $sum: "$amount" }
-                  }
-                }
-              ]
-            }
-          }
+                    totalAmount: { $sum: "$amount" },
+                  },
+                },
+              ],
+            },
+          },
         ]),
-        Transaction.countDocuments({ ...matchTodayUser('user_id'), status: "Failed" }),
-        Transaction.countDocuments({ ...matchTodayUser('user_id'), status: "Success" })
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Failed",
+        }),
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Success",
+        }),
       ]);
 
-      const successRate = successTxns + failedTxns > 0
-        ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
-        : "0.00";
+      const successRate =
+        successTxns + failedTxns > 0
+          ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+          : "0.00";
 
       stats.user = {
         totalAEPS: aeps,
@@ -664,22 +722,20 @@ const getDashboardStats = async (req, res, next) => {
           payoutCount: todayPayout,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns
-        }
+          failedTransactions: failedTxns,
+        },
       };
     }
 
     return res.status(200).json({
       success: true,
-      data: stats
+      data: stats,
     });
-
   } catch (err) {
     console.error("Dashboard Error:", err);
     return next(err);
   }
 };
-
 
 module.exports = {
   sendOtpController,
@@ -691,5 +747,5 @@ module.exports = {
   getUsersWithFilters,
   updateUserStatus,
   updateUserDetails,
-  getDashboardStats
+  getDashboardStats,
 };
