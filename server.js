@@ -39,6 +39,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
 app.use("/api/kyc", KycRoutes);
 app.use("/api/service/plans", servicePlanRoutes);
+app.use("/api/permission", require("./routes/permissionByRoleRoutes.js"));
 
 app.use("/api/v1/service", serviceRoutes);
 app.use("/api/v1/e-wallet", require("./routes/WalletRoutes.js"));
