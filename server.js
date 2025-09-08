@@ -36,6 +36,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
 app.use("/api/kyc", KycRoutes);
 app.use("/api/service/plans", servicePlanRoutes);
+app.use("/api/permission", require("./routes/permissionByRoleRoutes.js"));
 
 
 

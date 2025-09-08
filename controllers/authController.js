@@ -228,6 +228,9 @@ const getUserController = async (req, res) => {
   }
 };
 
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
+
 const getUsersWithFilters = async (req, res) => {
   try {
     const {
@@ -235,19 +238,19 @@ const getUsersWithFilters = async (req, res) => {
       role,
       from,
       to,
-      sortBy = 'name',
-      order = 'asc',
+      sortBy = "name",
+      order = "asc",
       page = 1,
       limit = 10,
-      exportCsv = 'false'
+      exportType = "false", // 👈 "csv" | "excel" | "pdf" | "json"
     } = req.query;
 
     const filter = {};
 
     if (keyword) {
       filter.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { email: { $regex: keyword, $options: 'i' } },
+        { name: { $regex: keyword, $options: "i" } },
+        { email: { $regex: keyword, $options: "i" } },
       ];
     }
 
@@ -262,44 +265,83 @@ const getUsersWithFilters = async (req, res) => {
     }
 
     const loggedInUser = req.user;
-
-    if (loggedInUser.role === 'Distributor') {
+    if (loggedInUser.role === "Distributor") {
       filter.distributorId = loggedInUser.id;
     }
 
     const sort = {};
-    sort[sortBy] = order === 'asc' ? 1 : -1;
+    sort[sortBy] = order === "asc" ? 1 : -1;
 
     const skip = (page - 1) * limit;
 
     const users = await User.find(filter)
       .sort(sort)
-      .skip(exportCsv === 'true' ? 0 : skip)
-      .limit(exportCsv === 'true' ? Number.MAX_SAFE_INTEGER : parseInt(limit));
+      .skip(exportType !== "false" ? 0 : skip)
+      .limit(exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit));
 
-    if (exportCsv === 'true') {
-      const fields = [
-        '_id',
-        'name',
-        'email',
-        'role',
-        'mobileNumber',
-        'status',
-        'distributorId',
-        'isKycVerified',
-        'eWallet',
-        'cappingMoney',
-        'createdAt',
-        'updatedAt'
-      ];
+    const fields = [
+      "_id",
+      "name",
+      "email",
+      "role",
+      "mobileNumber",
+      "status",
+      "distributorId",
+      "isKycVerified",
+      "eWallet",
+      "cappingMoney",
+      "createdAt",
+      "updatedAt",
+    ];
 
+    // ========== EXPORT HANDLING ==========
+    if (exportType === "csv") {
       const csv = parse(users, { fields });
-      res.header('Content-Type', 'text/csv');
-      res.header('Content-Disposition', 'attachment; filename=users.csv');
+      res.header("Content-Type", "text/csv");
+      res.attachment("users.csv");
       return res.send(csv);
     }
-    const totalUsers = await User.countDocuments(filter);
 
+    if (exportType === "excel") {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Users");
+
+      worksheet.columns = fields.map((f) => ({ header: f, key: f }));
+      users.forEach((u) => worksheet.addRow(u.toObject()));
+
+      res.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.attachment("users.xlsx");
+
+      await workbook.xlsx.write(res);
+      return res.end();
+    }
+
+    if (exportType === "pdf") {
+      const doc = new PDFDocument({ margin: 30, size: "A4" });
+      res.header("Content-Type", "application/pdf");
+      res.attachment("users.pdf");
+
+      doc.pipe(res);
+
+      doc.fontSize(18).text("Users Report", { align: "center" });
+      doc.moveDown();
+
+      users.forEach((u, i) => {
+        doc.fontSize(10).text(`${i + 1}. ${u.name} | ${u.email} | ${u.role}`);
+      });
+
+      doc.end();
+      return;
+    }
+
+    if (exportType === "json") {
+      res.header("Content-Type", "application/json");
+      res.attachment("users.json");
+      return res.json(users);
+    }
+
+    // Normal API response (pagination ke sath)
+    const totalUsers = await User.countDocuments(filter);
     res.status(200).json({
       success: true,
       data: users,
@@ -314,6 +356,7 @@ const getUsersWithFilters = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 const updateUserStatus = async (req, res) => {
   try {
@@ -679,6 +722,50 @@ const getDashboardStats = async (req, res, next) => {
     return next(err);
   }
 };
+// PUT /users/:id/permissions
+// PUT /users/:id/permissions
+const updateUserPermissions = async (req, res) => {
+  try {
+    const { extraPermissions, restrictedPermissions } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { extraPermissions, restrictedPermissions },
+      { new: true }
+    ).populate("rolePermissions");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({
+      ...user.toObject(),
+      effectivePermissions: user.effectivePermissions
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+// GET /users/:id/permissions
+const getUserPermissions = async (req, res) => {
+  try {
+    // 1️⃣ DB se user nikal lo
+    const user = await User.findById(req.params.id);
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 2️⃣ Response me teen cheeze do:
+    res.json({
+      role: user.role,                        // user ka role
+      defaultPermissions: user.permissions,   // role ke default (User model me jo aa rahe hain)
+      extraPermissions: user.extraPermissions, // jo manually SuperAdmin ne add kiye
+      restrictedPermissions: user.restrictedPermissions, // jo remove kiye
+      effectivePermissions: user.effectivePermissions,   // ✅ final calculated list (virtual getter se)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 
 
 module.exports = {
@@ -691,5 +778,5 @@ module.exports = {
   getUsersWithFilters,
   updateUserStatus,
   updateUserDetails,
-  getDashboardStats
+  getDashboardStats,updateUserPermissions,getUserPermissions
 };
