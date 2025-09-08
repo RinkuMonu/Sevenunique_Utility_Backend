@@ -1,0 +1,38 @@
+{
+  "name": "finpay-razor",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js",
+    "build": "node server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "bcrypt": "^5.1.1",
+    "body-parser": "^1.20.3",
+    "celebrate": "^15.0.3",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "crypto-js": "^4.2.0",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "joi": "^17.13.3",
+    "js-sha512": "^0.9.0",
+    "json2csv": "^6.0.0-alpha.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.13.0",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.2",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.10.0",
+    "nodemon": "^3.1.9",
+    "request": "^2.88.2",
+    "winston": "^3.17.0",
+    "xlsx": "^0.18.5"
+  }
+}

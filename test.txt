@@ -1,0 +1,85 @@
+const Service = require("../models/Service");
+const UserMeta = require("../models/UserMeta");
+
+const usageTracker = async (req, res, next) => {
+  try {
+    const serviceName = req.body.serviceName || req.query.serviceName;
+    const userId = req.user._id;
+
+    if (!serviceName) {
+      return res.status(400).json({ message: "Service name is required" });
+    }
+
+    // Step 1: Fetch UserMeta and populate serviceId
+    const userMeta = await UserMeta.findOne({ userId }).populate("services.serviceId");
+    if (!userMeta) return res.status(404).json({ message: "UserMeta not found" });
+
+    // Step 2: Find the service config for this user
+    const assignedService = userMeta.services.find(s => s.serviceName === serviceName);
+    if (!assignedService) {
+      return res.status(403).json({ message: "Service not assigned to this user" });
+    }
+
+    const serviceDoc = assignedService.serviceId; // full service details
+
+    if (!serviceDoc?.isActive) {
+      return res.status(403).json({ message: "Service is inactive" });
+    }
+
+    // Step 3: Prepare charge data and switch info
+    req.serviceMeta = {
+      serviceId: serviceDoc._id,
+      serviceName: serviceDoc.name,
+      serviceCharge: serviceDoc.serviceCharges,
+      gst: serviceDoc.gst,
+      commission: serviceDoc.commission,
+      distributorCommission: serviceDoc.distributorCommission,
+      switchProvider: assignedService.switch,
+    };
+
+    next();
+
+  } catch (error) {
+    console.error("Error in usageTracker middleware:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+module.exports = usageTracker;
+
+
+app.post('/api/verify-pan', authMiddleware, usageTracker, async (req, res) => {
+  const {
+    serviceCharge,
+    gst,
+    commission,
+    switchProvider,
+    serviceName,
+    serviceId,
+  } = req.serviceMeta;
+
+  // Step 1: Deduct wallet
+  const totalAmount = serviceCharge + gst;
+  await deductFromWallet(req.user._id, totalAmount);
+
+  // Step 2: Route to correct API provider
+  let apiResponse;
+  if (switchProvider === 'spritVerify') {
+    apiResponse = await callSpritVerifyAPI(req.body);
+  } else if (switchProvider === 'billAwene') {
+    apiResponse = await callBillAweneAPI(req.body);
+  } else {
+    return res.status(400).json({ message: 'Invalid switch provider' });
+  }
+
+  // Step 3: Log usage
+  await logUsage({
+    userId: req.user._id,
+    serviceId,
+    provider: switchProvider,
+    amountCharged: totalAmount,
+    response: apiResponse,
+  });
+
+  return res.json({ success: true, data: apiResponse });
+});
