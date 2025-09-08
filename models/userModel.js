@@ -1,14 +1,14 @@
-const mongoose = require('mongoose');
-const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const { format, min } = require('date-fns');
+const mongoose = require("mongoose");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const { format, min } = require("date-fns");
 
 const userSchema = new mongoose.Schema(
   {
     distributorId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
+      ref: "User",
+      required: true,
     },
     name: {
       type: String,
@@ -21,7 +21,8 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
       match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-    }, businessName: {
+    },
+    businessName: {
       type: String,
       trim: true,
     },
@@ -29,10 +30,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-   shopPhoto: {
-  type: [String], // ✅ Array of strings now
-  trim: true,
-},
+    shopPhoto: {
+      type: [String], // ✅ Array of strings now
+      trim: true,
+    },
     ownerPhoto: {
       type: String, // yahan owner photo ka URL save hoga
       trim: true,
@@ -66,39 +67,45 @@ const userSchema = new mongoose.Schema(
       },
       country: {
         type: String,
-        default: 'India',
+        default: "India",
         trim: true,
-      }
+      },
     },
     permissions: {
-    type: [String],
-    default: function () {
-      const roleAccess = {
-        SuperAdmin: ["company:manage", "user:manage", "wallet:all", "kyc:approve", "reports:view"],
-        Admin: ["user:create", "user:view", "wallet:credit", "reports:view"],
-        Distributor: ["retailer:create", "wallet:view", "transactions:view"],
-        Retailer: ["transactions:create", "wallet:view"]
-      };
-      return roleAccess[this.role] || [];
-    }
-  },companyId: {
+      type: [String],
+      default: function () {
+        const roleAccess = {
+          SuperAdmin: [
+            "company:manage",
+            "user:manage",
+            "wallet:all",
+            "kyc:approve",
+            "reports:view",
+          ],
+          Admin: ["user:create", "user:view", "wallet:credit", "reports:view"],
+          Distributor: ["retailer:create", "wallet:view", "transactions:view"],
+          Retailer: ["transactions:create", "wallet:view"],
+        };
+        return roleAccess[this.role] || [];
+      },
+    },
+    companyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
-     
     },
     questions: [
-    {
-      question: { type: String, required: true },
-      answer: { type: String, required: true }
-    }
-  ],
+      {
+        question: { type: String, required: true },
+        answer: { type: String, required: true },
+      },
+    ],
     pinCode: {
       type: String,
       trim: true,
     },
     isSpecial: {
       type: Boolean,
-      default: false
+      default: false,
     },
     documents: [String],
     mpin: {
@@ -116,13 +123,13 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    
+
     panDetails: {
       type: Object,
       required: false,
     },
     bankDetails: {
-     type: Object,
+      type: Object,
       required: false,
     },
     aadharDetails: {
@@ -131,8 +138,15 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['User', 'Retailer', 'Distributor', 'ApiPartner', 'Admin', 'superAdmin'],
-      default: 'User',
+      enum: [
+        "User",
+        "Retailer",
+        "Distributor",
+        "ApiPartner",
+        "Admin",
+        "superAdmin",
+      ],
+      default: "User",
     },
     status: {
       type: Boolean,
@@ -151,24 +165,23 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
-      set: v => {
+      set: (v) => {
         const num = Number(v);
         if (isNaN(num)) return v;
         return Number(num.toFixed(2));
-      }
+      },
     },
     meta: {
       type: Map,
       of: String,
       default: {},
-    }
+    },
   },
   {
     timestamps: true,
     toJSON: { getters: true },
-    toObject: { getters: true }
+    toObject: { getters: true },
   }
 );
 
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model("User", userSchema);
