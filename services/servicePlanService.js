@@ -12,7 +12,11 @@ const createPlan = async (planData) => {
 
 const getAllPlans = async () => {
   try {
-    const plans = await ServicePlan.find();
+    const plans = await ServicePlan.find().populate({
+      path: "services",
+      select:
+        "name description icon serviceFor defaultSwitch providers isActive",
+    });
     return plans;
   } catch (error) {
     throw new Error("Error fetching plans: " + error.message);
