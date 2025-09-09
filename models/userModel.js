@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+  
     email: {
       type: String,
       required: true,
@@ -161,36 +162,43 @@ restrictedPermissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Permission
   }
 );
 
-// ✅ Virtual field effectivePermissions
-// ✅ Virtual field effectivePermissions
-userSchema.virtual("effectivePermissions").get(async function () {
+// ❌ virtual me async problem deta hai (JSON me {} aata hai)
+// ✅ isliye method use karte hain
+userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
-  const PermissionByRole = mongoose.model("PermissionByRole"); // ✅ sahi model
+  const PermissionByRole = mongoose.model("PermissionByRole");
 
-  // agar superAdmin hai -> sabhi permissions
+  let perms = new Set();
+
+  // 1️⃣ superAdmin → sabhi permissions
   if (this.role === "superAdmin") {
     const all = await Permission.find({});
     return all.map(p => p.key);
   }
 
-  // role ke default permissions
-  const rolePerms = await PermissionByRole.findOne({ role: this.role })
-    .populate("permissions");
-  let perms = new Set(rolePerms?.permissions.map(p => p.key) || []);
+  // 2️⃣ rolePermissions (ID ke base par)
+  if (this.rolePermissions) {
+    const rolePerms = await PermissionByRole.findById(this.rolePermissions)
+      .populate("permissions", "key");
+    if (rolePerms?.permissions?.length) {
+      rolePerms.permissions.forEach(p => perms.add(p.key));
+    }
+  }
 
-  // extra add
+  // 3️⃣ extraPermissions add
   if (this.extraPermissions?.length) {
     const extras = await Permission.find({ _id: { $in: this.extraPermissions } });
     extras.forEach(p => perms.add(p.key));
   }
 
-  // restricted remove
+  // 4️⃣ restrictedPermissions remove
   if (this.restrictedPermissions?.length) {
     const restricted = await Permission.find({ _id: { $in: this.restrictedPermissions } });
     restricted.forEach(p => perms.delete(p.key));
   }
 
   return Array.from(perms);
-});
+};
+
 
 module.exports = mongoose.model('User', userSchema);
