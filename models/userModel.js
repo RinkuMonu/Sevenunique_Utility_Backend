@@ -70,22 +70,13 @@ const userSchema = new mongoose.Schema(
         trim: true,
       }
     },
-    permissions: {
-    type: [String],
-    default: function () {
-      const roleAccess = {
-        SuperAdmin: ["company:manage", "user:manage", "wallet:all", "kyc:approve", "reports:view"],
-        Admin: ["user:create", "user:view", "wallet:credit", "reports:view"],
-        Distributor: ["retailer:create", "wallet:view", "transactions:view"],
-        Retailer: ["transactions:create", "wallet:view"]
-      };
-      return roleAccess[this.role] || [];
-    }
-  },companyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Company",
-     
-    },
+ rolePermissions: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PermissionByRole"
+  },
+ extraPermissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Permission" }],
+restrictedPermissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Permission" }],
+
     questions: [
     {
       question: { type: String, required: true },
@@ -170,5 +161,36 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// ✅ Virtual field effectivePermissions
+// ✅ Virtual field effectivePermissions
+userSchema.virtual("effectivePermissions").get(async function () {
+  const Permission = mongoose.model("Permission");
+  const PermissionByRole = mongoose.model("PermissionByRole"); // ✅ sahi model
+
+  // agar superAdmin hai -> sabhi permissions
+  if (this.role === "superAdmin") {
+    const all = await Permission.find({});
+    return all.map(p => p.key);
+  }
+
+  // role ke default permissions
+  const rolePerms = await PermissionByRole.findOne({ role: this.role })
+    .populate("permissions");
+  let perms = new Set(rolePerms?.permissions.map(p => p.key) || []);
+
+  // extra add
+  if (this.extraPermissions?.length) {
+    const extras = await Permission.find({ _id: { $in: this.extraPermissions } });
+    extras.forEach(p => perms.add(p.key));
+  }
+
+  // restricted remove
+  if (this.restrictedPermissions?.length) {
+    const restricted = await Permission.find({ _id: { $in: this.restrictedPermissions } });
+    restricted.forEach(p => perms.delete(p.key));
+  }
+
+  return Array.from(perms);
+});
 
 module.exports = mongoose.model('User', userSchema);

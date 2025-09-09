@@ -11,7 +11,9 @@ const {
   getUsersWithFilters,
   updateUserStatus,
   updateUserDetails,
-  getDashboardStats
+  getDashboardStats,
+  getUserPermissions,
+  updateUserPermissions
 } = require('../controllers/authController.js');
 const authenticateToken = require('../middleware/verifyToken.js');
 const authorizeRoles = require('../middleware/verifyRole.js');
@@ -34,5 +36,7 @@ router.get('/users', authenticateToken, authorizeRoles("Admin", "Distributor"), 
 router.put('/user/:id/status', authenticateToken, authorizeRoles("Admin"), updateUserStatus);
 router.put('/user/:id', authenticateToken, authorizeRoles("Admin"), updateUserDetails);
 router.get('/dashboard', authenticateToken, authorizeRoles("Admin", "Distributor", "Retailer"), getDashboardStats);
+router.put('/users/:id/permissions', authenticateToken, authorizeRoles("Admin", "Distributor", "Retailer"), updateUserPermissions);
+router.get('/users/:id/permissions', authenticateToken, authorizeRoles("Admin", "Distributor", "Retailer"), getUserPermissions);
 
 module.exports = router;
