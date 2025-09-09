@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+  
     email: {
       type: String,
       required: true,
@@ -222,6 +223,44 @@ userSchema.pre("save", async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+// ❌ virtual me async problem deta hai (JSON me {} aata hai)
+// ✅ isliye method use karte hain
+userSchema.methods.getEffectivePermissions = async function () {
+  const Permission = mongoose.model("Permission");
+  const PermissionByRole = mongoose.model("PermissionByRole");
+
+  let perms = new Set();
+
+  // 1️⃣ superAdmin → sabhi permissions
+  if (this.role === "superAdmin") {
+    const all = await Permission.find({});
+    return all.map(p => p.key);
+  }
+
+  // 2️⃣ rolePermissions (ID ke base par)
+  if (this.rolePermissions) {
+    const rolePerms = await PermissionByRole.findById(this.rolePermissions)
+      .populate("permissions", "key");
+    if (rolePerms?.permissions?.length) {
+      rolePerms.permissions.forEach(p => perms.add(p.key));
+    }
+  }
+
+  // 3️⃣ extraPermissions add
+  if (this.extraPermissions?.length) {
+    const extras = await Permission.find({ _id: { $in: this.extraPermissions } });
+    extras.forEach(p => perms.add(p.key));
+  }
+
+  // 4️⃣ restrictedPermissions remove
+  if (this.restrictedPermissions?.length) {
+    const restricted = await Permission.find({ _id: { $in: this.restrictedPermissions } });
+    restricted.forEach(p => perms.delete(p.key));
+  }
+
+  return Array.from(perms);
+};
+
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
