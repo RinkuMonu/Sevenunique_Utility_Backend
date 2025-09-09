@@ -105,7 +105,7 @@ const verifyBank = async (req, res) => {
 
   try {
     const response = await axios.post(
-      "https://api.7uniqueverfiy.com/api/verify/bankVerify/pennyless/v3",
+      "https://api.7uniqueverfiy.com/api/verify/bankVerify/v2",
       {
         account_number: id_number,
         ifsc_code: ifsc,
@@ -171,7 +171,7 @@ const verifyPAN = async (req, res) => {
 };
 
 const normalizeName = (name) => {
-  const prefixList = ["Mr", "Ms", "Mrs", "Dr"];
+  const prefixList = ["Mr.", "Ms", "Mrs", "Dr"];
   prefixList.forEach((prefix) => {
     if (name.startsWith(prefix)) {
       name = name.replace(prefix, "").trim();
@@ -184,11 +184,12 @@ const normalizeName = (name) => {
 const userVerify = async (req, res) => {
     const { userId} = req.body;
   const user = await User.findById(userId);
+  console.log(user)
   if (!user) return res.status(404).send("User not found!");
 
   const normalizedAadharName = normalizeName(user.aadharDetails.full_name || "");
   const normalizedPanName = normalizeName(user.panDetails.full_name || "");
-  const normalizedBankName = normalizeName(user.bankDetails.beneficiary_name || "");
+  const normalizedBankName = normalizeName(user.bankDetails.account_name|| "");
 
   console.log("🧾 Normalized Names:", {
     Aadhaar: normalizedAadharName,

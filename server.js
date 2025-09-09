@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const { errors } = require('celebrate');
+const { errors } = require("celebrate");
 const { errorHandler, notFound } = require("./middleware/errorMiddleware");
 
 const authRoutes = require("./routes/authRoutes");
@@ -15,17 +15,20 @@ const billerRoutes = require("./routes/bbps/billerRoutes");
 const servicePlanRoutes = require("./routes/servicePlanRoutes.js");
 const apiLogger = require("./middleware/apiLogger.js");
 const authenticateToken = require("./middleware/verifyToken.js");
-
+const NewsRouter = require("./routes/news.routes.js");
 
 const app = express();
 
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-}));
+app.use(
+  cors({
+    origin: "*",
+
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  })
+);
 
 app.use(bodyParser.json());
-app.use('/uploads', express.static('uploads'));
+app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -37,8 +40,6 @@ app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
 app.use("/api/kyc", KycRoutes);
 app.use("/api/service/plans", servicePlanRoutes);
 app.use("/api/permission", require("./routes/permissionByRoleRoutes.js"));
-
-
 
 app.use("/api/v1/service", serviceRoutes);
 app.use("/api/v1/e-wallet", require("./routes/WalletRoutes.js"));
@@ -55,9 +56,12 @@ app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
 
 app.use("/api/recharge", rechargeRoute);
-app.use("/api/biller", billerRoutes);;
+app.use("/api/biller", billerRoutes);
+app.use("/api/v1/news", NewsRouter);
 
-app.get("/", (req, res) => res.json({ ip: req.ip , message: "Welcome to the API" }));
+app.get("/", (req, res) =>
+  res.json({ ip: req.ip, message: "Welcome to the API" })
+);
 
 mongoose
   .connect(process.env.MONGO_URI)

@@ -65,22 +65,28 @@ const createPlan = async (req, res) => {
       );
       return res
         .status(200)
-        .json({ success: true, message: "Plan updated successfully", data: updatedPlan });
+        .json({
+          success: true,
+          message: "Plan updated successfully",
+          data: updatedPlan,
+        });
     } else {
       // 🆕 Create a new plan if not found
       const newPlan = new ServicePlan(planData);
       await newPlan.save();
       return res
         .status(201)
-        .json({ success: true, message: "Plan created successfully", data: newPlan });
+        .json({
+          success: true,
+          message: "Plan created successfully",
+          data: newPlan,
+        });
     }
   } catch (error) {
     console.error("Error in createPlan:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
 
 const getAllPlans = async (req, res) => {
   try {
@@ -113,43 +119,39 @@ const updatePlan = async (req, res) => {
     }
 
     if (services && (!Array.isArray(services) || services.length === 0)) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Services must be an array and cannot be empty",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Services must be an array and cannot be empty",
+      });
     }
 
     if (amount && (!Array.isArray(amount) || amount.length === 0)) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Amount must be an array and cannot be empty",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be an array and cannot be empty",
+      });
     }
 
     if (amount) {
       amount.forEach((item) => {
+        // ✅ Convert to number first
+        item.value = Number(item.value);
+
         if (
           !item.type ||
           !["monthly", "quarterly", "half-yearly", "yearly"].includes(item.type)
         ) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: `Invalid type in amount: ${item.type}`,
-            });
+          return res.status(400).json({
+            success: false,
+            message: `Invalid type in amount: ${item.type}`,
+          });
         }
-        if (!item.value || typeof item.value !== "number") {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: `Amount value must be a number for type: ${item.type}`,
-            });
+
+        if (isNaN(item.value)) {
+          return res.status(400).json({
+            success: false,
+            message: `Amount value must be a number for type: ${item.type}`,
+          });
         }
       });
     }
