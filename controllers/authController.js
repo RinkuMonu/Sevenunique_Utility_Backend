@@ -221,12 +221,14 @@ const getUserController = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "No user found" });
     }
-    return res.status(200).json({ user, userMeta });
+      const effectivePermissions = await user.getEffectivePermissions();
+    return res.status(200).json({ user, userMeta, effectivePermissions });
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
 
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
@@ -274,10 +276,27 @@ const getUsersWithFilters = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    const users = await User.find(filter)
+    let users = await User.find(filter)
       .sort(sort)
       .skip(exportType !== "false" ? 0 : skip)
       .limit(exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit));
+
+    // ✅ Effective Permissions add karo
+    users = await Promise.all(
+      users.map(async (u) => {
+        const effectivePermissions = await u.getEffectivePermissions();
+        const userObj = u.toObject();
+
+        delete userObj.extraPermissions;
+        delete userObj.restrictedPermissions;
+        delete userObj.rolePermissions;
+
+        return {
+          ...userObj,
+          effectivePermissions,
+        };
+      })
+    );
 
     const fields = [
       "_id",
@@ -292,6 +311,7 @@ const getUsersWithFilters = async (req, res) => {
       "cappingMoney",
       "createdAt",
       "updatedAt",
+      "effectivePermissions", // ✅ export me bhi aa sakta hai
     ];
 
     // ========== EXPORT HANDLING ==========
@@ -307,9 +327,12 @@ const getUsersWithFilters = async (req, res) => {
       const worksheet = workbook.addWorksheet("Users");
 
       worksheet.columns = fields.map((f) => ({ header: f, key: f }));
-      users.forEach((u) => worksheet.addRow(u.toObject()));
+      users.forEach((u) => worksheet.addRow(u));
 
-      res.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.header(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
       res.attachment("users.xlsx");
 
       await workbook.xlsx.write(res);
@@ -327,7 +350,9 @@ const getUsersWithFilters = async (req, res) => {
       doc.moveDown();
 
       users.forEach((u, i) => {
-        doc.fontSize(10).text(`${i + 1}. ${u.name} | ${u.email} | ${u.role}`);
+        doc.fontSize(10).text(
+          `${i + 1}. ${u.name} | ${u.email} | ${u.role} | ${u.effectivePermissions.join(", ")}`
+        );
       });
 
       doc.end();
@@ -353,9 +378,12 @@ const getUsersWithFilters = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getUsersWithFilters:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 const updateUserStatus = async (req, res) => {
@@ -724,26 +752,68 @@ const getDashboardStats = async (req, res, next) => {
 };
 // PUT /users/:id/permissions
 // PUT /users/:id/permissions
+const mongoose = require("mongoose");
+
 const updateUserPermissions = async (req, res) => {
   try {
-    const { extraPermissions, restrictedPermissions } = req.body;
+    let { extraPermissions = [], restrictedPermissions = [] } = req.body;
+
+    const Permission = mongoose.model("Permission");
+
+    const resolveIdsFromKeys = async (items) => {
+      // Agar item string aur ObjectId valid nahi hai, assume it's a key
+      const docs = await Permission.find({
+        $or: [{ _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } }, { key: { $in: items } }],
+      });
+
+      return docs.map((p) => p._id.toString());
+    };
+
+    extraPermissions = await resolveIdsFromKeys(extraPermissions);
+    restrictedPermissions = await resolveIdsFromKeys(restrictedPermissions);
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { extraPermissions, restrictedPermissions },
       { new: true }
-    ).populate("rolePermissions");
+    );
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.json({
-      ...user.toObject(),
-      effectivePermissions: user.effectivePermissions
+    // Generate effectivePermissions manually
+    const PermissionByRole = mongoose.model("PermissionByRole");
+    const allPermissions = await Permission.find({});
+
+    let perms = new Set();
+
+    if (user.role === "superAdmin") {
+      perms = new Set(allPermissions.map((p) => p.key));
+    } else {
+      const rolePerms = await PermissionByRole.findOne({ role: user.role }).populate("permissions");
+
+      (rolePerms?.permissions || []).forEach((p) => perms.add(p.key));
+
+      const extra = await Permission.find({ _id: { $in: extraPermissions } });
+      extra.forEach((p) => perms.add(p.key));
+
+      const restricted = await Permission.find({ _id: { $in: restrictedPermissions } });
+      restricted.forEach((p) => perms.delete(p.key));
+    }
+
+    return res.json({
+      success: true,
+      message: "Permissions updated successfully",
+      user: {
+        ...user.toObject(),
+        effectivePermissions: Array.from(perms),
+      },
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("Error in updateUserPermissions:", err);
+    return res.status(500).json({ message: err.message });
   }
 };
+
 // GET /users/:id/permissions
 const getUserPermissions = async (req, res) => {
   try {
