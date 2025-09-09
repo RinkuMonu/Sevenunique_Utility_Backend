@@ -10,6 +10,7 @@ const AEPSWithdrawal = require("../models/aepsModels/withdrawalEntry.js");
 const DmtReport = require("../models/dmtTransactionModel.js");
 const BbpsHistory = require("../models/bbpsModel.js");
 const { default: axios } = require("axios");
+const bcrypt = require("bcrypt");
 
 const sendOtpController = async (req, res) => {
   try {
@@ -54,30 +55,189 @@ const verifyOTPController = async (req, res) => {
   }
 };
 
+// const loginController = async (req, res) => {
+//   try {
+//     const { mobileNumber, otp } = req.body;
+
+//     if (!mobileNumber || !otp) {
+//       return res
+//         .status(400)
+//         .json({ message: "Mobile number and OTP are required" });
+//     }
+//     const verificationResult = await verifyOtp(mobileNumber, otp);
+//     if (!verificationResult.success) {
+//       return res.status(400).json({ message: verificationResult.message });
+//     }
+//     let user = await User.findOne({ mobileNumber });
+
+//     if (!user) {
+//       return res.status(404).json({ message: "No user found" });
+//     }
+//     if (user.status === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your account is blocked. Please contact support." });
+//     }
+
+//     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
+
+//     return res.status(200).json({
+//       message: "Login successful",
+//       user: {
+//         id: user._id,
+//         mobileNumber: user.mobileNumber,
+//         token,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in loginController:", error);
+//     return res.status(500).json({ message: "Internal server error" });
+//   }
+// };
+
+// const registerUser = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       email,
+//       mobileNumber,
+//       address,
+//       pinCode,
+//       mpin,
+//       role,
+//       distributorId,
+//       businessName,
+//       businessType,
+
+//     } = req.body;
+
+//     let user = await User.findOne({ $or: [{ email }, { mobileNumber }] });
+//     if (user) {
+//       return res.status(400).json({ message: "User already exists" });
+//     }
+
+//     let adminUser;
+//     if (!distributorId) {
+//       adminUser = await User.findOne({ role: "Admin" });
+//     }
+
+//     let shopPhotoPaths = [];
+//     if (req.files?.shopPhoto) {
+//       shopPhotoPaths = req.files.shopPhoto.map(
+//         (file) => `/uploads/${file.filename}`
+//       );
+//     }
+
+//     const ownerPhoto = req.files?.ownerPhoto
+//       ? `/uploads/${req.files.ownerPhoto[0].filename}`
+//       : "";
+
+//     let newUserObj = {
+//       name,
+//       email,
+//       mobileNumber,
+//       address,
+//       pinCode,
+//       mpin,
+//       role,
+//       businessName,
+//       businessType,
+//       shopPhoto: shopPhotoPaths,
+//       ownerPhoto,
+//       status: role === "User" ? true : false,
+//       distributorId: distributorId ? distributorId : adminUser?._id,
+//     };
+
+//     let NewUser = await User.create(newUserObj);
+//     const token = generateJwtToken(
+//       NewUser._id,
+//       NewUser.role,
+//       NewUser.mobileNumber
+//     );
+
+//     // ✅ Lead API call using axios
+//     try {
+//       const leadResponse = await axios.post(
+//         "https://cms.sevenunique.com/apis/leads/set-leads.php",
+//         {
+//           website_id: 6,
+//           name: NewUser.name,
+//           mobile_number: NewUser.mobileNumber,
+//           email: NewUser.email,
+//           address: NewUser.address,
+//           client_type: NewUser.role,
+//           notes: "Lead from FinUnique small private limited",
+//         },
+//         {
+//           headers: {
+//             "Content-Type": "application/json",
+//             Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
+//           },
+//         }
+//       );
+
+//       console.log("Lead API Response:", leadResponse.data);
+//     } catch (leadError) {
+//       console.error(
+//         "Error sending lead data:",
+//         leadError.response ? leadError.response.data : leadError.message
+//       );
+//     }
+
+//     return res.status(200).json({
+//       message: "Registration successful",
+//       newUser: NewUser,
+//       token,
+//     });
+//   } catch (error) {
+//     console.error("Error in registerUser controller:", error);
+//     return res.status(500).json({ message: "Internal server error" });
+//   }
+// };
+
+
+
+
+
 const loginController = async (req, res) => {
   try {
-    const { mobileNumber, otp } = req.body;
+    const { mobileNumber, password, otp } = req.body;
 
-    if (!mobileNumber || !otp) {
-      return res
-        .status(400)
-        .json({ message: "Mobile number and OTP are required" });
+    if (!mobileNumber) {
+      return res.status(400).json({ message: "Mobile number is required" });
     }
-    const verificationResult = await verifyOtp(mobileNumber, otp);
-    if (!verificationResult.success) {
-      return res.status(400).json({ message: verificationResult.message });
-    }
-    let user = await User.findOne({ mobileNumber });
 
+    const user = await User.findOne({ mobileNumber });
     if (!user) {
       return res.status(404).json({ message: "No user found" });
     }
+
     if (user.status === false) {
       return res
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
 
+    // ✅ OTP login
+    if (otp) {
+      const verificationResult = await verifyOtp(mobileNumber, otp);
+      if (!verificationResult.success) {
+        return res.status(400).json({ message: verificationResult.message });
+      }
+    }
+    // ✅ Password login
+    else if (password) {
+      const isMatch = await user.comparePassword(password);
+      
+      if (!isMatch)
+        return res.status(400).json({ message: "Invalid password" });
+    } else {
+      return res
+        .status(400)
+        .json({ message: "Password or OTP is required to login" });
+    }
+
+    // ✅ Generate JWT
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
 
     return res.status(200).json({
@@ -85,6 +245,7 @@ const loginController = async (req, res) => {
       user: {
         id: user._id,
         mobileNumber: user.mobileNumber,
+        role: user.role,
         token,
       },
     });
@@ -93,68 +254,83 @@ const loginController = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+
+
+
+
 const registerUser = async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      mobileNumber,
-      address,
-      pinCode,
-      mpin,
-      role,
-      distributorId,
-      businessName,
-      businessType,
-    } = req.body;
+    // ✅ Directly take everything from req.body
+    let userData = { ...req.body };
+    // console.log("body...............",userData);
 
-    let user = await User.findOne({ $or: [{ email }, { mobileNumber }] });
-    if (user) {
+    // ✅ Check if user already exists
+    let existingUser = await User.findOne({
+      $or: [{ email: userData.email }, { mobileNumber: userData.mobileNumber }],
+    });
+
+    if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
-
-    let adminUser;
-    if (!distributorId) {
-      adminUser = await User.findOne({ role: "Admin" });
+    if (userData.password) {
+      const salt = await bcrypt.genSalt(10);
+      userData.password = await bcrypt.hash(userData.password, salt);
+    }
+    //JSON string me hai
+    if (userData.questions && typeof userData.questions === "string") {
+      try {
+        userData.questions = JSON.parse(userData.questions);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid questions format" });
+      }
     }
 
-    let shopPhotoPaths = [];
+    // ✅ Get Admin user if no distributorId provided
+    if (!userData.distributorId) {
+      const adminUser = await User.findOne({ role: "Admin" });
+      if (adminUser) {
+        userData.distributorId = adminUser._id;
+      }
+    }
+
+    // ✅ Handle shop photos dynamically
     if (req.files?.shopPhoto) {
-      shopPhotoPaths = req.files.shopPhoto.map(
+      userData.shopPhoto = req.files.shopPhoto.map(
         (file) => `/uploads/${file.filename}`
       );
     }
 
-    const ownerPhoto = req.files?.ownerPhoto
-      ? `/uploads/${req.files.ownerPhoto[0].filename}`
-      : "";
+    // ✅ Handle owner photo dynamically
+    if (req.files?.ownerPhoto) {
+      userData.ownerPhoto = `/uploads/${req.files.ownerPhoto[0].filename}`;
+    }
 
-    let newUserObj = {
-      name,
-      email,
-      mobileNumber,
-      address,
-      pinCode,
-      mpin,
-      role,
-      businessName,
-      businessType,
-      shopPhoto: shopPhotoPaths,
-      ownerPhoto,
-      status: role === "User" ? true : false,
-      distributorId: distributorId ? distributorId : adminUser?._id,
-    };
+    if (req.files) {
+      if (userData.role === "Retailer" && req.files.shopAddressProof) {
+        userData.shopAddressProof = `/uploads/${req.files.shopAddressProof[0].filename}`;
+      }
 
-    let NewUser = await User.create(newUserObj);
+      if (userData.role === "Distributor" && req.files.officeAddressProof) {
+        userData.officeAddressProof = `/uploads/${req.files.officeAddressProof[0].filename}`;
+      }
+    }
+
+    // ✅ Create user
+    // const NewUser = await User.create(userData);
+    const NewUser = new User(userData);
+    await NewUser.save();
+
+    // ✅ Generate JWT
     const token = generateJwtToken(
       NewUser._id,
       NewUser.role,
       NewUser.mobileNumber
     );
 
-    // ✅ Lead API call using axios
+    // ✅ Send lead to external API
     try {
-      const leadResponse = await axios.post(
+      await axios.post(
         "https://cms.sevenunique.com/apis/leads/set-leads.php",
         {
           website_id: 6,
@@ -172,8 +348,6 @@ const registerUser = async (req, res) => {
           },
         }
       );
-
-      console.log("Lead API Response:", leadResponse.data);
     } catch (leadError) {
       console.error(
         "Error sending lead data:",
@@ -187,6 +361,7 @@ const registerUser = async (req, res) => {
       token,
     });
   } catch (error) {
+    console.log("eeeeeeeeeeeeeee", error);
     console.error("Error in registerUser controller:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
@@ -299,7 +474,9 @@ const getUsersWithFilters = async (req, res) => {
     const users = await User.find(filter)
       .sort(sort)
       .skip(exportType !== "false" ? 0 : skip)
-      .limit(exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit));
+      .limit(
+        exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
+      );
 
     const fields = [
       "_id",
@@ -331,7 +508,10 @@ const getUsersWithFilters = async (req, res) => {
       worksheet.columns = fields.map((f) => ({ header: f, key: f }));
       users.forEach((u) => worksheet.addRow(u.toObject()));
 
-      res.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.header(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
       res.attachment("users.xlsx");
 
       await workbook.xlsx.write(res);
@@ -378,7 +558,6 @@ const getUsersWithFilters = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 const updateUserStatus = async (req, res) => {
   try {
@@ -795,7 +974,7 @@ const updateUserPermissions = async (req, res) => {
 
     res.json({
       ...user.toObject(),
-      effectivePermissions: user.effectivePermissions
+      effectivePermissions: user.effectivePermissions,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -811,19 +990,16 @@ const getUserPermissions = async (req, res) => {
 
     // 2️⃣ Response me teen cheeze do:
     res.json({
-      role: user.role,                        // user ka role
-      defaultPermissions: user.permissions,   // role ke default (User model me jo aa rahe hain)
+      role: user.role, // user ka role
+      defaultPermissions: user.permissions, // role ke default (User model me jo aa rahe hain)
       extraPermissions: user.extraPermissions, // jo manually SuperAdmin ne add kiye
       restrictedPermissions: user.restrictedPermissions, // jo remove kiye
-      effectivePermissions: user.effectivePermissions,   // ✅ final calculated list (virtual getter se)
+      effectivePermissions: user.effectivePermissions, // ✅ final calculated list (virtual getter se)
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
-
 
 module.exports = {
   sendOtpController,
@@ -835,5 +1011,7 @@ module.exports = {
   getUsersWithFilters,
   updateUserStatus,
   updateUserDetails,
-  getDashboardStats,updateUserPermissions,getUserPermissions
+  getDashboardStats,
+  updateUserPermissions,
+  getUserPermissions,
 };
