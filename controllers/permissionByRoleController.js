@@ -8,12 +8,15 @@ exports.createPermissionByRole = async (req, res) => {
 
     const existing = await PermissionByRole.findOne({ role });
     if (existing) {
-      return res.status(400).json({ success: false, message: "Permissions for this role already exist" });
+      return res.status(400).json({
+        success: false,
+        message: "Permissions for this role already exist",
+      });
     }
 
     const newPerm = new PermissionByRole({
       role,
-      permissions: permissions || []
+      permissions: permissions || [],
     });
 
     await newPerm.save();
@@ -26,7 +29,9 @@ exports.createPermissionByRole = async (req, res) => {
 // 🔹 Get all roles & permissions
 exports.getAllPermissionsByRole = async (req, res) => {
   try {
-    const all = await PermissionByRole.find().populate("permissions").sort({ role: 1 });
+    const all = await PermissionByRole.find()
+      .populate("permissions")
+      .sort({ role: 1 });
     res.json({ success: true, data: all });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -36,8 +41,13 @@ exports.getAllPermissionsByRole = async (req, res) => {
 // 🔹 Get one role's permissions
 exports.getPermissionByRole = async (req, res) => {
   try {
-    const perm = await PermissionByRole.findOne({ role: req.params.role }).populate("permissions");
-    if (!perm) return res.status(404).json({ success: false, message: "Role not found" });
+    const perm = await PermissionByRole.findOne({
+      role: req.params.role,
+    }).populate("permissions");
+    if (!perm)
+      return res
+        .status(404)
+        .json({ success: false, message: "Role not found" });
 
     res.json({ success: true, data: perm });
   } catch (error) {
@@ -56,7 +66,10 @@ exports.updatePermissionByRole = async (req, res) => {
       { new: true }
     ).populate("permissions");
 
-    if (!updated) return res.status(404).json({ success: false, message: "Role not found" });
+    if (!updated)
+      return res
+        .status(404)
+        .json({ success: false, message: "Role not found" });
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -67,8 +80,13 @@ exports.updatePermissionByRole = async (req, res) => {
 // 🔹 Delete role permissions
 exports.deletePermissionByRole = async (req, res) => {
   try {
-    const deleted = await PermissionByRole.findOneAndDelete({ role: req.params.role });
-    if (!deleted) return res.status(404).json({ success: false, message: "Role not found" });
+    const deleted = await PermissionByRole.findOneAndDelete({
+      role: req.params.role,
+    });
+    if (!deleted)
+      return res
+        .status(404)
+        .json({ success: false, message: "Role not found" });
 
     res.json({ success: true, message: "Role permissions deleted" });
   } catch (error) {
@@ -83,7 +101,9 @@ exports.createPermission = async (req, res) => {
 
     const existing = await Permission.findOne({ key });
     if (existing) {
-      return res.status(400).json({ success: false, message: "Permission already exists" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Permission already exists" });
     }
 
     const perm = new Permission({ key, description });
@@ -97,8 +117,8 @@ exports.createPermission = async (req, res) => {
 
 // 🔹 Get all global permissions
 exports.getAllPermissions = async (req, res) => {
-    console.log("Fetching all global permissions");
-    
+  console.log("Fetching all global permissions");
+
   try {
     const all = await Permission.find().sort({ key: 1 });
     res.json({ success: true, data: all });
@@ -106,4 +126,33 @@ exports.getAllPermissions = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-   
+// Get all roles
+
+exports.getAllRole = async (req, res) => {
+  try {
+    const roles = await PermissionByRole.find();
+
+    // Empty roles case handle
+    if (!roles || roles.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No roles found",
+        data: [],
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "All roles fetched successfully",
+      data: roles,
+    });
+  } catch (error) {
+    console.error("Error fetching roles:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch roles",
+      error: error.message,
+    });
+  }
+};
+
