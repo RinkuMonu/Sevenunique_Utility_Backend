@@ -1,6 +1,7 @@
 const CommissionPackage = require("../models/commissionModel.js");
 
 exports.createPackage = async (req, res, next) => {
+    console.log(req.body)
     try {
         const packageData = req.body;
 
