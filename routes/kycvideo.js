@@ -22,6 +22,7 @@ router.post("/request", async (req, res) => {
  
 // 2. Approve request (admin)
 router.patch("/approve/:id", async (req,res,next) => {
+  console.log(req,"dsfdsfsfdfddffdffsd")
   const { id } = req.params;
   const { scheduledTime } = req.body;
   try{
