@@ -33,7 +33,7 @@ app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+ 
 // app.use(apiLogger);
 
 app.use("/api/v1/auth", authRoutes);
