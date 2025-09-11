@@ -9,7 +9,7 @@ const servicePlanSchema = new mongoose.Schema({
   services: [
     {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Service", 
+      ref: "Service",
       required: true,
     },
   ],
@@ -21,8 +21,15 @@ const servicePlanSchema = new mongoose.Schema({
         required: true,
       },
       value: {
-        type: String,
+        type: Number,
         required: true,
+      },
+      discountPercent: {
+        type: Number,
+        default: 0,
+      },
+      discountedValue: {
+        type: Number,
       },
     },
   ],
