@@ -16,6 +16,7 @@ const servicePlanRoutes = require("./routes/servicePlanRoutes.js");
 const apiLogger = require("./middleware/apiLogger.js");
 const authenticateToken = require("./middleware/verifyToken.js");
 const NewsRouter = require("./routes/news.routes.js");
+const { getAllRole } = require("./controllers/permissionByRoleController.js");
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
 app.use("/api/recharge", rechargeRoute);
 app.use("/api/biller", billerRoutes);
 app.use("/api/v1/news", NewsRouter);
+app.use("/api/v1/getallrole", getAllRole);
 
 app.get("/", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the API" })
