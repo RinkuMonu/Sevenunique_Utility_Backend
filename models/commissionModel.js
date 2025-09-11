@@ -16,6 +16,7 @@ const commissionSlabSchema = new mongoose.Schema(
         "Sun Direct",
       ],
     },
+    operator: { type: String, enum: ["airtel", "jio", "bsnl", "vi"] },
     minAmount: { type: Number, required: true },
     maxAmount: { type: Number, required: true },
     commissionType: {
@@ -39,7 +40,7 @@ const commissionPackageSchema = new mongoose.Schema(
   {
     service: {
       type: String,
-      enum: ["DMT", "AEPS", "PAYIN", "PAYOUT", "Mobile Recharge", "DTH"],
+      enum: ["DMT", "AEPS", "PAYIN", "PAYOUT"],
       required: true,
     },
     packageName: { type: String, required: true, unique: true },
