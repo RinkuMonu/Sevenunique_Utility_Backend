@@ -1,9 +1,21 @@
-const { required } = require("joi");
 const mongoose = require("mongoose");
 
 const commissionSlabSchema = new mongoose.Schema(
   {
-    operator: { type: String, enum: ["airtel", "jio", "bsnl", "vi"] },
+    operator: {
+      type: String,
+      enum: [
+        "airtel",
+        "jio",
+        "bsnl",
+        "vi",
+        "Airtel DTH",
+        "Tata Play",
+        "Dish TV",
+        "d2h",
+        "Sun Direct",
+      ],
+    },
     minAmount: { type: Number, required: true },
     maxAmount: { type: Number, required: true },
     commissionType: {
@@ -15,7 +27,7 @@ const commissionSlabSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ["commission", "charges"],
-      required,
+      required: true,
     },
     distributor: { type: Number, required: true },
     admin: { type: Number, default: 0 },
@@ -27,7 +39,7 @@ const commissionPackageSchema = new mongoose.Schema(
   {
     service: {
       type: String,
-      enum: ["DMT", "AEPS", "PAYIN", "PAYOUT"],
+      enum: ["DMT", "AEPS", "PAYIN", "PAYOUT","Mobile Recharge","DTH"],
       required: true,
     },
     packageName: { type: String, required: true, unique: true },

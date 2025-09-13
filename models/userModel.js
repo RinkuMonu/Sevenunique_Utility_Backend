@@ -173,6 +173,14 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isVideoKyc: {
+      type: Boolean,
+      default: false,
+    },
+    agreement: {
+      type: Boolean,
+      default: false,
+    },
 
     panDetails: {
       type: Object,
