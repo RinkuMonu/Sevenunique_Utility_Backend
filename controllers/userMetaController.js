@@ -1,5 +1,6 @@
 const UserMeta = require("../models/userMetaModel.js");
 const mongoose = require("mongoose");
+const User = require("../models/userModel.js");
 
 // 🔹 Create or Update UserMeta
 exports.upsertUserMeta = async (req, res) => {
@@ -156,5 +157,33 @@ exports.getAllUserMeta = async (req, res) => {
   } catch (error) {
     console.error("Error in getAllUserMeta:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+exports.acceptAgreement = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { agreement: true },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "Agreement accepted successfully",
+    });
+  } catch (error) {
+    console.error("Error accepting agreement:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };

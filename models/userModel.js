@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-  
+
     email: {
       type: String,
       required: true,
@@ -108,7 +108,7 @@ const userSchema = new mongoose.Schema(
       state: {
         type: String,
         trim: true,
-      }, 
+      },
       country: {
         type: String,
         default: "India",
@@ -153,6 +153,14 @@ const userSchema = new mongoose.Schema(
       match: /^[6-9]\d{9}$/,
     },
     isKycVerified: {
+      type: Boolean,
+      default: false,
+    },
+    isVideoKyc: {
+      type: Boolean,
+      default: false,
+    },
+    agreement: {
       type: Boolean,
       default: false,
     },
