@@ -195,10 +195,6 @@ const verifyOTPController = async (req, res) => {
 //   }
 // };
 
-
-
-
-
 const loginController = async (req, res) => {
   try {
     const { mobileNumber, password, otp } = req.body;
@@ -228,7 +224,7 @@ const loginController = async (req, res) => {
     // ✅ Password login
     else if (password) {
       const isMatch = await user.comparePassword(password);
-      
+
       if (!isMatch)
         return res.status(400).json({ message: "Invalid password" });
     } else {
@@ -255,24 +251,25 @@ const loginController = async (req, res) => {
   }
 };
 
-
-
-
-
 const registerUser = async (req, res) => {
   try {
-    // ✅ Directly take everything from req.body
     let userData = { ...req.body };
     // console.log("body...............",userData);
-
-    // ✅ Check if user already exists
-    let existingUser = await User.findOne({
-      $or: [{ email: userData.email }, { mobileNumber: userData.mobileNumber }],
+    const existingUser = await User.findOne({
+      $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     });
 
     if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+      if (existingUser.mobileNumber === userData.mobileNumber) {
+        return res
+          .status(400)
+          .json({ message: "User Mobile Number already exists" });
+      }
+      if (existingUser.email === userData.email) {
+        return res.status(400).json({ message: "User Email already exists" });
+      }
     }
+
     if (userData.password) {
       const salt = await bcrypt.genSalt(10);
       userData.password = await bcrypt.hash(userData.password, salt);
@@ -407,10 +404,18 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-    let user = await User.findById(
-      req.user.id,
-      "-mpin -commissionPackage -meta -aadharDetails -panDetails"
-    );
+  let user = await User.findById(
+  req.user.id,
+  "-mpin -commissionPackage -meta"
+)
+  .populate("role")
+  .populate({
+    path: "rolePermissions",
+    populate: {
+      path: "permissions", 
+      model: "Permission"
+    }
+  });
     let userMeta =
       (await userMetaModel
         .findOne({ userId: req.user.id })
@@ -418,14 +423,13 @@ const getUserController = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "No user found" });
     }
-      const effectivePermissions = await user.getEffectivePermissions();
+    const effectivePermissions = await user.getEffectivePermissions();
     return res.status(200).json({ user, userMeta, effectivePermissions });
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
@@ -442,6 +446,8 @@ const getUsersWithFilters = async (req, res) => {
       page = 1,
       limit = 10,
       exportType = "false", // 👈 "csv" | "excel" | "pdf" | "json"
+      status,
+      isKycVerified,
     } = req.query;
 
     const filter = {};
@@ -456,6 +462,10 @@ const getUsersWithFilters = async (req, res) => {
     if (role) {
       filter.role = role;
     }
+    if (status) filter.status = status === "true";
+    if (isKycVerified) filter.isKycVerified = isKycVerified === "true";
+
+    console.log("filter....", filter, "&&", status);
 
     if (from || to) {
       filter.createdAt = {};
@@ -475,10 +485,13 @@ const getUsersWithFilters = async (req, res) => {
 
     let users = await User.find(filter)
       .sort(sort)
-      .skip(exportType !== "false" ? 0 : skip)
-      .limit(
-        exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
-      );
+      .skip(skip) // ✅ hamesha frontend ke page ke hisaab se skip karo
+      .limit(parseInt(limit)); // ✅ hamesha frontend ke rowsPerPage ke hisaab se limit karo
+
+    // .skip(exportType !== "false" ? 0 : skip)
+    // .limit(
+    //   exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
+    // );
 
     // ✅ Effective Permissions add karo
     users = await Promise.all(
@@ -549,9 +562,13 @@ const getUsersWithFilters = async (req, res) => {
       doc.moveDown();
 
       users.forEach((u, i) => {
-        doc.fontSize(10).text(
-          `${i + 1}. ${u.name} | ${u.email} | ${u.role} | ${u.effectivePermissions.join(", ")}`
-        );
+        doc
+          .fontSize(10)
+          .text(
+            `${i + 1}. ${u.name} | ${u.email} | ${
+              u.role
+            } | ${u.effectivePermissions.join(", ")}`
+          );
       });
 
       doc.end();
@@ -577,12 +594,9 @@ const getUsersWithFilters = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getUsersWithFilters:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 const updateUserStatus = async (req, res) => {
   try {
@@ -996,7 +1010,10 @@ const updateUserPermissions = async (req, res) => {
     const resolveIdsFromKeys = async (items) => {
       // Agar item string aur ObjectId valid nahi hai, assume it's a key
       const docs = await Permission.find({
-        $or: [{ _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } }, { key: { $in: items } }],
+        $or: [
+          { _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } },
+          { key: { $in: items } },
+        ],
       });
 
       return docs.map((p) => p._id.toString());
@@ -1015,7 +1032,7 @@ const updateUserPermissions = async (req, res) => {
 
     res.json({
       ...user.toObject(),
-      effectivePermissions: user.effectivePermissions
+      effectivePermissions: user.effectivePermissions,
     });
   } catch (err) {
     console.error("Error in updateUserPermissions:", err);
