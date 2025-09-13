@@ -404,10 +404,18 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-    let user = await User.findById(
-      req.user.id,
-      "-mpin -commissionPackage -meta"
-    ).populate("rolePermissions");
+  let user = await User.findById(
+  req.user.id,
+  "-mpin -commissionPackage -meta"
+)
+  .populate("role")
+  .populate({
+    path: "rolePermissions",
+    populate: {
+      path: "permissions", 
+      model: "Permission"
+    }
+  });
     let userMeta =
       (await userMetaModel
         .findOne({ userId: req.user.id })

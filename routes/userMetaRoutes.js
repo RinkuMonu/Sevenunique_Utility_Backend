@@ -44,6 +44,7 @@ router.get("/:userId", authenticateToken, userMetaController.getUserMeta);
 router.post("/remove-service", authenticateToken, validateRemoveUserService, userMetaController.removeUserService);
 
 router.get("/", authenticateToken, userMetaController.getAllUserMeta);
+router.patch("/kyc/accept/:id", authenticateToken, userMetaController.acceptAgreement);
 
 
 

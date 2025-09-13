@@ -55,19 +55,19 @@ router.put(
 router.get(
   "/dashboard",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   getDashboardStats
 );
 router.put(
   "/users/:id/permissions",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   updateUserPermissions
 );
 router.get(
   "/users/:id/permissions",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   getUserPermissions
 );
 
