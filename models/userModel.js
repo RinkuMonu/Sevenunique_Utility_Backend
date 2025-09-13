@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-  
+
     email: {
       type: String,
       required: true,
@@ -96,6 +96,23 @@ const userSchema = new mongoose.Schema(
       startDate: { type: Date, default: null },
       endDate: { type: Date, default: null },
     },
+
+    planHistory: [
+      {
+        planId: { type: mongoose.Schema.Types.ObjectId, ref: "ServicePlan" },
+        planType: {
+          type: String,
+          enum: ["monthly", "quarterly", "half-yearly", "yearly"],
+        },
+        startDate: Date,
+        endDate: Date,
+        status: {
+          type: String,
+          enum: ["active", "expired", "cancelled"],
+          default: "active",
+        },
+      },
+    ],
     address: {
       fullAddress: {
         type: String,
@@ -108,7 +125,7 @@ const userSchema = new mongoose.Schema(
       state: {
         type: String,
         trim: true,
-      }, 
+      },
       country: {
         type: String,
         default: "India",
@@ -153,6 +170,14 @@ const userSchema = new mongoose.Schema(
       match: /^[6-9]\d{9}$/,
     },
     isKycVerified: {
+      type: Boolean,
+      default: false,
+    },
+    isVideoKyc: {
+      type: Boolean,
+      default: false,
+    },
+    agreement: {
       type: Boolean,
       default: false,
     },
@@ -234,33 +259,37 @@ userSchema.methods.getEffectivePermissions = async function () {
   // 1️⃣ superAdmin → sabhi permissions
   if (this.role === "superAdmin") {
     const all = await Permission.find({});
-    return all.map(p => p.key);
+    return all.map((p) => p.key);
   }
 
   // 2️⃣ rolePermissions (ID ke base par)
   if (this.rolePermissions) {
-    const rolePerms = await PermissionByRole.findById(this.rolePermissions)
-      .populate("permissions", "key");
+    const rolePerms = await PermissionByRole.findById(
+      this.rolePermissions
+    ).populate("permissions", "key");
     if (rolePerms?.permissions?.length) {
-      rolePerms.permissions.forEach(p => perms.add(p.key));
+      rolePerms.permissions.forEach((p) => perms.add(p.key));
     }
   }
 
   // 3️⃣ extraPermissions add
   if (this.extraPermissions?.length) {
-    const extras = await Permission.find({ _id: { $in: this.extraPermissions } });
-    extras.forEach(p => perms.add(p.key));
+    const extras = await Permission.find({
+      _id: { $in: this.extraPermissions },
+    });
+    extras.forEach((p) => perms.add(p.key));
   }
 
   // 4️⃣ restrictedPermissions remove
   if (this.restrictedPermissions?.length) {
-    const restricted = await Permission.find({ _id: { $in: this.restrictedPermissions } });
-    restricted.forEach(p => perms.delete(p.key));
+    const restricted = await Permission.find({
+      _id: { $in: this.restrictedPermissions },
+    });
+    restricted.forEach((p) => perms.delete(p.key));
   }
 
   return Array.from(perms);
 };
-
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
