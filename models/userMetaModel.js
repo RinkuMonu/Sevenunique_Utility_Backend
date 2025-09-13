@@ -63,6 +63,8 @@ const userMetaSchema = new mongoose.Schema(
         _id: false
       },
     ],
+
+
     dmtEnabled: {
       type: Boolean,
       default: false,
@@ -76,6 +78,14 @@ const userMetaSchema = new mongoose.Schema(
       ref: 'CommissionPackage',
     },
     aepsCommission: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CommissionPackage',
+    },
+    mobileCommission: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CommissionPackage',
+    },
+    dthCommission: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CommissionPackage',
     },

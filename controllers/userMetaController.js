@@ -57,7 +57,9 @@ exports.getUserMeta = async (req, res) => {
     const userMeta = await UserMeta.findOne({ userId })
       .populate("services.serviceId")
       .populate("dmtCommission")
-      .populate("aepsCommission");
+      .populate("aepsCommission")
+      .populate("mobileCommission")
+      .populate("dthCommission")
 
     if (!userMeta) {
       return res.status(404).json({ success: false, message: "UserMeta not found" });
