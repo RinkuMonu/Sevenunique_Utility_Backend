@@ -1,10 +1,47 @@
 const CommissionPackage = require("../models/commissionModel.js");
 
+// exports.createPackage = async (req, res, next) => {
+//   console.log(req.body);
+//   try {
+//     const packageData = req.body;
+
+//     const newPackage = new CommissionPackage(packageData);
+//     await newPackage.save();
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Commission package created successfully",
+//       data: newPackage,
+//     });
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: error.message || "Internal Server Error",
+//     });
+//   }
+// };
+
 exports.createPackage = async (req, res, next) => {
-  console.log(req.body);
   try {
     const packageData = req.body;
 
+    // 1️⃣ Agar isDefault true hai, check karo ki is service ka pehle se default package hai ya nahi
+    if (packageData.isDefault === true) {
+      const existingDefault = await CommissionPackage.findOne({
+        service: packageData.service,
+        isDefault: true,
+      });
+
+      if (existingDefault) {
+        return res.status(400).json({
+          success: false,
+          message: `Default package for service "${packageData.service}" already exists (${existingDefault.packageName}).`,
+          existingDefault,
+        });
+      }
+    }
+
+    // 2️⃣ Naya package create karo
     const newPackage = new CommissionPackage(packageData);
     await newPackage.save();
 
@@ -23,13 +60,7 @@ exports.createPackage = async (req, res, next) => {
 
 exports.getAllPackages = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      service,
-      isActive,
-      packageName,
-    } = req.query;
+    const { page = 1, limit = 10, service, isActive, packageName } = req.query;
 
     const query = {};
 
