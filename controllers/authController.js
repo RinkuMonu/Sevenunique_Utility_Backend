@@ -404,26 +404,38 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-  let user = await User.findById(
-  req.user.id,
-  "-mpin -commissionPackage -meta"
-)
-  .populate("role")
-  .populate({
-    path: "rolePermissions",
-    populate: {
-      path: "permissions", 
-      model: "Permission"
-    }
-  });
-    let userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.user.id })
-        .populate("services.serviceId", "-providers -serviceFor")) || {};
-    if (!user) {
+    let userDoc = await User.findById(
+      req.user.id,
+      "-mpin -commissionPackage -meta -password"
+    )
+      .populate("role")
+      .populate({
+        path: "plan.planId",
+        populate: { path: "services", model: "Service" },
+      });
+
+    if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
     }
-    const effectivePermissions = await user.getEffectivePermissions();
+
+    // ✅ Call method safely
+    const effectivePermissions = await userDoc.getEffectivePermissions();
+
+    // ✅ Convert to object only after calling method
+    let user = userDoc.toObject();
+
+    // Filter plan.amount
+    if (user.plan?.planId?.amount && user.plan?.planType) {
+      user.plan.planId.amount = user.plan.planId.amount.filter(
+        (a) => a.type === user.plan.planType
+      );
+    }
+
+    const userMeta =
+      (await userMetaModel
+        .findOne({ userId: req.user.id })
+        .populate("services.serviceId")) || {};
+
     return res.status(200).json({ user, userMeta, effectivePermissions });
   } catch (error) {
     console.error("Error in getUserController:", error);
