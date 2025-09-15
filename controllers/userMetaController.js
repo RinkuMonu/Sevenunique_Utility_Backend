@@ -3,7 +3,56 @@ const mongoose = require("mongoose");
 const User = require("../models/userModel.js");
 
 // 🔹 Create or Update UserMeta
+// exports.upsertUserMeta = async (req, res) => {
+//   console.log(".............",req.body);
+
+//   const {
+//     userId,
+//     ipWhitelist,
+//     services,
+//     preferences,
+//     dmtEnabled,
+//     aepsEnabled,
+//     dmtCommission,
+//     // aepsCommission
+//   } = req.body;
+
+//   try {
+//     let userMeta = await UserMeta.findOne({ userId });
+
+//     if (!userMeta) {
+//       userMeta = await UserMeta.create({
+//         userId,
+//         ipWhitelist,
+//         services,
+//         preferences,
+//         dmtEnabled,
+//         aepsEnabled,
+//         dmtCommission,
+//         aepsCommission
+//       });
+//     } else {
+//       userMeta.ipWhitelist = ipWhitelist ?? userMeta.ipWhitelist;
+//       userMeta.preferences = preferences ?? userMeta.preferences;
+//       // userMeta.services = services ?? userMeta.services;
+
+//       if (dmtEnabled !== undefined) userMeta.dmtEnabled = dmtEnabled;
+//       if (aepsEnabled !== undefined) userMeta.aepsEnabled = aepsEnabled;
+//       // if (dmtCommission) userMeta.dmtCommission = dmtCommission;
+//       // if (aepsCommission) userMeta.aepsCommission = aepsCommission;
+
+//       await userMeta.save();
+//     }
+
+//     res.json({ success: true, data: userMeta });
+//   } catch (err) {
+//     console.error("Error in upsertUserMeta:", err);
+//     res.status(500).json({ success: false, message: "Internal Server Error" });
+//   }
+// };
+
 exports.upsertUserMeta = async (req, res) => {
+  console.log(".............", req.body);
   const {
     userId,
     ipWhitelist,
@@ -11,8 +60,6 @@ exports.upsertUserMeta = async (req, res) => {
     preferences,
     dmtEnabled,
     aepsEnabled,
-    dmtCommission,
-    aepsCommission
   } = req.body;
 
   try {
@@ -22,23 +69,17 @@ exports.upsertUserMeta = async (req, res) => {
       userMeta = await UserMeta.create({
         userId,
         ipWhitelist,
-        services,
+        services, 
         preferences,
         dmtEnabled,
         aepsEnabled,
-        dmtCommission,
-        aepsCommission
       });
     } else {
       userMeta.ipWhitelist = ipWhitelist ?? userMeta.ipWhitelist;
       userMeta.preferences = preferences ?? userMeta.preferences;
       userMeta.services = services ?? userMeta.services;
-
       if (dmtEnabled !== undefined) userMeta.dmtEnabled = dmtEnabled;
       if (aepsEnabled !== undefined) userMeta.aepsEnabled = aepsEnabled;
-      if (dmtCommission) userMeta.dmtCommission = dmtCommission;
-      if (aepsCommission) userMeta.aepsCommission = aepsCommission;
-
       await userMeta.save();
     }
 
@@ -55,14 +96,16 @@ exports.getUserMeta = async (req, res) => {
     const { userId } = req.params;
 
     const userMeta = await UserMeta.findOne({ userId })
-      .populate("services.serviceId")
+      // .populate("services.serviceId")
       .populate("dmtCommission")
       .populate("aepsCommission")
       .populate("mobileCommission")
-      .populate("dthCommission")
+      .populate("dthCommission");
 
     if (!userMeta) {
-      return res.status(404).json({ success: false, message: "UserMeta not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "UserMeta not found" });
     }
 
     res.json({ success: true, data: userMeta });
@@ -79,7 +122,11 @@ exports.removeUserService = async (req, res) => {
   try {
     const result = await UserMeta.findOneAndUpdate(
       { userId },
-      { $pull: { services: { serviceId: new mongoose.Types.ObjectId(serviceId) } } },
+      {
+        $pull: {
+          services: { serviceId: new mongoose.Types.ObjectId(serviceId) },
+        },
+      },
       { new: true }
     );
 
@@ -102,7 +149,7 @@ exports.getAllUserMeta = async (req, res) => {
       ip,
       hasService,
       startDate,
-      endDate
+      endDate,
     } = req.query;
 
     const filter = {};
@@ -114,9 +161,11 @@ exports.getAllUserMeta = async (req, res) => {
     if (serviceId || chargeType) {
       filter.services = {
         $elemMatch: {
-          ...(serviceId && { serviceId: new mongoose.Types.ObjectId(serviceId) }),
+          ...(serviceId && {
+            serviceId: new mongoose.Types.ObjectId(serviceId),
+          }),
           ...(chargeType && { chargeType }),
-        }
+        },
       };
     }
 
@@ -141,9 +190,10 @@ exports.getAllUserMeta = async (req, res) => {
     const total = await UserMeta.countDocuments(filter);
 
     const data = await UserMeta.find(filter)
-      .populate("services.serviceId")
+      // .populate("services.serviceId")
       .populate("dmtCommission")
       .populate("aepsCommission")
+      .populate("mobileCommission")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -153,15 +203,13 @@ exports.getAllUserMeta = async (req, res) => {
       total,
       page: parseInt(page),
       pages: Math.ceil(total / limit),
-      data
+      data,
     });
-
   } catch (error) {
     console.error("Error in getAllUserMeta:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
 
 exports.acceptAgreement = async (req, res) => {
   try {

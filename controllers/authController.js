@@ -247,20 +247,21 @@ const loginController = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in loginController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error" }); 
   }
 };
 
 const registerUser = async (req, res) => {
   try {
+
     let userData = { ...req.body };
-    // console.log("body...............",userData);
+    // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    });
+    }); 
 
     if (existingUser) {
-      if (existingUser.mobileNumber === userData.mobileNumber) {
+      if (existingUser.mobileNumber === userData.mobileNumber) { 
         return res
           .status(400)
           .json({ message: "User Mobile Number already exists" });
@@ -274,12 +275,44 @@ const registerUser = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       userData.password = await bcrypt.hash(userData.password, salt);
     }
-    //JSON string me hai
+    //questions
     if (userData.questions && typeof userData.questions === "string") {
       try {
         userData.questions = JSON.parse(userData.questions);
       } catch (err) {
         return res.status(400).json({ message: "Invalid questions format" });
+      }
+    }
+    // apiPartner
+    if (userData.apiPartner && typeof userData.apiPartner === "string") {
+      try {
+        userData.apiPartner = JSON.parse(userData.apiPartner);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid apiPartner data format" });
+      }
+    }
+    // address
+    if (userData.address && typeof userData.address === "string") {
+      try {
+        userData.address = JSON.parse(userData.address);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid address data format" });
+      }
+    }
+    // retailer
+    if (userData.retailer && typeof userData.retailer === "string") {
+      try {
+        userData.retailer = JSON.parse(userData.retailer);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid retailer data format" });
+      }
+    }
+    // distributor
+    if (userData.distributor && typeof userData.distributor === "string") {
+      try {
+        userData.distributor = JSON.parse(userData.distributor);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid distributor data format" });
       }
     }
 
@@ -311,11 +344,19 @@ const registerUser = async (req, res) => {
       if (userData.role === "Distributor" && req.files.officeAddressProof) {
         userData.officeAddressProof = `/uploads/${req.files.officeAddressProof[0].filename}`;
       }
+      if (userData.role === "Api Partner" && req.files.directorKycFiles) {
+        userData.directorKycFiles = req.files.directorKycFiles.map(
+          (file) => `/uploads/${file.filename}`
+        );
+      }
+      if (userData.role === "Api Partner" && req.files.boardResolution) {
+        userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`; 
+      }
     }
 
     // ✅ Create user
     // const NewUser = await User.create(userData);
-    const NewUser = new User(userData);
+    const NewUser = new User(userData); 
     await NewUser.save();
 
     // ✅ Generate JWT
@@ -404,26 +445,38 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-  let user = await User.findById(
-  req.user.id,
-  "-mpin -commissionPackage -meta"
-)
-  .populate("role")
-  .populate({
-    path: "rolePermissions",
-    populate: {
-      path: "permissions", 
-      model: "Permission"
-    }
-  });
-    let userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.user.id })
-        .populate("services.serviceId", "-providers -serviceFor")) || {};
-    if (!user) {
+    let userDoc = await User.findById(
+      req.user.id,
+      "-mpin -commissionPackage -meta -password"
+    )
+      .populate("role")
+      .populate({
+        path: "plan.planId",
+        populate: { path: "services", model: "Service" },
+      });
+
+    if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
     }
-    const effectivePermissions = await user.getEffectivePermissions();
+
+    // ✅ Call method safely
+    const effectivePermissions = await userDoc.getEffectivePermissions();
+
+    // ✅ Convert to object only after calling method
+    let user = userDoc.toObject();
+
+    // Filter plan.amount
+    if (user.plan?.planId?.amount && user.plan?.planType) {
+      user.plan.planId.amount = user.plan.planId.amount.filter(
+        (a) => a.type === user.plan.planType
+      );
+    }
+
+    const userMeta =
+      (await userMetaModel
+        .findOne({ userId: req.user.id })
+        .populate("services.serviceId")) || {};
+
     return res.status(200).json({ user, userMeta, effectivePermissions });
   } catch (error) {
     console.error("Error in getUserController:", error);
@@ -565,8 +618,7 @@ const getUsersWithFilters = async (req, res) => {
         doc
           .fontSize(10)
           .text(
-            `${i + 1}. ${u.name} | ${u.email} | ${
-              u.role
+            `${i + 1}. ${u.name} | ${u.email} | ${u.role
             } | ${u.effectivePermissions.join(", ")}`
           );
       });

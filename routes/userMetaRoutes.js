@@ -5,28 +5,28 @@ const Joi = require("joi");
 const { celebrate, Segments } = require("celebrate");
 const authenticateToken = require("../middleware/verifyToken.js");
 
-const serviceSchema = Joi.object({
-    serviceId: Joi.string().required(),
-    chargeType: Joi.string().valid("fixed", "percentage").required(),
-    serviceCharges: Joi.number().min(0).required(),
-    gst: Joi.number().min(0).required(),
-    distributorCommission: Joi.number().min(0).required()
-}).unknown(true);
+// const serviceSchema = Joi.object({
+//     serviceId: Joi.string().required(),
+//     chargeType: Joi.string().valid("fixed", "percentage").required(),
+//     serviceCharges: Joi.number().min(0).required(),
+//     gst: Joi.number().min(0).required(),
+//     distributorCommission: Joi.number().min(0).required()
+// }).unknown(true);
 
-const validateUpsertUserMeta = celebrate({
-    [Segments.BODY]: Joi.object({
-        userId: Joi.string().required(),
-        ipWhitelist: Joi.array().items(Joi.string().ip()).default([]),
-        services: Joi.array().items(serviceSchema).min(1).optional(),
-        preferences: Joi.object().default({}),
-    }),
-});
+// const validateUpsertUserMeta = celebrate({
+//     [Segments.BODY]: Joi.object({
+//         userId: Joi.string().required(),
+//         ipWhitelist: Joi.array().items(Joi.string().ip()).default([]),
+//         services: Joi.array().items(serviceSchema).min(1).optional(),
+//         preferences: Joi.object().default({}),
+//     }),
+// });
 
-const validateGetUserMeta = celebrate({
-    [Segments.PARAMS]: Joi.object({
-        userId: Joi.string().required(),
-    }),
-});
+// const validateGetUserMeta = celebrate({
+//     [Segments.PARAMS]: Joi.object({
+//         userId: Joi.string().required(),
+//     }),
+// });
 
 const validateRemoveUserService = celebrate({
     [Segments.BODY]: Joi.object({
