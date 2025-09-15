@@ -351,7 +351,6 @@ const deletePlan = async (req, res) => {
     res.status(400).json({ success: false, message: error.message });
   }
 };
-//but plan
 
 // controller: buyPlan
 const buyPlan = async (req, res) => {
@@ -367,6 +366,8 @@ const buyPlan = async (req, res) => {
     }
 
     const selectedAmount = plan.amount.find((a) => a.type === planType);
+    console.log(plan, selectedAmount);
+    
     if (!selectedAmount) {
       return res
         .status(400)
