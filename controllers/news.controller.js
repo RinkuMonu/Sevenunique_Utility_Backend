@@ -3,11 +3,16 @@ const News = require("../models/news.model");
 // ✅ Create News
 exports.createNews = async (req, res) => {
   try {
-    const { title, isActive, pinned } = req.body;
+    const { title, type } = req.body;
+    if (!title || !type) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Title and Type are required" });
+    }
 
     const news = await News.create({
       title,
-      isActive: isActive ?? true,
+      type,
     });
 
     return res.status(201).json({ success: true, data: news });
