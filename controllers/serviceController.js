@@ -1,47 +1,105 @@
 const Service = require("../models/servicesModal.js");
 const mongoose = require("mongoose");
 
+// exports.upsertService = async (req, res) => {
+//   const {
+//     name,
+//     description,
+//     icon,
+//     serviceFor,
+//     defaultSwitch,
+//     providers,
+//   } = req.body;
+
+//   try {
+//     let service = await Service.findOne({ name });
+
+//     if (service) {
+//       service.description = description || service.description;
+//       service.icon = icon || service.icon;
+//       service.serviceFor = serviceFor || service.serviceFor;
+//       service.defaultSwitch = defaultSwitch || service.defaultSwitch;
+
+//       const providerMap = service.providers.reduce((acc, p) => {
+//         acc[p.providerName] = p;
+//         return acc;
+//       }, {});
+
+//       for (const incoming of providers) {
+//         if (providerMap[incoming.providerName]) {
+//           Object.assign(providerMap[incoming.providerName], incoming);
+//         } else {
+//           service.providers.push(incoming);
+//         }
+//       }
+
+//       await service.save();
+//     } else {
+//       service = await Service.create({
+//         name,
+//         description,
+//         icon,
+//         serviceFor,
+//         defaultSwitch,
+//         providers,
+//       });
+//     }
+
+//     res.json({ success: true, data: service });
+//   } catch (err) {
+//     console.error("Error in upsertService:", err);
+//     res.status(500).json({ success: false, message: "Internal Server Error" });
+//   }
+// };
+
 exports.upsertService = async (req, res) => {
-  const {
-    name,
-    description,
-    icon,
-    serviceFor,
-    defaultSwitch,
-    providers,
-  } = req.body;
 
   try {
-    let service = await Service.findOne({ name });
+    const {
+      name,
+      description,
+      icon,
+      serviceFor,
+      defaultSwitch,
+      isActive,
+      providers, // this can be an array of provider names from your form
+    } = req.body;
 
-    if (service) {
-      service.description = description || service.description;
-      service.icon = icon || service.icon;
-      service.serviceFor = serviceFor || service.serviceFor;
-      service.defaultSwitch = defaultSwitch || service.defaultSwitch;
+    // normalize providers (if user sends string instead of array)
+    const providerList = Array.isArray(providers)
+      ? providers
+      : providers
+        ? [providers]
+        : [];
+    let service;
+    if (req.query.id) {
+      service = await Service.findOne({ _id: new mongoose.Types.ObjectId(req.query.id) });
 
-      const providerMap = service.providers.reduce((acc, p) => {
-        acc[p.providerName] = p;
-        return acc;
-      }, {});
 
-      for (const incoming of providers) {
-        if (providerMap[incoming.providerName]) {
-          Object.assign(providerMap[incoming.providerName], incoming);
-        } else {
-          service.providers.push(incoming);
-        }
+      if (service) {
+        // update existing
+        service.name = name || service.name;
+        service.description = description || service.description;
+        service.icon = icon || service.icon;
+        // service.serviceFor = serviceFor || service.serviceFor;
+        service.defaultSwitch = defaultSwitch || service.defaultSwitch;
+        service.isActive = isActive || service.isActive;
+
+        // Replace providers fully from form input
+        service.providers = providerList
+
+        await service.save();
       }
-
-      await service.save();
     } else {
+      // create new
       service = await Service.create({
         name,
         description,
         icon,
-        serviceFor,
+        // serviceFor,
         defaultSwitch,
-        providers,
+        isActive,
+        providers: providerList
       });
     }
 
