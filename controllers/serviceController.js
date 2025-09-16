@@ -63,7 +63,7 @@ exports.upsertService = async (req, res) => {
       defaultSwitch,
       isActive,
       providers, // this can be an array of provider names from your form
-    } = req.body;
+    } = req.body; 
 
     // normalize providers (if user sends string instead of array)
     const providerList = Array.isArray(providers)
