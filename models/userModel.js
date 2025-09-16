@@ -118,7 +118,11 @@ const userSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
-      city: {
+      block:{
+        type:String,
+        trim:true
+      },
+        city: {
         type: String,
         trim: true,
       },
@@ -200,7 +204,7 @@ const userSchema = new mongoose.Schema(
         "User",
         "Retailer",
         "Distributor",
-        "ApiPartner",
+        "Api Partner",
         "Admin",
         "superAdmin",
       ],
