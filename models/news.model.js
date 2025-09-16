@@ -7,9 +7,9 @@ const newsSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
+    type: {
+      type: String,
+      required: true,
     },
   },
   { timestamps: true }
