@@ -118,11 +118,11 @@ const userSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
-      block:{
-        type:String,
-        trim:true
+      block: {
+        type: String,
+        trim: true,
       },
-        city: {
+      city: {
         type: String,
         trim: true,
       },
@@ -136,6 +136,69 @@ const userSchema = new mongoose.Schema(
         trim: true,
       },
     },
+    // API Partner
+
+    apiPartner: {
+      companyName: {
+        type: String,
+        trim: true,
+      },
+      companyWebsite: {
+        type: String,
+        trim: true,
+      },
+      productDescription: {
+        type: String,
+        trim: true,
+      },
+      companyType: {
+        type: String,
+        trim: true,
+      },
+      gstNumber: {
+        type: String,
+        trim: true,
+      },
+      companyPan: {
+        type: String,
+        trim: true,
+      },
+      companyCin: {
+        type: String,
+        trim: true,
+      },
+      mccCode: {
+        type: String,
+        trim: true,
+      },
+      expectedMonthlyTxnVolume: {
+        type: String, // or Number if you want numeric values
+        trim: true,
+      },
+      technicalContact: {
+        name: {
+          type: String,
+          trim: true,
+        },
+        email: {
+          type: String,
+          trim: true,
+          lowercase: true,
+          match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+        },
+      },
+      
+    },
+directorKycFiles: [
+        {
+          type: String, // store file URLs/paths
+          trim: true,
+        },
+      ],
+      boardResolution: {
+        type: String, // store file URL/path
+        trim: true,
+      },
     rolePermissions: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PermissionByRole",
