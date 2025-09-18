@@ -11,6 +11,8 @@ const DmtReport = require("../models/dmtTransactionModel.js");
 const BbpsHistory = require("../models/bbpsModel.js");
 const { default: axios } = require("axios");
 const bcrypt = require("bcrypt");
+const PDFDocument = require("pdfkit-table");
+const ExcelJS = require("exceljs");
 
 const sendOtpController = async (req, res) => {
   try {
@@ -19,6 +21,7 @@ const sendOtpController = async (req, res) => {
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
+    
     const otp = await generateOtp(mobileNumber);
     const smsResult = await sendOtp(mobileNumber, otp);
     if (smsResult.success) {
@@ -247,21 +250,20 @@ const loginController = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in loginController:", error);
-    return res.status(500).json({ message: "Internal server error" }); 
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 const registerUser = async (req, res) => {
   try {
-
     let userData = { ...req.body };
     // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    }); 
+    });
 
     if (existingUser) {
-      if (existingUser.mobileNumber === userData.mobileNumber) { 
+      if (existingUser.mobileNumber === userData.mobileNumber) {
         return res
           .status(400)
           .json({ message: "User Mobile Number already exists" });
@@ -283,12 +285,22 @@ const registerUser = async (req, res) => {
         return res.status(400).json({ message: "Invalid questions format" });
       }
     }
+
+    if (userData.references && typeof userData.references === "string") {
+      try {
+        userData.references = JSON.parse(userData.references);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid references format" });
+      }
+    }
     // apiPartner
     if (userData.apiPartner && typeof userData.apiPartner === "string") {
       try {
         userData.apiPartner = JSON.parse(userData.apiPartner);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid apiPartner data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid apiPartner data format" });
       }
     }
     // address
@@ -304,7 +316,9 @@ const registerUser = async (req, res) => {
       try {
         userData.retailer = JSON.parse(userData.retailer);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid retailer data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid retailer data format" });
       }
     }
     // distributor
@@ -312,7 +326,9 @@ const registerUser = async (req, res) => {
       try {
         userData.distributor = JSON.parse(userData.distributor);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid distributor data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid distributor data format" });
       }
     }
 
@@ -350,13 +366,13 @@ const registerUser = async (req, res) => {
         );
       }
       if (userData.role === "Api Partner" && req.files.boardResolution) {
-        userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`; 
+        userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`;
       }
     }
 
     // ✅ Create user
     // const NewUser = await User.create(userData);
-    const NewUser = new User(userData); 
+    const NewUser = new User(userData);
     await NewUser.save();
 
     // ✅ Generate JWT
@@ -484,9 +500,6 @@ const getUserController = async (req, res) => {
   }
 };
 
-const ExcelJS = require("exceljs");
-const PDFDocument = require("pdfkit");
-
 const getUsersWithFilters = async (req, res) => {
   try {
     const {
@@ -509,6 +522,7 @@ const getUsersWithFilters = async (req, res) => {
       filter.$or = [
         { name: { $regex: keyword, $options: "i" } },
         { email: { $regex: keyword, $options: "i" } },
+        { mobileNumber: { $regex: keyword, $options: "i" } },
       ];
     }
 
@@ -562,9 +576,9 @@ const getUsersWithFilters = async (req, res) => {
         };
       })
     );
+    console.log(users);
 
     const fields = [
-      "_id",
       "name",
       "email",
       "role",
@@ -576,7 +590,6 @@ const getUsersWithFilters = async (req, res) => {
       "cappingMoney",
       "createdAt",
       "updatedAt",
-      "effectivePermissions", // ✅ export me bhi aa sakta hai
     ];
 
     // ========== EXPORT HANDLING ==========
@@ -608,21 +621,35 @@ const getUsersWithFilters = async (req, res) => {
       const doc = new PDFDocument({ margin: 30, size: "A4" });
       res.header("Content-Type", "application/pdf");
       res.attachment("users.pdf");
-
       doc.pipe(res);
 
       doc.fontSize(18).text("Users Report", { align: "center" });
       doc.moveDown();
 
-      users.forEach((u, i) => {
-        doc
-          .fontSize(10)
-          .text(
-            `${i + 1}. ${u.name} | ${u.email} | ${u.role
-            } | ${u.effectivePermissions.join(", ")}`
-          );
-      });
+      const table = {
+        headers: [
+          "#",
+          "Name",
+          "Email",
+          "Mobile Number",
+          "Role",
+          "mainWallet",
+          "eWallet",
+          "KYC status",
+        ],
+        rows: users.map((u, i) => [
+          i + 1,
+          u.name,
+          u.email,
+          u.mobileNumber,
+          u.role,
+          u.mainWallet,
+          u.eWallet,
+          u.isKycVerified,
+        ]),
+      };
 
+      await doc.table(table, { width: 500 });
       doc.end();
       return;
     }
