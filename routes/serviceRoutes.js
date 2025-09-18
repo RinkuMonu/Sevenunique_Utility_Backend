@@ -32,19 +32,19 @@ const serviceValidator = {
         name: Joi.string().trim().required(),
         description: Joi.string().allow('').optional(),
         icon: Joi.string().required(),
-        serviceFor: Joi.array()
-            .items(Joi.string().valid('User', 'Retailer', 'Distributor', 'ApiPartner', 'Admin'))
-            .min(1)
-            .required(),
+        // serviceFor: Joi.array()
+        //     .items(Joi.string().valid('User', 'Retailer', 'Distributor', 'ApiPartner', 'Admin'))
+        //     .min(1)
+        //     .required(),
 
         defaultSwitch: Joi.string()
             .valid('billAvenue', 'spritVerify', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8')
             .required(),
 
-        providers: Joi.array()
-            .items(providerSchema)
-            .min(1)
-            .required(),
+        // providers: Joi.array()
+        //     .items(providerSchema)
+        //     .min(1)
+        //     .required(),
 
         isActive: Joi.boolean().optional()
     }).unknown(true)
@@ -54,6 +54,6 @@ router.post('/', celebrate(serviceValidator), authenticateToken, authorizeRoles(
 router.get('/', authenticateToken, serviceController.getAllServices);
 router.get('/:id', authenticateToken, authorizeRoles('Admin'), serviceController.getServiceById);
 router.delete('/:id', authenticateToken, authorizeRoles('Admin'), serviceController.deleteService);
-router.put("/:id/status", authenticateToken, authorizeRoles('Admin'),  serviceController.setServiceStatus);
+router.put("/:id/status", authenticateToken, authorizeRoles('Admin'), serviceController.setServiceStatus);     
 
 module.exports = router;
