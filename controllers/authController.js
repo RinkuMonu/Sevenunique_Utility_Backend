@@ -247,21 +247,20 @@ const loginController = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in loginController:", error);
-    return res.status(500).json({ message: "Internal server error" }); 
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 const registerUser = async (req, res) => {
   try {
-
     let userData = { ...req.body };
     // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    }); 
+    });
 
     if (existingUser) {
-      if (existingUser.mobileNumber === userData.mobileNumber) { 
+      if (existingUser.mobileNumber === userData.mobileNumber) {
         return res
           .status(400)
           .json({ message: "User Mobile Number already exists" });
@@ -288,7 +287,9 @@ const registerUser = async (req, res) => {
       try {
         userData.apiPartner = JSON.parse(userData.apiPartner);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid apiPartner data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid apiPartner data format" });
       }
     }
     // address
@@ -304,7 +305,9 @@ const registerUser = async (req, res) => {
       try {
         userData.retailer = JSON.parse(userData.retailer);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid retailer data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid retailer data format" });
       }
     }
     // distributor
@@ -312,7 +315,9 @@ const registerUser = async (req, res) => {
       try {
         userData.distributor = JSON.parse(userData.distributor);
       } catch (err) {
-        return res.status(400).json({ message: "Invalid distributor data format" });
+        return res
+          .status(400)
+          .json({ message: "Invalid distributor data format" });
       }
     }
 
@@ -350,13 +355,13 @@ const registerUser = async (req, res) => {
         );
       }
       if (userData.role === "Api Partner" && req.files.boardResolution) {
-        userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`; 
+        userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`;
       }
     }
 
     // ✅ Create user
     // const NewUser = await User.create(userData);
-    const NewUser = new User(userData); 
+    const NewUser = new User(userData);
     await NewUser.save();
 
     // ✅ Generate JWT
@@ -498,9 +503,10 @@ const getUsersWithFilters = async (req, res) => {
       order = "asc",
       page = 1,
       limit = 10,
-      exportType = "false", // 👈 "csv" | "excel" | "pdf" | "json"
+      exportType = "false",
       status,
       isKycVerified,
+      inactiveOrUnverified,
     } = req.query;
 
     const filter = {};
@@ -515,8 +521,13 @@ const getUsersWithFilters = async (req, res) => {
     if (role) {
       filter.role = role;
     }
-    if (status) filter.status = status === "true";
-    if (isKycVerified) filter.isKycVerified = isKycVerified === "true";
+
+    if (inactiveOrUnverified === true || inactiveOrUnverified === "true") {
+      filter.$or = [{ status: false }, { isKycVerified: false }];
+    } else {
+      if (status) filter.status = status === "true";
+      if (isKycVerified) filter.isKycVerified = isKycVerified === "true";
+    }
 
     console.log("filter....", filter, "&&", status);
 
@@ -618,7 +629,8 @@ const getUsersWithFilters = async (req, res) => {
         doc
           .fontSize(10)
           .text(
-            `${i + 1}. ${u.name} | ${u.email} | ${u.role
+            `${i + 1}. ${u.name} | ${u.email} | ${
+              u.role
             } | ${u.effectivePermissions.join(", ")}`
           );
       });
