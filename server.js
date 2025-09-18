@@ -22,7 +22,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: "*",
+    origin: "http://localhost:3000",
 
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
@@ -33,7 +33,7 @@ app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+ 
 // app.use(apiLogger);
 
 app.use("/api/v1/auth", authRoutes);
