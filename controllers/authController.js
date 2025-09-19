@@ -16,12 +16,28 @@ const ExcelJS = require("exceljs");
 
 const sendOtpController = async (req, res) => {
   try {
-    const { mobileNumber } = req.body;
-
+    const { mobileNumber, isRegistered ,ifLogin} = req.body;
+console.log(req.body)
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
 
+     // Find user once and reuse
+    const userExisting = await User.findOne({ mobileNumber });
+
+    // Register flow: stop if user already exists
+    if (isRegistered === true) {
+      if (userExisting) {
+        return res.status(400).json({ message: "User already registered" });
+      }
+    }
+
+    // Login flow: stop if user does not exist
+    if (ifLogin === true) {
+      if (!userExisting) {
+        return res.status(400).json({ message: "User not found" });
+      }
+    }
     const otp = await generateOtp(mobileNumber);
     const smsResult = await sendOtp(mobileNumber, otp);
     if (smsResult.success) {
@@ -1162,7 +1178,7 @@ const getUserPermissions = async (req, res) => {
 };
 
 module.exports = {
-  sendOtpController,
+  sendOtpController, 
   verifyOTPController,
   registerUser,
   loginController,

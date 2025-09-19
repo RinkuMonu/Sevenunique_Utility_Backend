@@ -4,7 +4,7 @@ const {
   checkRetailerBalance,
   viewbill,
   recharge,
-} = require("../services/rechargeService");
+} = require("../services/rechargeService"); 
 
 const validate = async (req, res) => {
   const { uid, password, amt, cir, cn, op, adParams } = req.body;
@@ -21,7 +21,7 @@ const validate = async (req, res) => {
       amt,
       cir,
       cn,
-      op,
+      op, 
       adParams,
     });
 

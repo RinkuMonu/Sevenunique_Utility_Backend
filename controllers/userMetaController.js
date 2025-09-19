@@ -1,6 +1,7 @@
 const UserMeta = require("../models/userMetaModel.js");
 const mongoose = require("mongoose");
 const User = require("../models/userModel.js");
+const servicesModal = require("../models/servicesModal.js");
 
 // 🔹 Create or Update UserMeta
 // exports.upsertUserMeta = async (req, res) => {
@@ -63,13 +64,21 @@ exports.upsertUserMeta = async (req, res) => {
   } = req.body;
 
   try {
+    const serviceFind = await servicesModal.findOne({ name: services[0].service })
+    if (!serviceFind) {
+      return res.status(500).json({ message: "Service not found" }); 
+    }
+
     let userMeta = await UserMeta.findOne({ userId });
 
     if (!userMeta) {
       userMeta = await UserMeta.create({
         userId,
         ipWhitelist,
-        services, 
+        services: {
+          serviceId: serviceFind._id,
+          packageId: services.packageId,
+        },
         preferences,
         dmtEnabled,
         aepsEnabled,
