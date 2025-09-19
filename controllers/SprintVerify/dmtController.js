@@ -53,7 +53,7 @@ exports.remitterEkyc = async (req, res, next) => {
         console.log("comming for ....... frontend", piddata)
         const key = "655b0df386201f81";
         const iv = "613796a12c285275";
-        const encryptedData = encryptPidData(`${piddata}`, key, iv);
+        const encryptedData = encryptPidData(`${piddata}`, key, iv); 
         console.log("encryptedData pid data", encryptedData) 
 
         const response = await axios.post(
