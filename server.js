@@ -17,9 +17,10 @@ const apiLogger = require("./middleware/apiLogger.js");
 const authenticateToken = require("./middleware/verifyToken.js");
 const NewsRouter = require("./routes/news.routes.js");
 const { getAllRole } = require("./controllers/permissionByRoleController.js");
+const { planCheckCronJob } = require("./services/cornjob.js");
 
 const app = express();
-
+planCheckCronJob()
 app.use(
   cors({
     origin: "http://localhost:3000",
@@ -33,7 +34,7 @@ app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
- 
+
 // app.use(apiLogger);
 
 app.use("/api/v1/auth", authRoutes);

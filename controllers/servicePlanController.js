@@ -3,93 +3,6 @@ const ServicePlan = require("../models/servicePlanmodel");
 const userModel = require("../models/userModel");
 const servicesModal = require("../models/servicesModal");
 
-// const createPlan = async (req, res) => {
-//   try {
-//     const { name, services, amount } = req.body;
-
-//     // ✅ Validate plan name
-//     if (!name || !["basic", "advance", "standard"].includes(name)) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: "Invalid plan name" });
-//     }
-
-//     // ✅ Validate services
-//     if (!Array.isArray(services) || services.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Services must be an array and cannot be empty",
-//       });
-//     }
-
-//     // ✅ Validate amount array
-//     if (!Array.isArray(amount) || amount.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Amount must be an array and cannot be empty",
-//       });
-//     }
-
-//     // ✅ Validate each amount type and value
-//     for (const item of amount) {
-//       if (
-//         !item.type ||
-//         !["monthly", "quarterly", "half-yearly", "yearly"].includes(item.type)
-//       ) {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Invalid type in amount: ${item.type}`,
-//         });
-//       }
-//       if (!item.value || typeof item.value !== "string") {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Amount value must be a string for type: ${item.type}`,
-//         });
-//       }
-//     }
-
-//     // ✅ Check if the plan already exists
-//     const existingPlan = await ServicePlan.findOne({ name });
-
-//     const planData = {
-//       name,
-//       services,
-//       amount,
-//     };
-
-//     if (existingPlan) {
-//       // 🔥 Update existing plan if found
-//       const updatedPlan = await ServicePlan.findByIdAndUpdate(
-//         existingPlan._id,
-//         planData,
-//         { new: true }
-//       );
-//       return res
-//         .status(200)
-//         .json({
-//           success: true,
-//           message: "Plan updated successfully",
-//           data: updatedPlan,
-//         });
-//     } else {
-//       // 🆕 Create a new plan if not found
-//       const newPlan = new ServicePlan(planData);
-//       await newPlan.save();
-//       return res
-//         .status(201)
-//         .json({
-//           success: true,
-//           message: "Plan created successfully",
-//           data: newPlan,
-//         });
-//     }
-//   } catch (error) {
-//     console.error("Error in createPlan:", error);
-//     res.status(500).json({ success: false, message: error.message });
-//   }
-// };
-
 const createPlan = async (req, res) => {
   try {
     let { name, services, amount, discountPercent = 0 } = req.body;
@@ -272,76 +185,6 @@ const updatePlan = async (req, res) => {
   }
 };
 
-// const updatePlan = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { name, services, amount } = req.body;
-
-//     if (name && !["basic", "advance", "standard"].includes(name)) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: "Invalid plan name" });
-//     }
-
-//     if (services && (!Array.isArray(services) || services.length === 0)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Services must be an array and cannot be empty",
-//       });
-//     }
-
-//     if (amount && (!Array.isArray(amount) || amount.length === 0)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Amount must be an array and cannot be empty",
-//       });
-//     }
-
-//     if (amount) {
-//       amount.forEach((item) => {
-//         // ✅ Convert to number first
-//         item.value = Number(item.value);
-
-//         if (
-//           !item.type ||
-//           !["monthly", "quarterly", "half-yearly", "yearly"].includes(item.type)
-//         ) {
-//           return res.status(400).json({
-//             success: false,
-//             message: `Invalid type in amount: ${item.type}`,
-//           });
-//         }
-
-//         if (isNaN(item.value)) {
-//           return res.status(400).json({
-//             success: false,
-//             message: `Amount value must be a number for type: ${item.type}`,
-//           });
-//         }
-//       });
-//     }
-//     if (discountPercent !== undefined) {
-//       updatedPlanData.discountPercent = discountPercent;
-//       updatedPlanData.amount = updatedPlanData.amount.map((item) => {
-//         const discountedValue =
-//           Number(item.value) - (Number(item.value) * discountPercent) / 100;
-//         return { ...item, discountedValue: Number(discountedValue.toFixed(2)) };
-//       });
-//     }
-
-//     const updatedPlanData = {
-//       name,
-//       services,
-//       amount,
-//     };
-
-//     const updatedPlan = await planService.updatePlan(id, updatedPlanData);
-//     res.status(200).json({ success: true, data: updatedPlan });
-//   } catch (error) {
-//     res.status(400).json({ success: false, message: error.message });
-//   }
-// };
-
 const deletePlan = async (req, res) => {
   try {
     const { id } = req.params;
@@ -400,17 +243,24 @@ const buyPlan = async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    // if (userfind.plan?.planId) {
+    //   userfind.planHistory.push({
+    //     planId: userfind.plan.planId,
+    //     planType: userfind.plan.planType,
+    //     startDate: userfind.plan.startDate,
+    //     endDate: userfind.plan.endDate,
+    //     status: new Date() > userfind.plan.endDate ? "expired" : "cancelled",
+    //   });
+    // }
 
-    // ✅ Save old plan to history before overwriting
-    if (userfind.plan?.planId) {
-      userfind.planHistory.push({
-        planId: userfind.plan.planId,
-        planType: userfind.plan.planType,
-        startDate: userfind.plan.startDate,
-        endDate: userfind.plan.endDate,
-        status: new Date() > userfind.plan.endDate ? "expired" : "Active",
-      });
-    }
+    // // ✅ Push new plan also in history
+    // userfind.planHistory.push({
+    //   planId: plan._id,
+    //   planType,
+    //   startDate,
+    //   endDate,
+    //   status: "Active",
+    // });
 
     // ✅ Now set the new plan
     userfind.plan = {
@@ -418,6 +268,7 @@ const buyPlan = async (req, res) => {
       planType,
       startDate,
       endDate,
+      status: "Active",
     };
 
     await userfind.save();
@@ -556,24 +407,6 @@ const buyPassPlan = async (req, res) => {
     }
 
     for (const user of users) {
-      // Ensure planHistory exists
-      if (!Array.isArray(user.planHistory)) user.planHistory = [];
-
-      // Old plan ko history me push karo only if old plan exists
-      if (user.plan?.planId) {
-        user.planHistory.push({
-          planId: user.plan.planId,
-          planType: user.plan.planType,
-          startDate: user.plan.startDate,
-          endDate: user.plan.endDate,
-          status:
-            user.plan.endDate && new Date() > user.plan.endDate
-              ? "expired"
-              : "cancelled",
-        });
-      }
-
-      // Assign new plan
       user.plan = {
         planId: plan._id,
         planType,
@@ -596,6 +429,7 @@ const buyPassPlan = async (req, res) => {
   }
 };
 // remove buypass
+
 const removeBuyPassPlan = async (req, res) => {
   try {
     const { userIds, removeAll = false } = req.body;
@@ -618,16 +452,7 @@ const removeBuyPassPlan = async (req, res) => {
     }
 
     for (const user of users) {
-      if (user.plan?.planId) {
-        user.planHistory.push({
-          planId: user.plan.planId,
-          planType: user.plan.planType,
-          startDate: user.plan.startDate,
-          endDate: user.plan.endDate,
-          status: "expired",
-        });
-      }
-      user.plan = {}; // BuyPass remove
+      user.plan = {};
       await user.save();
     }
 

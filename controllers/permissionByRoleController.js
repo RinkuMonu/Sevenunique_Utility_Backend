@@ -156,3 +156,51 @@ exports.getAllRole = async (req, res) => {
   }
 };
 
+// 🔹 Update a global permission
+exports.updatePermission = async (req, res) => {
+  try {
+    const { key } = req.body;
+
+    const updated = await Permission.findByIdAndUpdate(
+      req.params.id,
+      { key },
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Permission not found" });
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 🔹 Delete a global permission
+exports.deletePermission = async (req, res) => {
+  console.log("Deleting permission with ID:", req.params.id);
+
+  try {
+    const deleted = await Permission.findByIdAndDelete(req.params.id);
+    console.log(deleted);
+
+    if (!deleted) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Permission not found" });
+    }
+
+    // also remove this permission from all roles that reference it
+    await PermissionByRole.updateMany(
+      { permissions: deleted._id },
+      { $pull: { permissions: deleted._id } }
+    );
+
+    res.json({ success: true, message: "Permission deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
