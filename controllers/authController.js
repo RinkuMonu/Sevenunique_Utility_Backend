@@ -21,7 +21,7 @@ const sendOtpController = async (req, res) => {
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
-    
+
     const otp = await generateOtp(mobileNumber);
     const smsResult = await sendOtp(mobileNumber, otp);
     if (smsResult.success) {
@@ -469,7 +469,8 @@ const getUserController = async (req, res) => {
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
-      });
+      })
+      .populate("extraPermissions");
 
     if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
@@ -516,40 +517,51 @@ const getUsersWithFilters = async (req, res) => {
       isKycVerified,
       inactiveOrUnverified,
     } = req.query;
+    console.log("query...", req.query);
 
-    const filter = {};
+    const andConditions = [];
 
     if (keyword) {
-      filter.$or = [
-        { name: { $regex: keyword, $options: "i" } },
-        { email: { $regex: keyword, $options: "i" } },
-        { mobileNumber: { $regex: keyword, $options: "i" } },
-      ];
-    }
-
-    if (role) {
-      filter.role = role;
+      andConditions.push({
+        $or: [
+          { name: { $regex: keyword, $options: "i" } },
+          { email: { $regex: keyword, $options: "i" } },
+          { mobileNumber: { $regex: keyword, $options: "i" } },
+        ],
+      });
     }
 
     if (inactiveOrUnverified === true || inactiveOrUnverified === "true") {
-      filter.$or = [{ status: false }, { isKycVerified: false }];
+      andConditions.push({
+        $or: [{ status: false }, { isKycVerified: false }],
+      });
     } else {
-      if (status) filter.status = status === "true";
-      if (isKycVerified) filter.isKycVerified = isKycVerified === "true";
+      if (status) andConditions.push({ status: status === "true" });
+      if (isKycVerified)
+        andConditions.push({ isKycVerified: isKycVerified === "true" });
     }
 
-    console.log("filter....", filter, "&&", status);
+    // 🔹 Role filter
+    if (role) {
+      andConditions.push({ role });
+    }
 
+    // 🔹 Date range filter
     if (from || to) {
-      filter.createdAt = {};
-      if (from) filter.createdAt.$gte = new Date(from);
-      if (to) filter.createdAt.$lte = new Date(to);
+      const dateFilter = {};
+      if (from) dateFilter.$gte = new Date(from);
+      if (to) dateFilter.$lte = new Date(to);
+      andConditions.push({ createdAt: dateFilter });
     }
 
+    // 🔹 Distributor restriction
     const loggedInUser = req.user;
     if (loggedInUser.role === "Distributor") {
-      filter.distributorId = loggedInUser.id;
+      andConditions.push({ distributorId: loggedInUser.id });
     }
+
+    // Final filter
+    const filter = andConditions.length > 0 ? { $and: andConditions } : {};
 
     const sort = {};
     sort[sortBy] = order === "asc" ? 1 : -1;
@@ -558,9 +570,8 @@ const getUsersWithFilters = async (req, res) => {
 
     let users = await User.find(filter)
       .sort(sort)
-      .skip(skip) // ✅ hamesha frontend ke page ke hisaab se skip karo
-      .limit(parseInt(limit)); // ✅ hamesha frontend ke rowsPerPage ke hisaab se limit karo
-
+      .skip(skip)
+      .limit(parseInt(limit));
     // .skip(exportType !== "false" ? 0 : skip)
     // .limit(
     //   exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
@@ -582,7 +593,7 @@ const getUsersWithFilters = async (req, res) => {
         };
       })
     );
-    console.log(users);
+    // console.log(users);
 
     const fields = [
       "name",
@@ -725,6 +736,8 @@ const updateUserDetails = async (req, res) => {
       cappingMoney,
       eWallet,
       meta,
+      password,
+      mpin,
     } = req.body;
 
     if (!userId) {
@@ -743,6 +756,8 @@ const updateUserDetails = async (req, res) => {
     if (cappingMoney !== undefined) user.cappingMoney = cappingMoney;
     if (eWallet !== undefined) user.eWallet = eWallet;
     if (meta) user.meta = meta;
+    if (password) user.password = password;
+    if (mpin) user.mpin = mpin;
 
     await user.save();
     return res.status(200).json({
@@ -1117,7 +1132,7 @@ const updateUserPermissions = async (req, res) => {
 
     res.json({
       ...user.toObject(),
-      effectivePermissions: user.effectivePermissions,
+      effectivePermissions: await user.getEffectivePermissions(),
     });
   } catch (err) {
     console.error("Error in updateUserPermissions:", err);
@@ -1129,17 +1144,17 @@ const updateUserPermissions = async (req, res) => {
 const getUserPermissions = async (req, res) => {
   try {
     // 1️⃣ DB se user nikal lo
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id)
+      .populate("extraPermissions")
+      .populate("restrictedPermissions");
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // 2️⃣ Response me teen cheeze do:
     res.json({
       role: user.role, // user ka role
-      defaultPermissions: user.permissions, // role ke default (User model me jo aa rahe hain)
       extraPermissions: user.extraPermissions, // jo manually SuperAdmin ne add kiye
       restrictedPermissions: user.restrictedPermissions, // jo remove kiye
-      effectivePermissions: user.effectivePermissions, // ✅ final calculated list (virtual getter se)
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

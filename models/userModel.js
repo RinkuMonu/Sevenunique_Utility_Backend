@@ -108,7 +108,7 @@ const userSchema = new mongoose.Schema(
         endDate: Date,
         status: {
           type: String,
-          enum: ["active", "expired", "cancelled"],
+          enum: ["Active", "expired", "cancelled"],
           default: "active",
         },
       },
@@ -187,18 +187,17 @@ const userSchema = new mongoose.Schema(
           match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
         },
       },
-      
     },
-directorKycFiles: [
-        {
-          type: String, // store file URLs/paths
-          trim: true,
-        },
-      ],
-      boardResolution: {
-        type: String, // store file URL/path
+    directorKycFiles: [
+      {
+        type: String, // store file URLs/paths
         trim: true,
       },
+    ],
+    boardResolution: {
+      type: String, // store file URL/path
+      trim: true,
+    },
     rolePermissions: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PermissionByRole",
