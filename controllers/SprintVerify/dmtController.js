@@ -50,10 +50,11 @@ exports.remitterEkyc = async (req, res, next) => {
             accessmode = 'WEB',
             is_iris = 2
         } = req.body;
-
+        console.log("comming for ....... frontend", piddata)
         const key = "655b0df386201f81";
         const iv = "613796a12c285275";
         const encryptedData = encryptPidData(`${piddata}`, key, iv);
+        console.log("encryptedData pid data", encryptedData) 
 
         const response = await axios.post(
             'https://api.paysprint.in/api/v1/service/dmt/kyc/remitter/queryremitter/kyc',
@@ -74,7 +75,7 @@ exports.remitterEkyc = async (req, res, next) => {
             requestData: req.body,
             responseData: response.data
         });
-        console.log("response...............",response);
+        console.log("response...............", response);
         return res.status(200).json({ ...response.data });
 
     } catch (error) {
