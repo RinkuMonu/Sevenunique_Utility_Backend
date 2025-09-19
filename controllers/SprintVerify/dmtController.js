@@ -18,6 +18,7 @@ const headers = {
 }
 
 exports.queryRemitter = async (req, res, next) => {
+
     try {
         const { mobile, lat, long } = req.body;
         const response = await axios.post(
@@ -33,7 +34,7 @@ exports.queryRemitter = async (req, res, next) => {
         return res.status(200).json(response.data);
 
     } catch (error) {
-        console.error(error.response?.data || error.message);
+        console.error("error", error);
         return next(error)
     }
 };
@@ -73,9 +74,11 @@ exports.remitterEkyc = async (req, res, next) => {
             requestData: req.body,
             responseData: response.data
         });
+        console.log("response...............",response);
         return res.status(200).json({ ...response.data });
 
     } catch (error) {
+
         return next(error)
     }
 };
