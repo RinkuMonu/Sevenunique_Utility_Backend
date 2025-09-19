@@ -367,7 +367,7 @@ const buyPlan = async (req, res) => {
 
     const selectedAmount = plan.amount.find((a) => a.type === planType);
     console.log(plan, selectedAmount);
-    
+
     if (!selectedAmount) {
       return res
         .status(400)
@@ -408,7 +408,7 @@ const buyPlan = async (req, res) => {
         planType: userfind.plan.planType,
         startDate: userfind.plan.startDate,
         endDate: userfind.plan.endDate,
-        status: new Date() > userfind.plan.endDate ? "expired" : "cancelled",
+        status: new Date() > userfind.plan.endDate ? "expired" : "Active",
       });
     }
 
@@ -652,5 +652,5 @@ module.exports = {
   buyPlan,
   getUserBuyServices,
   buyPassPlan,
-  removeBuyPassPlan
+  removeBuyPassPlan,
 };
