@@ -55,7 +55,6 @@ const commissionPackageSchema = new mongoose.Schema(
   {
     service: {
       type: String,
-      enum: ["DMT", "AEPS", "PAYIN", "PAYOUT", "Mobile Recharge", "DTH"],
       required: true,
     },
     packageName: { type: String, required: true, unique: true },
