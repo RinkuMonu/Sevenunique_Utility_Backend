@@ -269,6 +269,7 @@ const userSchema = new mongoose.Schema(
         "Api Partner",
         "Admin",
         "superAdmin",
+        "Sub Admin",
       ],
       default: "User",
     },
