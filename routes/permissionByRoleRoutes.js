@@ -13,5 +13,7 @@ router.delete("/:role", roleController.deletePermissionByRole);
 // 🔹 System/global permissions (Permission model)
 router.post("/add", roleController.createPermission); // SuperAdmin naya permission add karega
 router.get("/all/all", roleController.getAllPermissions); // Sabhi permissions list
+router.delete("/deletePermission/:id", roleController.deletePermission); // Sabhi permissions list
+router.put("/editPermission/:id", roleController.updatePermission); // Sabhi permissions list
 
 module.exports = router;
