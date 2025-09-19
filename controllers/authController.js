@@ -1178,7 +1178,7 @@ const getUserPermissions = async (req, res) => {
 };
 
 module.exports = {
-  sendOtpController,
+  sendOtpController, 
   verifyOTPController,
   registerUser,
   loginController,
