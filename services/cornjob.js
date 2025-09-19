@@ -8,6 +8,7 @@ export const planCheckCronJob = () => {
 
     try {
       const now = new Date();
+      
 
       // Sabhi users jinka plan endDate nikal gaya hai
       const expiredUsers = await userModel.find({
