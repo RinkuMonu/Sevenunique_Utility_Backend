@@ -10,6 +10,7 @@ router.get("/allrole", roleController.getAllPermissionsByRole);
 router.get("/:role", roleController.getPermissionByRole);
 router.put("/:role", roleController.updatePermissionByRole);
 router.delete("/:role", roleController.deletePermissionByRole);
+router.put("/rolename/:role", roleController.updateRoleName);
 // 🔹 System/global permissions (Permission model)
 router.post("/add", roleController.createPermission); // SuperAdmin naya permission add karega
 router.get("/all/all", roleController.getAllPermissions); // Sabhi permissions list

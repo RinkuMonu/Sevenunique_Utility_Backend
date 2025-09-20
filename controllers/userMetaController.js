@@ -4,6 +4,7 @@ const User = require("../models/userModel.js");
 const servicesModal = require("../models/servicesModal.js");
 
 // 🔹 Create or Update UserMeta
+
 // exports.upsertUserMeta = async (req, res) => {
 //   console.log(".............",req.body);
 
@@ -62,23 +63,28 @@ exports.upsertUserMeta = async (req, res) => {
     dmtEnabled,
     aepsEnabled,
   } = req.body;
+  let userMeta = await UserMeta.findOne({ userId });
 
   try {
-    const serviceFind = await servicesModal.findOne({ name: services[0].service })
-    if (!serviceFind) {
-      return res.status(500).json({ message: "Service not found" }); 
-    }
-
-    let userMeta = await UserMeta.findOne({ userId });
+    const serviceObjects = await Promise.all(
+      services
+        .filter((s) => s.packageId && s.service)
+        .map(async (s) => {
+          const serviceFind = await servicesModal.findOne({ name: s.service });
+          if (!serviceFind) throw new Error(`Service not found: ${s.service}`);
+          return {
+            serviceId: serviceFind._id,
+            packageId: s.packageId,
+          };
+        })
+    );
+    console.log(serviceObjects);
 
     if (!userMeta) {
       userMeta = await UserMeta.create({
         userId,
         ipWhitelist,
-        services: {
-          serviceId: serviceFind._id,
-          packageId: services.packageId,
-        },
+        services: serviceObjects,
         preferences,
         dmtEnabled,
         aepsEnabled,
@@ -86,7 +92,7 @@ exports.upsertUserMeta = async (req, res) => {
     } else {
       userMeta.ipWhitelist = ipWhitelist ?? userMeta.ipWhitelist;
       userMeta.preferences = preferences ?? userMeta.preferences;
-      userMeta.services = services ?? userMeta.services;
+      userMeta.services = serviceObjects ?? userMeta.services;
       if (dmtEnabled !== undefined) userMeta.dmtEnabled = dmtEnabled;
       if (aepsEnabled !== undefined) userMeta.aepsEnabled = aepsEnabled;
       await userMeta.save();
