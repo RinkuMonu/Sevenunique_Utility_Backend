@@ -53,8 +53,13 @@ const commissionSlabSchema = new mongoose.Schema(
 
 const commissionPackageSchema = new mongoose.Schema(
   {
+    // service: {
+    //   type: String,
+    //   required: true,
+    // },
     service: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
       required: true,
     },
     packageName: { type: String, required: true, unique: true },
