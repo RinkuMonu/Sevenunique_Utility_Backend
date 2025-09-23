@@ -4,6 +4,7 @@ const User = require("../models/userModel.js");
 const servicesModal = require("../models/servicesModal.js");
 
 // 🔹 Create or Update UserMeta
+
 // exports.upsertUserMeta = async (req, res) => {
 //   console.log(".............",req.body);
 
@@ -53,7 +54,7 @@ const servicesModal = require("../models/servicesModal.js");
 // };
 
 exports.upsertUserMeta = async (req, res) => {
-  console.log(".............", req.body);
+  // console.log(".............", req.body);
   const {
     userId,
     ipWhitelist,
@@ -62,33 +63,49 @@ exports.upsertUserMeta = async (req, res) => {
     dmtEnabled,
     aepsEnabled,
   } = req.body;
+  let userMeta = await UserMeta.findOne({ userId });
 
   try {
-    const serviceFind = await servicesModal.findOne({ name: services[0].service })
-    if (!serviceFind) {
-      return res.status(500).json({ message: "Service not found" }); 
-    }
+    const serviceObjects = services
+      .filter((s) => s.packageId && s.service)
+      .map((s) => ({
+        serviceId: s.service, // 👈 direct ObjectId
+        packageId: s.packageId, // 👈 direct ObjectId
+      }));
 
-    let userMeta = await UserMeta.findOne({ userId });
+    // console.log(serviceObjects);
 
     if (!userMeta) {
       userMeta = await UserMeta.create({
         userId,
         ipWhitelist,
-        services: {
-          serviceId: serviceFind._id,
-          packageId: services.packageId,
-        },
+        services: serviceObjects,
         preferences,
         dmtEnabled,
         aepsEnabled,
       });
     } else {
-      userMeta.ipWhitelist = ipWhitelist ?? userMeta.ipWhitelist;
-      userMeta.preferences = preferences ?? userMeta.preferences;
-      userMeta.services = services ?? userMeta.services;
-      if (dmtEnabled !== undefined) userMeta.dmtEnabled = dmtEnabled;
-      if (aepsEnabled !== undefined) userMeta.aepsEnabled = aepsEnabled;
+      userMeta.ipWhitelist = ipWhitelist;
+      userMeta.preferences = preferences;
+
+      if (serviceObjects && serviceObjects.length > 0) {
+        const existingServices = userMeta.services || [];
+        serviceObjects.forEach((newService) => {
+          const index = existingServices.findIndex(
+            (s) => s.serviceId.toString() === newService.serviceId.toString()
+          );
+          if (index > -1) {
+            existingServices[index].packageId = newService.packageId;
+          } else {
+            existingServices.push(newService);
+          }
+        });
+        userMeta.services = existingServices;
+      }
+
+      userMeta.dmtEnabled = dmtEnabled;
+      userMeta.aepsEnabled = aepsEnabled;
+
       await userMeta.save();
     }
 

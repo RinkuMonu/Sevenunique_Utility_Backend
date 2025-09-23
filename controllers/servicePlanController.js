@@ -390,10 +390,14 @@ const buyPassPlan = async (req, res) => {
     let users;
     if (applyToAll) {
       // ✅ Saare Active users ko fetch karo
-      users = await userModel.find({ status: true });
+      users = await userModel.find({ status: true, isKycVerified: true });
     } else if (Array.isArray(userIds) && userIds.length > 0) {
       // ✅ Specific selected users
-      users = await userModel.find({ _id: { $in: userIds } });
+      users = await userModel.find({
+        _id: { $in: userIds },
+        status: true,
+        isKycVerified: true,
+      });
     } else {
       return res
         .status(400)
