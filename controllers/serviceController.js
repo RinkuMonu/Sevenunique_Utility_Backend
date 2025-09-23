@@ -53,7 +53,6 @@ const mongoose = require("mongoose");
 // };
 
 exports.upsertService = async (req, res) => {
-
   try {
     const {
       name,
@@ -63,18 +62,19 @@ exports.upsertService = async (req, res) => {
       defaultSwitch,
       isActive,
       providers, // this can be an array of provider names from your form
-    } = req.body; 
+    } = req.body;
 
     // normalize providers (if user sends string instead of array)
     const providerList = Array.isArray(providers)
       ? providers
       : providers
-        ? [providers]
-        : [];
+      ? [providers]
+      : [];
     let service;
     if (req.query.id) {
-      service = await Service.findOne({ _id: new mongoose.Types.ObjectId(req.query.id) });
-
+      service = await Service.findOne({
+        _id: new mongoose.Types.ObjectId(req.query.id),
+      });
 
       if (service) {
         // update existing
@@ -86,7 +86,7 @@ exports.upsertService = async (req, res) => {
         service.isActive = isActive || service.isActive;
 
         // Replace providers fully from form input
-        service.providers = providerList
+        service.providers = providerList;
 
         await service.save();
       }
@@ -99,7 +99,7 @@ exports.upsertService = async (req, res) => {
         // serviceFor,
         defaultSwitch,
         isActive,
-        providers: providerList
+        providers: providerList,
       });
     }
 
@@ -112,27 +112,15 @@ exports.upsertService = async (req, res) => {
 
 exports.getAllServices = async (req, res) => {
   try {
-    let {
-      page = 1,
-      limit,
-      isActive,
-      providerName,
-      chargeType,
-      name,
-    } = req.query;
+    let { page = 1, limit, isActive, providerName, name } = req.query;
 
     const filter = {};
 
     if (name) filter.name = new RegExp(name, "i");
     if (isActive !== undefined) filter.isActive = isActive === "true";
 
-    if (providerName || chargeType) {
-      filter.providers = {
-        $elemMatch: {
-          ...(providerName && { providerName }),
-          ...(chargeType && { chargeType }),
-        },
-      };
+    if (providerName) {
+      filter.defaultSwitch = { $regex: providerName, $options: "i" };
     }
 
     page = parseInt(page);
@@ -141,6 +129,7 @@ exports.getAllServices = async (req, res) => {
     const skip = limit ? (page - 1) * limit : 0;
 
     const total = await Service.countDocuments(filter);
+    console.log("Total services found:", total);
     let query = Service.find(filter).sort({ createdAt: -1 });
 
     if (limit) {
@@ -163,11 +152,14 @@ exports.getAllServices = async (req, res) => {
 };
 
 exports.getServiceById = async (req, res) => {
+
   try {
     const { id } = req.params;
     const service = await Service.findById(id);
     if (!service) {
-      return res.status(404).json({ success: false, message: "Service not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
     }
     res.json({ success: true, data: service });
   } catch (err) {
@@ -194,7 +186,9 @@ exports.setServiceStatus = async (req, res) => {
 
     const service = await Service.findById(id);
     if (!service) {
-      return res.status(404).json({ success: false, message: "Service not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
     }
     if (service.isActive === isActive) {
       return res.status(200).json({

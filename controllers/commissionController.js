@@ -1,4 +1,6 @@
 const CommissionPackage = require("../models/commissionModel.js");
+const servicesModal = require("../models/servicesModal.js");
+const mongoose = require("mongoose");
 
 // exports.createPackage = async (req, res, next) => {
 //   console.log(req.body);
@@ -35,7 +37,7 @@ exports.createPackage = async (req, res, next) => {
       if (existingDefault) {
         return res.status(400).json({
           success: false,
-          message: `Default package for service "${packageData.service}" already exists (${existingDefault.packageName}).`,
+          message: `Default package for this service is already exists.`,
           existingDefault,
         });
       }
@@ -51,6 +53,14 @@ exports.createPackage = async (req, res, next) => {
       data: newPackage,
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "oops! Package name already exists. Please Choose a different name.",
+        error: error.keyValue,
+      });
+    }
     res.status(500).json({
       success: false,
       message: error.message || "Internal Server Error",
@@ -59,12 +69,26 @@ exports.createPackage = async (req, res, next) => {
 };
 
 exports.getAllPackages = async (req, res) => {
+  console.log("Fetching all commission packages with filters:", req.query);
   try {
-    const { page = 1, limit = 10, service, isActive, packageName } = req.query;
+    const { page, limit, service, isActive, packageName } = req.query;
 
     const query = {};
 
-    if (service) query.service = service;
+    if (service) {
+      if (mongoose.Types.ObjectId.isValid(service)) {
+        query.service = service;
+      } else {
+        const srv = await servicesModal.findOne({ name: service });
+        if (srv?._id) {
+          query.service = srv._id;
+        } else {
+          return res
+            .status(400)
+            .json({ success: false, message: "Invalid service filter" });
+        }
+      }
+    }
 
     if (isActive !== undefined) {
       query.isActive = isActive === "true";
@@ -76,6 +100,7 @@ exports.getAllPackages = async (req, res) => {
 
     const total = await CommissionPackage.countDocuments(query);
     const packages = await CommissionPackage.find(query)
+      .populate("service")
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
       .sort({ createdAt: -1 });
@@ -88,6 +113,7 @@ exports.getAllPackages = async (req, res) => {
       data: packages,
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -105,6 +131,7 @@ exports.getPackageById = async (req, res) => {
 
     res.status(200).json({ success: true, data: pkg });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

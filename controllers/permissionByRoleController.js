@@ -77,6 +77,29 @@ exports.updatePermissionByRole = async (req, res) => {
   }
 };
 
+// 🔹 Update role name
+exports.updateRoleName = async (req, res) => {
+  try {
+    const { role } = req.params; // old role name
+    const { newRole } = req.body; // new role name
+
+    const updated = await PermissionByRole.findOneAndUpdate(
+      { role },
+      { role: newRole }, // 👈 ab role name update karega
+      { new: true }
+    );
+
+    if (!updated)
+      return res
+        .status(404)
+        .json({ success: false, message: "Role not found" });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // 🔹 Delete role permissions
 exports.deletePermissionByRole = async (req, res) => {
   try {

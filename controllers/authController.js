@@ -16,13 +16,13 @@ const ExcelJS = require("exceljs");
 
 const sendOtpController = async (req, res) => {
   try {
-    const { mobileNumber, isRegistered ,ifLogin} = req.body;
-console.log(req.body)
+    const { mobileNumber, isRegistered, ifLogin } = req.body;
+    console.log(req.body);
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
 
-     // Find user once and reuse
+    // Find user once and reuse
     const userExisting = await User.findOne({ mobileNumber });
 
     // Register flow: stop if user already exists
@@ -528,6 +528,7 @@ const getUsersWithFilters = async (req, res) => {
       order = "asc",
       page = 1,
       limit = 10,
+
       exportType = "false",
       status,
       isKycVerified,
@@ -611,19 +612,30 @@ const getUsersWithFilters = async (req, res) => {
     );
     // console.log(users);
 
-    const fields = [
-      "name",
-      "email",
-      "role",
-      "mobileNumber",
-      "status",
-      "distributorId",
-      "isKycVerified",
-      "eWallet",
-      "cappingMoney",
-      "createdAt",
-      "updatedAt",
-    ];
+    let fields = [];
+
+    if (inactiveOrUnverified) {
+      fields = [
+        "name",
+        "email",
+        "role",
+        "mobileNumber",
+        "status",
+        "isKycVerified",
+      ];
+    } else {
+      fields = [
+        "name",
+        "email",
+        "role",
+        "mobileNumber",
+        "status",
+        "isKycVerified",
+        "eWallet",
+        "cappingMoney",
+        "createdAt",
+      ];
+    }
 
     // ========== EXPORT HANDLING ==========
     if (exportType === "csv") {
@@ -659,28 +671,60 @@ const getUsersWithFilters = async (req, res) => {
       doc.fontSize(18).text("Users Report", { align: "center" });
       doc.moveDown();
 
-      const table = {
-        headers: [
+      // 🔹 Agar inactive/unverified users ka export hai
+      let headers, rows;
+      if (inactiveOrUnverified === true || inactiveOrUnverified === "true") {
+        headers = [
           "#",
           "Name",
           "Email",
-          "Mobile Number",
           "Role",
-          "mainWallet",
-          "eWallet",
-          "KYC status",
-        ],
-        rows: users.map((u, i) => [
+          "Mobile Number",
+          "Status",
+          "KYC Status",
+          "Created At",
+        ];
+        rows = users.map((u, i) => [
           i + 1,
           u.name,
           u.email,
-          u.mobileNumber,
           u.role,
-          u.mainWallet,
+          u.mobileNumber,
+          u.status,
+          u.isKycVerified ? "Verified" : "Not Verified",
+          u.createdAt ? new Date(u.createdAt).toLocaleString() : "-",
+        ]);
+      } else {
+        // 🔹 Normal export with more fields
+        headers = [
+          "#",
+          "Name",
+          "Email",
+          "Role",
+          "Mobile Number",
+          "Status",
+          "KYC Status",
+          "eWallet",
+          "Capping Money",
+          "Created At",
+          "Updated At",
+        ];
+        rows = users.map((u, i) => [
+          i + 1,
+          u.name,
+          u.email,
+          u.role,
+          u.mobileNumber,
+          u.status,
+          u.isKycVerified ? "Verified" : "Not Verified",
           u.eWallet,
-          u.isKycVerified,
-        ]),
-      };
+          u.cappingMoney,
+          u.createdAt ? new Date(u.createdAt).toLocaleString() : "-",
+          u.updatedAt ? new Date(u.updatedAt).toLocaleString() : "-",
+        ]);
+      }
+
+      const table = { headers, rows };
 
       await doc.table(table, { width: 500 });
       doc.end();
@@ -736,6 +780,7 @@ const updateUserStatus = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error in updateUserStatus:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -1178,7 +1223,7 @@ const getUserPermissions = async (req, res) => {
 };
 
 module.exports = {
-  sendOtpController, 
+  sendOtpController,
   verifyOTPController,
   registerUser,
   loginController,
