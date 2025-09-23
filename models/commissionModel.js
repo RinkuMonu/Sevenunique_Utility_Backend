@@ -16,28 +16,21 @@ const commissionSlabSchema = new mongoose.Schema(
         "Sun Direct",
       ],
     },
-    // provider: {
-    //   type: String,
-    //   enum: [
-    //     "billAvenue",
-    //     "spritVerify",
-    //     "serverMaintenance",
-    //     "Mobikwik",
-    //     "A2",
-    //     "A3",
-    //     "A4",
-    //     "A5",
-    //     "A6",
-    //     "A7",
-    //     "A8",
-    //   ],
-    // },
     minAmount: { type: Number, required: true },
     maxAmount: { type: Number, required: true },
     commissionType: {
       type: String,
-      enum: ["flat", "percentage"],
+      enum: ["flat", "percentage", "slab"],
       default: "flat",
+    },
+    chargeAmount: {
+      type: Number,
+    },
+
+    commissionMethod: {
+      type: String,
+      enum: ["fixed", "percentage", "slab"],
+      default: "fixed",
     },
     retailer: { type: Number, required: true },
     type: {
@@ -53,10 +46,6 @@ const commissionSlabSchema = new mongoose.Schema(
 
 const commissionPackageSchema = new mongoose.Schema(
   {
-    // service: {
-    //   type: String,
-    //   required: true,
-    // },
     service: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",
@@ -76,6 +65,7 @@ const commissionPackageSchema = new mongoose.Schema(
     aepsMiniStatement: { type: Number, default: 0 },
     aepsBalanceEnquiry: { type: Number, default: 0 },
   },
+
   {
     timestamps: true,
   }
