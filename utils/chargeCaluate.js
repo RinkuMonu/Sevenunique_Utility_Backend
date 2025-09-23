@@ -2,36 +2,137 @@ const User = require("../models/userModel");
 const UserMeta = require("../models/userMetaModel");
 const Service = require("../models/servicesModal");
 const mongoose = require("mongoose");
-const logger= require("./logger");
+const logger = require("./logger");
+const commissionModel = require("../models/commissionModel");
 
 
-function calculateCommissionFromSlabs(amount, slabs, gstRate = 18, tdsRate = 5) {
-  const matchedSlab = slabs.find(slab => amount >= slab.minAmount && amount <= slab.maxAmount);
+// function calculateCommissionFromSlabs(amount, slabs) {
+//   if (!slabs || !slabs.slabs?.length) {
+//     throw new Error("No slabs found in the package");
+//   }
 
-  if (!matchedSlab) {
-    throw new Error(`No matching commission slab found for amount ₹${amount}`);
+//   if (slabs[0].minAmount > amount) {
+//     throw new Error(`Minium Amount required ₹${slabs[0].minAmount}`);
+//   }
+//   if (slabs[slabs.length - 1].maxAmount < amount) {
+//     throw new Error(`Max Amount required ₹${slabs[slabs.length - 1].maxAmount}`);
+//   }
+//   const matchedSlab = slabs.find(slab => amount >= slab.minAmount && amount <= slab.maxAmount);
+
+//   if (!matchedSlab) {
+//     throw new Error(`No matching commission slab found for amount ₹${amount}`);
+//   }
+
+//   const calc = (val) =>
+//     matchedSlab.commissionType === 'percentage' ? (val * amount) / 100 : val;
+
+//   const retailer = calc(matchedSlab.retailer);
+//   const distributor = calc(matchedSlab.distributor);
+//   const admin = calc(matchedSlab.admin);
+
+//   const gst = (amount * slabs.gst) / 100;
+//   const tds = (amount * slabs.tds) / 100;
+
+//   return {
+//     amount,
+//     slabRange: `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]`,
+//     commissionType: matchedSlab.commissionType,
+//     retailer: +retailer.toFixed(2),
+//     distributor: +distributor.toFixed(2),
+//     admin: +admin.toFixed(2),
+//     gst: +gst.toFixed(3),
+//     tds: +tds.toFixed(3),
+//     totalCommission: +(retailer + distributor + admin + gst + tds).toFixed(2)
+//   };
+// }
+
+
+function calculateCommissionFromSlabs(amount, packageData) {
+  if (!packageData || !packageData.slabs?.length) {
+    throw new Error("No slabs found in the package");
   }
 
-  const calc = (val) =>
-    matchedSlab.commissionType === 'percentage' ? (val * amount) / 100 : val;
+  let matchedSlab;
 
-  const retailer = calc(matchedSlab.retailer);
-  const distributor = calc(matchedSlab.distributor);
-  const admin = calc(matchedSlab.admin);
+  // Slab handling only if commissionType = slab
+  if (packageData.slabs[0].commissionMethod === "slab") {
+    const firstSlab = packageData.slabs[0];
+    const lastSlab = packageData.slabs[packageData.slabs.length - 1];
 
-  const gst = (retailer * gstRate) / 100;
-  const tds = (retailer * tdsRate) / 100;
+    if (amount < firstSlab.minAmount) {
+      throw new Error(`Minimum amount allowed is ₹${firstSlab.minAmount}`);
+    }
+    if (amount > lastSlab.maxAmount) {
+      throw new Error(`Maximum amount allowed is ₹${lastSlab.maxAmount}`);
+    }
+
+    matchedSlab = packageData.slabs?.find(
+      (slab) => amount >= slab.minAmount && amount <= slab.maxAmount
+    );
+    if (!matchedSlab) {
+      throw new Error(`Amount ₹${amount} not in any slab range`);
+    }
+  } else {
+    matchedSlab = packageData.slabs[0];
+  }
+
+  // 🟢 Calculation helper
+  const calc = (val) => {
+    if (!val) return 0;
+
+    if (matchedSlab.commissionMethod === "fixed") return val;
+    if (matchedSlab.commissionMethod === "percentage") return (val * amount) / 100;
+
+    if (matchedSlab.commissionMethod === "slab") {
+      if (matchedSlab.commissionType === "flat") return val;
+      if (matchedSlab.commissionType === "percentage") return (val * amount) / 100;
+    }
+
+    return 0;
+  };
+
+  // 🟢 Commission / Charge calculation
+  let retailerAmt = 0,
+    distributorAmt = 0,
+    adminAmt = 0,
+    chargeAmount = 0;
+
+  if (matchedSlab.type === "charges") {
+
+    chargeAmount = matchedSlab.chargeAmount || 0;
+
+
+    retailerAmt = -calc(chargeAmount);
+    distributorAmt = calc(matchedSlab.distributor);
+    adminAmt = calc(matchedSlab.admin);
+  } else if (matchedSlab.type === "commission") {
+
+    retailerAmt = calc(matchedSlab.retailer);
+    distributorAmt = calc(matchedSlab.distributor);
+    adminAmt = calc(matchedSlab.admin);
+  }
+
+  // GST & TDS package level
+  const gst = (amount * (packageData.gst || 0)) / 100;
+  const tds = (amount * (packageData.tds || 0)) / 100;
 
   return {
     amount,
-    slabRange: `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]`,
+    slabRange:
+      matchedSlab.commissionMethod === `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]`,
+    type: matchedSlab.type, // charges / commission
+    commissionMethod: matchedSlab.commissionMethod,
     commissionType: matchedSlab.commissionType,
-    retailer: +retailer.toFixed(2),
-    distributor: +distributor.toFixed(2),
-    admin: +admin.toFixed(2),
-    gst: +gst.toFixed(3),
-    tds: +tds.toFixed(3),
-    totalCommission: +(retailer + distributor + admin + gst + tds).toFixed(2)
+
+    retailer: +(chargeAmount ? -chargeAmount : retailerAmt).toFixed(2),
+    distributor: +distributorAmt.toFixed(2),
+    admin: +adminAmt.toFixed(2),
+    gst: +gst.toFixed(2),
+    tds: +tds.toFixed(2),
+
+    totalCommission: +(
+      retailerAmt + distributorAmt + adminAmt + gst + tds
+    ).toFixed(2),
   };
 }
 
@@ -46,15 +147,21 @@ const getApplicableServiceCharge = async (userId, serviceName) => {
     Service.findOne({ name: serviceName })
   ]);
 
-  if (!user || !user.status) {
-    throw new Error("User not found or inactive");
+  if (!user) {
+    throw new Error("User not found.");
   }
-  if (!user || !user.isKycVerified) {
+  if (!user.status) {
+    throw new Error("User inactive");
+  }
+  if (!user.isKycVerified) {
     throw new Error("User Kyc not verified");
   }
 
-  if (!service || !service.isActive) {
-    throw new Error("Service not found or inactive");
+  if (!service) {
+    throw new Error("Service not found.");
+  }
+  if (!service.isActive) {
+    throw new Error("Service inactive");
   }
 
   if (user.isSpecial) {
@@ -65,39 +172,53 @@ const getApplicableServiceCharge = async (userId, serviceName) => {
     }
 
     const matchedService = userMeta.services.find(
-      (s) => s.serviceId.toString() === service?._id.toString() && s.status === "active"
-    );
+      (s) => s.serviceId.toString() === service?._id.toString());
 
     if (matchedService) {
+      const commission = await commissionModel.findById(matchedService.packageId)
+      if (!commission) {
+        throw new Error("Package not found");
+      }
       return {
         source: "UserMeta",
-        chargeType: matchedService.chargeType,
-        serviceCharges: matchedService.serviceCharges,
-        gst: matchedService.gst,
-        tds: matchedService.tds,
-        distributorCommission: matchedService.distributorCommission,
-        adminCommission: matchedService.adminCommission,
+        // chargeType: matchedService.chargeType,
+        // serviceCharges: matchedService.serviceCharges,
+        gst: commission.gst,
+        tds: commission.tds,
+        // distributorCommission: matchedService.distributorCommission,
+        // adminCommission: matchedService.adminCommission,
       };
     }
   }
 
   // Fallback to default provider from Service
   const matchedProvider = service.providers.find(
-    (p) => p.providerName === service.defaultSwitch
+    (p) => p === service.defaultSwitch
   );
 
   if (!matchedProvider) {
     throw new Error("No matching default provider found in Service");
   }
 
+  const commission = await commissionModel.findOne({
+    service: service._id,
+    isDefault: true,
+    isActive: true
+  });
+
+  if (!commission) {
+    throw new Error("commission not found.");
+
+  }
+
   return {
-    source: "Service",
-    chargeType: matchedProvider.chargeType || "fixed",
-    serviceCharges: matchedProvider.serviceCharges || 0,
-    gst: matchedProvider.gst || 0,
-    tds: matchedProvider.tds || 0,
-    distributorCommission: matchedProvider.distributorCommission || 0,
-    adminCommission: matchedProvider.adminCommission || 0,
+    source: `${commission.packageName}`,
+    // chargeType: matchedProvider.chargeType || "fixed",
+    // serviceCharges: matchedProvider.serviceCharges || 0,
+    gst: commission.gst || 0,
+    tds: commission.tds || 0,
+    // distributorCommission: matchedProvider.distributorCommission || 0,
+    // adminCommission: matchedProvider.adminCommission || 0,
   };
 };
 
