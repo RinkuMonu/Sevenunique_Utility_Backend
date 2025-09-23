@@ -17,10 +17,10 @@ async function distributeCommission({
     }
 
     let distributorAmount = 0;
-    if (commission.commissionType === "fixed") {
-      distributorAmount = commission.distributor || 0;
-    } else if (commission.commissionType === "percentage") {
-      distributorAmount = ((commission.distributor || 0) / 100) * amount;
+    if (commission.commissionMethod === "fixed") {
+      distributorAmount = Number(commission.distributor) || 0;
+    } else if (commission.commissionMethod === "percentage") {
+      distributorAmount = ((Number(commission.distributor) || 0) / 100) * Number(amount);
     }
 
     if (distributorAmount > 0) {

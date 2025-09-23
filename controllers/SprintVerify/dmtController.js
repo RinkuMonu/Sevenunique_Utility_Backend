@@ -11,15 +11,26 @@ const mongoose = require('mongoose');
 const getDmtOrAepsMeta = require('../../utils/aeps&DmtCommmsion.js');
 const { calculateCommissionFromSlabs, getApplicableServiceCharge, logApiCall } = require('../../utils/chargeCaluate.js');
 const { distributeCommission } = require('../../utils/distributerCommission.js');
+const commissionModel = require('../../models/commissionModel.js');
+const getCommissionPackage = require('../../utils/aeps&DmtCommmsion.js');
 
-const headers = {
-    'Token': generatePaysprintJWT(),
-    'Authorisedkey': 'MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=',
+// const headers = {
+//     'Token': generatePaysprintJWT(),
+//     'Authorisedkey': 'MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=',
+// }
+function getPaysprintHeaders() {
+    return {
+        'Token': generatePaysprintJWT(),
+        Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
+        // Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE="
+    };
 }
 
 exports.queryRemitter = async (req, res, next) => {
 
     try {
+        const headers = getPaysprintHeaders();
+        console.log(headers)
         const { mobile, lat, long } = req.body;
         const response = await axios.post(
             'https://api.paysprint.in/api/v1/service/dmt/kyc/remitter/queryremitter',
@@ -40,52 +51,67 @@ exports.queryRemitter = async (req, res, next) => {
 };
 
 exports.remitterEkyc = async (req, res, next) => {
+    console.log(getPaysprintHeaders());
     try {
+        const headers = getPaysprintHeaders();
         const {
             mobile,
             lat,
             long,
             aadhaar_number,
             piddata,
-            accessmode = 'WEB',
-            is_iris = 2
+            accessmode = "WEB",
+            is_iris = 2,
         } = req.body;
-        console.log("comming for ....... frontend", piddata)
+
+        // PIDDATA preview (first 200 chars)
+        console.log("📄 PIDDATA (raw, first 200 chars):", piddata);
+
         const key = "655b0df386201f81";
         const iv = "613796a12c285275";
-        const encryptedData = encryptPidData(`${piddata}`, key, iv); 
-        console.log("encryptedData pid data", encryptedData) 
+
+        const encryptedData = encryptPidData(`${piddata}`, key, iv);
+        console.log("🔒 Encrypted sample (first 80 chars):", encryptedData);
+
+        const finalBody = {
+            mobile: Number(mobile),
+            lat,
+            long,
+            aadhaar_number,
+            data: encryptedData,
+            accessmode,
+            is_iris,
+        };
+
+        console.log("📤 Final API Request Body (preview):", {
+            ...finalBody,
+            data: encryptedData.slice(0, 60) + "...",
+        });
 
         const response = await axios.post(
-            'https://api.paysprint.in/api/v1/service/dmt/kyc/remitter/queryremitter/kyc',
-            {
-                mobile: Number(mobile),
-                lat,
-                long,
-                aadhaar_number,
-                data: encryptedData,
-                accessmode,
-                is_iris
-            },
+            "https://api.paysprint.in/api/v1/service/dmt/kyc/remitter/queryremitter/kyc",
+            finalBody,
             { headers }
         );
+
+        console.log("✅ Paysprint Response:", response.data);
+
         logApiCall({
-
             url: "https://api.paysprint.in/api/v1/service/dmt/kyc/remitter/queryremitter/kyc",
-            requestData: req.body,
-            responseData: response.data
+            requestData: finalBody,
+            responseData: response.data,
         });
-        console.log("response...............", response);
+
         return res.status(200).json({ ...response.data });
-
     } catch (error) {
-
-        return next(error)
+        console.error("❌ EKYC API Error:", error.response?.data || error.message);
+        return next(error);
     }
 };
 
 exports.registerRemitter = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const { mobile, otp, stateresp, ekyc_id } = req.body;
 
         const response = await axios.post(
@@ -113,6 +139,7 @@ exports.registerRemitter = async (req, res, next) => {
 
 exports.registerBeneficiary = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const {
             mobile,
             benename,
@@ -170,6 +197,7 @@ exports.registerBeneficiary = async (req, res, next) => {
 
 exports.deleteBeneficiary = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const { mobile, bene_id } = req.body;
         if (!mobile || !bene_id) {
             return res.status(400).json({ error: true, message: "mobile and bene_id are required" });
@@ -196,6 +224,7 @@ exports.deleteBeneficiary = async (req, res, next) => {
 
 exports.fetchBeneficiary = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const { mobile } = req.query;
         if (!mobile) {
             return res.status(400).json({ error: true, message: "mobile is required" });
@@ -219,6 +248,7 @@ exports.fetchBeneficiary = async (req, res, next) => {
 
 exports.BeneficiaryById = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const { mobile, beneid } = req.query;
 
         if (!mobile) {
@@ -249,6 +279,7 @@ exports.PennyDrop = async (req, res, next) => {
     session.startTransaction();
 
     try {
+        const headers = getPaysprintHeaders();
         const {
             mobile,
             accno,
@@ -402,9 +433,9 @@ exports.PennyDrop = async (req, res, next) => {
     }
 };
 
-
 exports.sendTransactionOtp = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const {
             mobile,
             referenceid,
@@ -458,6 +489,7 @@ exports.performTransaction = async (req, res, next) => {
     session.startTransaction();
 
     try {
+        const headers = getPaysprintHeaders();
         const {
             mobile,
             referenceid,
@@ -474,10 +506,13 @@ exports.performTransaction = async (req, res, next) => {
             long = "78.345678"
         } = req.body;
 
-        await getApplicableServiceCharge(req.user.id, "DMT");
+        await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
 
-        const { commissionPackage } = await getDmtOrAepsMeta(req.user.id, "DMT");
+        const commissionPackage = await getCommissionPackage(req.user.id, "DMT Money Transfer");
 
+        if (!commissionPackage) {
+            return res.status(400).json({ success: false, message: "DMT package not found" });
+        }
         if (!commissionPackage?.isActive) {
             return res.status(400).json({ success: false, message: "DMT package not active for this user" });
         }
@@ -497,18 +532,25 @@ exports.performTransaction = async (req, res, next) => {
             return res.status(400).json({ error: true, message: `Missing required fields: ${missingFields.join(', ')}` });
         }
 
-        let commission = calculateCommissionFromSlabs(amount, commissionPackage?.slabs || [])
+        let commission = calculateCommissionFromSlabs(amount, commissionPackage || [])
 
         const user = await userModel.findById(userId).session(session);
         if (!user) {
             return res.status(404).json({ error: true, message: "User not found" });
         }
+        const usableBalance = user.eWallet - (user.cappingMoney || 0);
+        const required = Number(amount) + commission.totalCommission;
 
-        if (user.eWallet < (Number(amount) + commission.totalCommission)) {
-            return res.status(400).json({ error: true, message: "Insufficient wallet balance" });
+        if (usableBalance < required) {
+            return res.status(400).json({
+                error: true,
+                message: `Insufficient wallet balance. You must maintain ₹${user.cappingMoney} in your wallet. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
+            });
+
         }
 
-        user.eWallet -= (Number(amount) + commission.totalCommission);
+
+        user.eWallet -= required;
 
         await user.save({ session });
 
@@ -579,8 +621,9 @@ exports.performTransaction = async (req, res, next) => {
                     netcommission: parseFloat(result.netcommission || 0),
                 },
                 charges: {
-                    distributor: 0,
-                    admin: commission.totalCommission
+                    retailer: commission.retailer,
+                    distributor: commission.distributor,
+                    admin: commission.admin
                 },
                 NPCI_response_code: result.NPCI_response_code || '',
                 bank_status: result.bank_status || ''
@@ -610,7 +653,7 @@ exports.performTransaction = async (req, res, next) => {
                 PayOut.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }).session(session)
             ]);
 
-            throw new Error(result.message || "Transaction failed at provider");
+            throw new Error(result.message || result.remarks || "Transaction failed at provider");
         }
 
         await session.commitTransaction();
@@ -626,6 +669,7 @@ exports.performTransaction = async (req, res, next) => {
 
 exports.TrackTransaction = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const {
             referenceid,
         } = req.body;
@@ -654,6 +698,7 @@ exports.TrackTransaction = async (req, res, next) => {
 
 exports.RefundOtp = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const {
             referenceid,
             ackno
@@ -682,6 +727,7 @@ exports.RefundOtp = async (req, res, next) => {
 
 exports.Refund = async (req, res, next) => {
     try {
+        const headers = getPaysprintHeaders();
         const {
             referenceid,
             ackno, otp

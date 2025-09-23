@@ -21,20 +21,29 @@ const generateJwtToken = (userId, role, mobileNumber) => {
 };
 
 function encryptPidData(piddata, key, iv) {
-  // Convert hex string to buffer
-  const keyBuf = Buffer.isBuffer(key) ? key : Buffer.from(key, "hex");
-  const ivBuf = Buffer.isBuffer(iv) ? iv : Buffer.from(iv, "hex");
+  // Auto-detect hex vs utf8
+  let keyBuf, ivBuf;
+  if (key.length === 32) {
+    keyBuf = Buffer.from(key, "hex");
+  } else {
+    keyBuf = Buffer.from(key, "utf8");
+  }
 
-  // AES-128-CBC encrypt
+  if (iv.length === 32) {
+    ivBuf = Buffer.from(iv, "hex");
+  } else {
+    ivBuf = Buffer.from(iv, "utf8");
+  }
+
+  console.log("🔑 Key length:", keyBuf.length, "IV length:", ivBuf.length);
+
   const cipher = crypto.createCipheriv("aes-128-cbc", keyBuf, ivBuf);
-  const raw = Buffer.concat([
-    cipher.update(piddata, "utf8"),
-    cipher.final(),
-  ]);
-
-  // Return base64
+  const raw = Buffer.concat([cipher.update(piddata, "utf8"), cipher.final()]);
   return raw.toString("base64");
 }
+
+
+
 
 
 module.exports = { generateJwtToken, encryptPidData };
