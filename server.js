@@ -17,12 +17,20 @@ const apiLogger = require("./middleware/apiLogger.js");
 const authenticateToken = require("./middleware/verifyToken.js");
 const NewsRouter = require("./routes/news.routes.js");
 const { getAllRole } = require("./controllers/permissionByRoleController.js");
+const { planCheckCronJob } = require("./services/cornjob.js");
 
 const app = express();
+planCheckCronJob()
+
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://utility.finuniques.in"
+];
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: allowedOrigins,
 
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
@@ -33,7 +41,7 @@ app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
- 
+
 // app.use(apiLogger);
 
 app.use("/api/v1/auth", authRoutes);
