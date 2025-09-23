@@ -6,10 +6,13 @@ const Transaction = require("../../models/transactionModel");
 const bbpsModel = require("../../models/bbpsModel");
 const { getApplicableServiceCharge, applyServiceCharges, logApiCall } = require("../../utils/chargeCaluate");
 
-const headers = {
-  Token: generatePaysprintJWT(),
-  Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
-};
+function getPaysprintHeaders() {
+  return {
+    Token: generatePaysprintJWT(),
+    // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
+    Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE="
+  };
+}
 
 const generateReferenceId = () => {
   const timestamp = Date.now().toString(36); // Short base36 timestamp
@@ -25,6 +28,8 @@ const handleApiError = (error) => ({
 });
 
 const handleResponse = (res, data, successMessage) => {
+  console.log(data);
+
   if (data.response_code === 1) {
     return res.status(200).json({
       status: "success",
@@ -40,7 +45,7 @@ const handleResponse = (res, data, successMessage) => {
 };
 
 const getSourceCities = async (req, res, next) => {
-
+  const headers = getPaysprintHeaders();
   try {
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/source",
@@ -50,7 +55,6 @@ const getSourceCities = async (req, res, next) => {
     // logApiCall({
     //   tag: "/bus/ticket/source",
     //   // requestData: req.body,
-    //   responseData: response.data
     // });
     handleResponse(res, response.data, "Source cities fetched successfully");
   } catch (error) {
@@ -61,6 +65,7 @@ const getSourceCities = async (req, res, next) => {
 };
 
 const getAvailableTrips = async (req, res) => {
+  const headers = getPaysprintHeaders();
   const { source_id, destination_id, date_of_journey } = req.body;
   if (!source_id || !destination_id || !date_of_journey) {
     res.status(400).json({ status: "failed", message: "all field are required" })
@@ -87,6 +92,7 @@ const getAvailableTrips = async (req, res) => {
 const getTripDetails = async (req, res) => {
   const { trip_id } = req.body;
   try {
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/tripdetails",
       { trip_id },
@@ -106,6 +112,7 @@ const getTripDetails = async (req, res) => {
 const getBoardingPointDetail = async (req, res) => {
   const { bpId, trip_id } = req.body;
   try {
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/boardingPoint",
       { bpId, trip_id },
@@ -139,6 +146,7 @@ const blockTicket = async (req, res) => {
   }
 
   try {
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/blockticket",
       req.body,
@@ -162,6 +170,8 @@ const bookTicket = async (req, res) => {
   const session = await startSession();
   session.startTransaction();
   try {
+    const headers = getPaysprintHeaders();
+
     const userId = req.user.id;
     const { amount, passenger_phone, passenger_email, mpin, ...bookingData } = req.body;
     let commissions = await getApplicableServiceCharge(req.user.id, "Bus Booking")
@@ -193,7 +203,7 @@ const bookTicket = async (req, res) => {
       { amount, passenger_phone, passenger_email, ...bookingData, refid: referenceid },
       { headers }
     );
- 
+
 
     logApiCall({
       tag: "bus/ticket/bookticket",
@@ -273,10 +283,12 @@ const bookTicket = async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
+
     await session.abortTransaction();
     session.endSession();
     return res.status(500).json({
-      status: "error",
+      status: "error", 
       message: error.message,
       details: error.response?.data || null,
     });
@@ -286,6 +298,8 @@ const bookTicket = async (req, res) => {
 const checkBookedTicket = async (req, res) => {
   const { refid } = req.body;
   try {
+    const headers = getPaysprintHeaders();
+
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/check_booked_ticket",
       { refid },
@@ -305,6 +319,8 @@ const checkBookedTicket = async (req, res) => {
 const getTicketDetails = async (req, res) => {
   const { refid } = req.body;
   try {
+    const headers = getPaysprintHeaders();
+
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/get_ticket",
       { refid },
@@ -325,6 +341,8 @@ const getCancellationData = async (req, res) => {
   const { refid } = req.body;
 
   try {
+    const headers = getPaysprintHeaders();
+
     const response = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/get_cancellation_data",
       { refid },
@@ -348,6 +366,8 @@ const cancelTicket = async (req, res) => {
   session.startTransaction();
 
   try {
+    const headers = getPaysprintHeaders();
+
     // First check if the ticket exists in our system
     const booking = await booking.findOne({ refid }).session(session);
     if (!booking) {

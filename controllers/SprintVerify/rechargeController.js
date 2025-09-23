@@ -9,10 +9,11 @@ const { getApplicableServiceCharge, applyServiceCharges, logApiCall } = require(
 const { distributeCommission } = require("../../utils/distributerCommission.js");
 
 
-const headers = {
-  'Token': generatePaysprintJWT(),
-  // 'Authorisedkey': 'MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=',
-  'Authorisedkey': 'MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=',
+function getPaysprintHeaders() {
+  return {
+    Token: generatePaysprintJWT(),
+    Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=" // apna actual key
+  };
 }
 
 const generateReferenceId = () => {
@@ -378,6 +379,9 @@ exports.checkRechargeStatus = async (req, res, next) => {
 };
 
 exports.getBillOperatorList = async (req, res) => {
+  const headers = getPaysprintHeaders();
+
+  
   const { mode = "online" } = req.body;
   try {
     const response = await axios.post(
@@ -417,6 +421,7 @@ exports.fetchBillDetails = async (req, res) => {
   }
 
   try {
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://api.paysprint.in/api/v1/service/bill-payment/bill/fetchbill",
       { operator, canumber, mode, ...extraFields },
@@ -439,6 +444,9 @@ exports.fetchBillDetails = async (req, res) => {
     }
     return res.status(400).json({ ...data, status: "fail", message: data.message || "Bill fetch failed" });
   } catch (error) {
+
+    console.log(error);
+
     return res.status(500).json({
       status: "error",
       message: error.response?.data?.message || "Bill fetch API failed",
