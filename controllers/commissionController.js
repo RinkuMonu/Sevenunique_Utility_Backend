@@ -37,7 +37,7 @@ exports.createPackage = async (req, res, next) => {
       if (existingDefault) {
         return res.status(400).json({
           success: false,
-          message: `Default package for service "${packageData.service}" already exists (${existingDefault.packageName}).`,
+          message: `Default package for this service is already exists.`,
           existingDefault,
         });
       }
@@ -53,6 +53,14 @@ exports.createPackage = async (req, res, next) => {
       data: newPackage,
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "oops! Package name already exists. Please Choose a different name.",
+        error: error.keyValue,
+      });
+    }
     res.status(500).json({
       success: false,
       message: error.message || "Internal Server Error",
