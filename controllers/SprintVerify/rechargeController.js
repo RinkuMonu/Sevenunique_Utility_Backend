@@ -5,7 +5,7 @@ const PayOut = require("../../models/payOutModel.js")
 const Transaction = require("../../models/transactionModel.js");
 const userModel = require("../../models/userModel.js");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, applyServiceCharges, logApiCall } = require("../../utils/chargeCaluate.js");
+const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate.js");
 const { distributeCommission } = require("../../utils/distributerCommission.js");
 
 
@@ -25,6 +25,7 @@ const generateReferenceId = () => {
 exports.hlrCheck = async (req, res, next) => {
   const { number, type } = req.body;
   try {
+    const headers = getPaysprintHeaders();
     const apiUrl = "https://api.paysprint.in/api/v1/service/recharge/hlrapi/hlrcheck";
     const requestData = {
       number,
@@ -50,6 +51,7 @@ exports.hlrCheck = async (req, res, next) => {
 exports.browsePlan = async (req, res, next) => {
   const { circle, op } = req.query;
   try {
+    const headers = getPaysprintHeaders();
     const apiUrl = "https://api.paysprint.in/api/v1/service/recharge/hlrapi/browseplan";
     const requestData = {
       circle,
@@ -74,6 +76,7 @@ exports.browsePlan = async (req, res, next) => {
 exports.dthPlan = async (req, res, next) => {
   const { canumber, op } = req.body;
   try {
+    const headers = getPaysprintHeaders();
     const apiUrl = "https://api.paysprint.in/api/v1/service/recharge/hlrapi/dthinfo";
     const requestData = {
       canumber,
@@ -96,6 +99,7 @@ exports.dthPlan = async (req, res, next) => {
 
 exports.getOperatorList = async (req, res, next) => {
   try {
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://api.paysprint.in/api/v1/service/recharge/recharge/getoperator",
       {},
@@ -155,48 +159,62 @@ exports.doRecharge = async (req, res, next) => {
     console.log("🔁 Starting Recharge Flow...");
 
     // ✅ Get service charges
-    const commissions = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge");
+    const commissions = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
     console.log("💰 Service charges & meta:", commissions);
 
     // ✅ Apply base service charges
-    const charges = applyServiceCharges(amount, commissions);
-    console.log("💸 Charges applied:", charges);
+    // const charges = applyServiceCharges(amount, commissions);
+    // console.log("💸 Charges applied:", charges);
 
     // ✅ Check for slabs
     let commission = { retailer: 0, distributor: 0, admin: 0, totalCommission: 0 };
 
     if (commissions.slabs && commissions.slabs.length > 0) {
       // Slabs present → calculate from slabs
-      commission = calculateCommissionFromSlabs(amount, commissions.slabs, commissions.gst || 18, commissions.tds || 5);
+      commission = calculateCommissionFromSlabs(amount, commissions);
       console.log("✅ Slab commission used:", commission);
-    } else {
-      // No slabs → fallback to service commissions
-      commission = {
-        retailer: 0,
-        distributor: commissions.distributorCommission || 0,
-        admin: commissions.adminCommission || 0,
-        gst: 0,
-        tds: 0,
-        totalCommission: (commissions.distributorCommission || 0) + (commissions.adminCommission || 0)
-      };
-      console.log("⚠️ Slabs not found. Using service commissions only:", commission);
     }
+    //  else {
+    //   // No slabs → fallback to service commissions
+    //   commission = {
+    //     retailer: 0,
+    //     distributor: commissions.distributorCommission || 0,
+    //     admin: commissions.adminCommission || 0,
+    //     gst: 0,
+    //     tds: 0,
+    //     totalCommission: (commissions.distributorCommission || 0) + (commissions.adminCommission || 0)
+    //   };
+    //   console.log("⚠️ Slabs not found. Using service commissions only:", commission);
+    // }
 
-    const user = await userModel.findOne({ _id: userId, mpin }).session(session);
-    if (!user || user.eWallet < (amount + charges.totalDeducted)) {
-      throw new Error("Wrong mpin or Insufficient wallet balance");
+    const user = await userModel.findOne({ _id: userId }).session(session);
+
+    if (user.mpin != mpin) {
+      throw new Error("Invalid mpin ! Please enter a vaild mpin");
+    }
+    const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const required = Number(amount) + commission.totalCommission;
+
+    if (usableBalance < required) {
+      return res.status(400).json({
+        error: true,
+        message: `Insufficient wallet balance. You must maintain ₹${user.cappingMoney} in your wallet. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
+      });
+
     }
 
     // ✅ Deduct from wallet
-    user.eWallet -= (amount + charges.totalDeducted);
+    user.eWallet -= required;
+
     await user.save({ session });
+
     console.log("💳 Wallet debited. Balance:", user.eWallet);
 
     // ✅ Create debit transaction
     const debitTxn = await Transaction.create([{
       user_id: userId,
       transaction_type: "debit",
-      amount: (amount + charges.totalDeducted),
+      amount: Number(amount),
       balance_after: user.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
@@ -204,7 +222,7 @@ exports.doRecharge = async (req, res, next) => {
       status: "Pending"
     }], { session });
     console.log("📝 Debit transaction created:", debitTxn[0]._id);
-
+    const headers = getPaysprintHeaders();
     // ✅ Get operator
     const operatorRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/getoperator", {}, { headers });
     logApiCall({ url: "getoperator", requestData: {}, responseData: operatorRes.data });
@@ -225,18 +243,19 @@ exports.doRecharge = async (req, res, next) => {
       rechargeType: category,
       operator: operatorName,
       customerNumber: canumber,
-      amount,
-      charges: charges.totalDeducted,
+      amount: amount,
+      charges: commission.totalCommission,
       transactionId: referenceid,
       extraDetails: { mobileNumber: canumber },
       status: "Pending"
     }], { session });
     console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);
 
+    const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
     const rechargeRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", {
       operator: operatorId, canumber, amount, referenceid
-    }, { headers });
+    }, { headers2 });
 
     logApiCall({ url: "dorecharge", requestData: req.body, responseData: rechargeRes.data });
     console.log("📲 Recharge API response:", rechargeRes.data);
@@ -257,14 +276,14 @@ exports.doRecharge = async (req, res, next) => {
 
     // ✅ Refund if failed
     if (status === "Failed") {
-      user.eWallet += (amount + charges.totalDeducted);
+      user.eWallet += required;
       await user.save({ session });
       console.log("💰 Refund completed. Wallet:", user.eWallet);
 
       await Transaction.create([{
         user_id: userId,
         transaction_type: "credit",
-        amount: (amount + charges.totalDeducted),
+        amount: commission.totalCommission,
         balance_after: user.eWallet,
         payment_mode: "wallet",
         transaction_reference_id: `${referenceid}-refund`,
@@ -283,14 +302,14 @@ exports.doRecharge = async (req, res, next) => {
         userId,
         amount,
         reference: referenceid,
-        account: null,
+        account: account,
         trans_mode: "WALLET",
         ifsc: null,
         name: user.name,
         mobile: user.mobileNumber,
         email: user.email,
         status: "Success",
-        charges: charges.totalDeducted,
+        charges: commission.totalCommission,
         remark: `Recharge for ${canumber}`
       });
       await newPayOut.save({ session });
@@ -381,7 +400,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
 exports.getBillOperatorList = async (req, res) => {
   const headers = getPaysprintHeaders();
 
-  
+
   const { mode = "online" } = req.body;
   try {
     const response = await axios.post(
