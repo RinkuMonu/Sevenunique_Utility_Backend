@@ -26,10 +26,15 @@ const bbpsHistorySchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-    charges:{
-      type:Number,
-      min:0,
-      default: 0 
+    commission: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    charges: {
+      type: Number,
+      min: 0,
+      default: 0
     },
     transactionId: {
       type: String,

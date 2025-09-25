@@ -1,14 +1,30 @@
 const mongoose = require("mongoose");
 
+
+
+
+
+
+
+
+
+
 const commissionSlabSchema = new mongoose.Schema(
   {
     operator: {
       type: String,
       enum: [
         "airtel",
+        "aircel",
         "jio",
         "bsnl",
         "vi",
+        "Tata Docomo",
+        "idea",
+        "vodafone",
+        "MTS",
+        "MTNL",
+        "Tata Indicom",
         "Airtel DTH",
         "Tata Play",
         "Dish TV",
