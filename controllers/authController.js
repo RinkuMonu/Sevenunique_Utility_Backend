@@ -273,7 +273,6 @@ const loginController = async (req, res) => {
 const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
-    // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     });
@@ -387,7 +386,7 @@ const registerUser = async (req, res) => {
     }
 
     // ✅ Create user
-    // const NewUser = await User.create(userData);
+    userData.UserId = await CounterModal.getNextUserId();
     const NewUser = new User(userData);
     await NewUser.save();
 
@@ -1161,6 +1160,7 @@ const getDashboardStats = async (req, res, next) => {
 // PUT /users/:id/permissions
 // PUT /users/:id/permissions
 const mongoose = require("mongoose");
+const CounterModal = require("../models/Counter.modal.js");
 
 const updateUserPermissions = async (req, res) => {
   try {
