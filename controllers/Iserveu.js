@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+const CryptoJS = require("crypto-js");
 require("dotenv").config();
 
 const {
@@ -8,40 +8,54 @@ const {
   AEPS_ENCR_KEY,
 } = process.env;
 
-// 🔹 Token Generate
-// backend/controllers/aepsController.js
+
+
 exports.getToken = (req, res) => {
   try {
+    const timestamp = Math.floor(Date.now() / 1000);
+
     const payload = JSON.stringify({
       client_id: process.env.AEPS_CLIENT_ID,
       client_secret: process.env.AEPS_CLIENT_SECRET,
-      epoch: Date.now().toString(),
+      epoch: timestamp.toString(),
     });
 
-    const iv = crypto.randomBytes(16);
-    const key = Buffer.from(process.env.AEPS_ENCR_KEY, "base64");
-    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+    const key = process.env.AEPS_ENCR_KEY; // base64 encoded
+    const decodedKey = CryptoJS.enc.Base64.parse(key);
 
-    let encrypted = cipher.update(payload, "utf8", "base64");
-    encrypted += cipher.final("base64");
+    // Generate random IV (16 bytes)
+    const iv = CryptoJS.lib.WordArray.random(16);
 
-    const result = Buffer.concat([
-      iv,
-      Buffer.from(encrypted, "base64"),
-    ]).toString("base64");
+    // AES-256-CBC encryption
+    const encrypted = CryptoJS.AES.encrypt(
+      CryptoJS.enc.Utf8.parse(payload),
+      decodedKey,
+      {
+        iv: iv,
+        padding: CryptoJS.pad.Pkcs7,
+        mode: CryptoJS.mode.CBC,
+      }
+    );
 
-    // 👉 Send all required fields
+    // Combine IV + ciphertext, then encode in Base64
+    const combined = iv.concat(encrypted.ciphertext);
+    const encryptedToken = CryptoJS.enc.Base64.stringify(combined);
+    console.log("encryptedToken---", encryptedToken);
+    // return;
     res.json({
-      token: result,
+      token: encryptedToken,
       pass_key: process.env.AEPS_PASS_KEY,
       apiusername: process.env.AEPS_API_USERNAME,
       username: process.env.AEPS_USERNAME,
     });
   } catch (err) {
     console.error("Token generation error:", err);
-    res.status(500).json({ status: 1, statusDesc: "Token generation failed" });
+    res
+      .status(500)
+      .json({ status: 1, statusDesc: "Token generation failed" });
   }
 };
+
 
 
 // 🔹 Callback Handler

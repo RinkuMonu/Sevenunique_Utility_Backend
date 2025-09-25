@@ -74,7 +74,11 @@ function calculateCommissionFromSlabs(amount, packageData) {
     }
   } else {
     matchedSlab = packageData.slabs[0];
+    if (amount <= 0) {
+      throw new Error(`Please enter a vaild amount.`);
+    }
   }
+  console.log("matchedSlab---", matchedSlab);
 
   // 🟢 Calculation helper
   const calc = (val) => {
@@ -137,7 +141,7 @@ function calculateCommissionFromSlabs(amount, packageData) {
 }
 
 
-const getApplicableServiceCharge = async (userId, serviceName) => {
+const getApplicableServiceCharge = async (userId, serviceName, operatorName) => {
   if (!mongoose.Types.ObjectId.isValid(userId) || !serviceName) {
     throw new Error("Invalid userId or serviceId");
   }
@@ -175,16 +179,17 @@ const getApplicableServiceCharge = async (userId, serviceName) => {
       (s) => s.serviceId.toString() === service?._id.toString());
 
     if (matchedService) {
-      const commission = await commissionModel.findById(matchedService.packageId)
-      if (!commission) {
+      const commissions = await commissionModel.findById(matchedService.packageId)
+      if (!commissions) {
         throw new Error("Package not found");
       }
       return {
-        source: "UserMeta",
+        commissions
+        // source: "UserMeta",
         // chargeType: matchedService.chargeType,
         // serviceCharges: matchedService.serviceCharges,
-        gst: commission.gst,
-        tds: commission.tds,
+        // gst: commission.gst,
+        // tds: commission.tds,
         // distributorCommission: matchedService.distributorCommission,
         // adminCommission: matchedService.adminCommission,
       };
@@ -200,62 +205,123 @@ const getApplicableServiceCharge = async (userId, serviceName) => {
     throw new Error("No matching default provider found in Service");
   }
 
-  const commission = await commissionModel.findOne({
-    service: service._id,
-    isDefault: true,
-    isActive: true
-  });
+  let commissions;
 
-  if (!commission) {
+
+  if (!operatorName) {
+    commissions = await commissionModel.findOne({
+      service: service._id,
+      isDefault: true,
+      isActive: true,
+    });
+  } else {
+
+    commissions = await commissionModel.findOne({
+      service: service._id,
+      isDefault: true,
+      isActive: true,
+      "slabs.operator": operatorName.toLowerCase(),
+    });
+  }
+
+
+
+  if (!commissions) {
     throw new Error("commission not found.");
 
   }
 
   return {
-    source: `${commission.packageName}`,
+    commissions
+    // source: `${commission.packageName}`,
     // chargeType: matchedProvider.chargeType || "fixed",
     // serviceCharges: matchedProvider.serviceCharges || 0,
-    gst: commission.gst || 0,
-    tds: commission.tds || 0,
+    // gst: commission.gst || 0,
+    // tds: commission.tds || 0,
     // distributorCommission: matchedProvider.distributorCommission || 0,
     // adminCommission: matchedProvider.adminCommission || 0,
   };
 };
 
-function applyServiceCharges(amount, commissions) {
-  const {
-    chargeType,
-    serviceCharges,
-    gst = 0,
-    tds = 0,
-    distributorCommission = 0,
-    adminCommission = 0
-  } = commissions;
+function applyServiceCharges(amount, packageData, operatorName = null) {
+  if (!packageData) throw new Error("Package data is required");
 
-  let baseCharge = 0;
+  // 1️⃣ Pick the right slab
+  let matchedSlab;
 
-  if (chargeType === "fixed") {
-    baseCharge = serviceCharges;
-  } else if (chargeType === "percentage") {
-    baseCharge = (amount * serviceCharges) / 100;
+  // If operatorName is provided, try to match operator slab
+  if (operatorName && packageData.slabs?.length) {
+    matchedSlab = packageData.slabs.find(
+      (s) =>
+        s.operator?.toLowerCase() === operatorName.toLowerCase() &&
+        amount >= s.minAmount &&
+        amount <= s.maxAmount
+    );
+    if (!matchedSlab) throw new Error("No matching slab for this operator and amount");
+  } else {
+    // Fallback: pick first slab or default
+    matchedSlab = packageData.slabs?.[0];
+    if (!matchedSlab) throw new Error("No slab found in the package");
   }
 
-  const gstAmount = (baseCharge * gst) / 100;
-  const tdsAmount = (baseCharge * tds) / 100;
+  // 2️⃣ Helper calculation based on method/type
+  const calc = (val) => {
+    if (!val) return 0;
 
+    if (matchedSlab.commissionMethod === "fixed") return val;
+    if (matchedSlab.commissionMethod === "percentage") return (val * amount) / 100;
+    if (matchedSlab.commissionMethod === "slab") {
+      if (matchedSlab.commissionType === "flat") return val;
+      if (matchedSlab.commissionType === "percentage") return (val * amount) / 100;
+    }
+    return 0;
+  };
+
+  // 3️⃣ Compute commissions / charges
+  let baseCharge = 0,
+    retailer = 0,
+    distributor = 0,
+    admin = 0;
+
+  if (matchedSlab.type === "charges") {
+    baseCharge = matchedSlab.chargeAmount || 0;
+    retailer = -calc(baseCharge);
+    distributor = calc(matchedSlab.distributor);
+    admin = calc(matchedSlab.admin);
+  } else if (matchedSlab.type === "commission") {
+    baseCharge = 0;
+    retailer = calc(matchedSlab.retailer);
+    distributor = calc(matchedSlab.distributor);
+    admin = calc(matchedSlab.admin);
+  }
+
+  // 4️⃣ GST & TDS
+  const gstAmount = (amount * (packageData.gst || 0)) / 100;
+  const tdsAmount = (amount * (packageData.tds || 0)) / 100;
+
+  // 5️⃣ Total deductions & net amount
   const totalDeducted = baseCharge + gstAmount + tdsAmount;
   const netAmount = amount - totalDeducted;
 
   return {
+    amount,
+    slabRange: `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]`,
+    type: matchedSlab.type,
+    commissionMethod: matchedSlab.commissionMethod,
+    commissionType: matchedSlab.commissionType,
+
     baseCharge: +baseCharge.toFixed(2),
     gstAmount: +gstAmount.toFixed(2),
     tdsAmount: +tdsAmount.toFixed(2),
     totalDeducted: +totalDeducted.toFixed(2),
-    distributorCommission: +distributorCommission.toFixed(2),
-    adminCommission: +adminCommission.toFixed(2),
+
+    retailer: +retailer.toFixed(2),
+    distributor: +distributor.toFixed(2),
+    admin: +admin.toFixed(2),
     netAmount: +netAmount.toFixed(2),
   };
 }
+
 
 function logApiCall({ url, requestData, responseData = null, error = null }) {
   if (responseData) {
