@@ -1,4 +1,5 @@
 const axios = require('axios');
+require("dotenv").config();
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate");
 const { encryptPidData } = require('../../services/jwtService');
 const crypto = require('crypto');
@@ -13,6 +14,7 @@ const { calculateCommissionFromSlabs, getApplicableServiceCharge, logApiCall } =
 const { distributeCommission } = require('../../utils/distributerCommission.js');
 const commissionModel = require('../../models/commissionModel.js');
 const getCommissionPackage = require('../../utils/aeps&DmtCommmsion.js');
+const CommissionTransaction = require('../../models/CommissionTransaction.js');
 
 // const headers = {
 //     'Token': generatePaysprintJWT(),
@@ -634,7 +636,7 @@ exports.performTransaction = async (req, res, next) => {
                 Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }).session(session),
                 distributeCommission({
                     distributer: user.distributorId,
-                    service: "DMT",
+                    service: commissionPackage.service,
                     amount,
                     commission,
                     reference: referenceid,
@@ -644,6 +646,24 @@ exports.performTransaction = async (req, res, next) => {
 
             debitTxn.status = "Success";
             await debitTxn.save({ session });
+
+            await CommissionTransaction.create([{
+                referenceId: referenceid,
+                service: commissionPackage.service,
+                baseAmount: Number(amount),
+                roles: [
+                    { userId, role: "retailer", commission: commission.retailer || 0, chargeShare: 0 },
+                    { userId: user.distributorId, role: "distributor", commission: commission.distributor || 0, chargeShare: 0 },
+                    { userId: process.env.ADMIN_USER_ID, role: "admin", commission: commission.admin || 0, chargeShare: 0 }
+                ],
+                type: "credit",
+                status: "Success",
+                sourceRetailerId: userId,
+            }], { session });
+
+            console.log("💸 CommissionTransaction created for all roles");
+
+
         } else {
             user.eWallet += Number(amount + commission.totalCommission);
             await user.save({ session });
