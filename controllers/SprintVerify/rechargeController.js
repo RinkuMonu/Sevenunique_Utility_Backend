@@ -1,4 +1,5 @@
 const axios = require("axios");
+require("dotenv").config();
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate.js");
 const BbpsHistory = require("../../models/bbpsModel.js");
 const PayOut = require("../../models/payOutModel.js")
@@ -7,6 +8,7 @@ const userModel = require("../../models/userModel.js");
 const mongoose = require("mongoose");
 const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate.js");
 const { distributeCommission } = require("../../utils/distributerCommission.js");
+const CommissionTransaction = require("../../models/CommissionTransaction.js");
 
 
 function getPaysprintHeaders() {
@@ -159,34 +161,18 @@ exports.doRecharge = async (req, res, next) => {
     console.log("🔁 Starting Recharge Flow...");
 
     // ✅ Get service charges
-    const commissions = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
+    const { commissions } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
     console.log("💰 Service charges & meta:", commissions);
 
-    // ✅ Apply base service charges
-    // const charges = applyServiceCharges(amount, commissions);
-    // console.log("💸 Charges applied:", charges);
 
     // ✅ Check for slabs
-    let commission = { retailer: 0, distributor: 0, admin: 0, totalCommission: 0 };
+    let commission;
 
     if (commissions.slabs && commissions.slabs.length > 0) {
       // Slabs present → calculate from slabs
       commission = calculateCommissionFromSlabs(amount, commissions);
-      console.log("✅ Slab commission used:", commission);
-    }
-    //  else {
-    //   // No slabs → fallback to service commissions
-    //   commission = {
-    //     retailer: 0,
-    //     distributor: commissions.distributorCommission || 0,
-    //     admin: commissions.adminCommission || 0,
-    //     gst: 0,
-    //     tds: 0,
-    //     totalCommission: (commissions.distributorCommission || 0) + (commissions.adminCommission || 0)
-    //   };
-    //   console.log("⚠️ Slabs not found. Using service commissions only:", commission);
-    // }
 
+    }
     const user = await userModel.findOne({ _id: userId }).session(session);
 
     if (user.mpin != mpin) {
@@ -255,7 +241,7 @@ exports.doRecharge = async (req, res, next) => {
     // ✅ Do recharge
     const rechargeRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", {
       operator: operatorId, canumber, amount, referenceid
-    }, { headers2 });
+    }, { headers: headers2 });
 
     logApiCall({ url: "dorecharge", requestData: req.body, responseData: rechargeRes.data });
     console.log("📲 Recharge API response:", rechargeRes.data);
@@ -283,7 +269,7 @@ exports.doRecharge = async (req, res, next) => {
       await Transaction.create([{
         user_id: userId,
         transaction_type: "credit",
-        amount: commission.totalCommission,
+        amount: required,
         balance_after: user.eWallet,
         payment_mode: "wallet",
         transaction_reference_id: `${referenceid}-refund`,
@@ -300,9 +286,9 @@ exports.doRecharge = async (req, res, next) => {
     if (status === "Success") {
       const newPayOut = new PayOut({
         userId,
-        amount,
+        amount: Number(amount),
         reference: referenceid,
-        account: account,
+        account: null,
         trans_mode: "WALLET",
         ifsc: null,
         name: user.name,
@@ -315,13 +301,32 @@ exports.doRecharge = async (req, res, next) => {
       await newPayOut.save({ session });
       console.log("🏦 Payout entry created");
 
+      await CommissionTransaction.create([{
+        referenceId: referenceid,
+        service: commissions.service,
+        baseAmount: Number(amount),
+        roles: [
+          { userId, role: "retailer", commission: commission.retailer || 0, chargeShare: 0 },
+          { userId: user.distributorId, role: "distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "admin", commission: commission.admin || 0, chargeShare: 0 }
+        ],
+        type: "credit",
+        status: "Success",
+        sourceRetailerId: userId,
+      }], { session });
+
+      console.log("💸 CommissionTransaction created for all roles");
+
+
       await distributeCommission({
+        user: userId,
         distributer: user.distributorId,
-        service: category === "mobile" ? "Mobile Recharge" : "Dth Recharge",
+        service: commissions.service,
         amount,
         commission,
         reference: referenceid,
-        description: `Commission for recharge of ${canumber}`
+        description: `Commission for recharge of ${canumber}`,
+        session
       });
       console.log("💸 Commission distributed");
     }

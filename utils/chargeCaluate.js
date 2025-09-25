@@ -74,7 +74,11 @@ function calculateCommissionFromSlabs(amount, packageData) {
     }
   } else {
     matchedSlab = packageData.slabs[0];
+    if (amount <= 0) {
+      throw new Error(`Please enter a vaild amount.`);
+    }
   }
+  console.log("matchedSlab---", matchedSlab);
 
   // 🟢 Calculation helper
   const calc = (val) => {
@@ -175,12 +179,12 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
       (s) => s.serviceId.toString() === service?._id.toString());
 
     if (matchedService) {
-      const commission = await commissionModel.findById(matchedService.packageId)
-      if (!commission) {
+      const commissions = await commissionModel.findById(matchedService.packageId)
+      if (!commissions) {
         throw new Error("Package not found");
       }
       return {
-        commission
+        commissions
         // source: "UserMeta",
         // chargeType: matchedService.chargeType,
         // serviceCharges: matchedService.serviceCharges,
@@ -201,20 +205,20 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
     throw new Error("No matching default provider found in Service");
   }
 
-  let commission;
-  console.log(operatorName);
+  let commissions;
+
 
   if (!operatorName) {
-    commission = await commissionModel.findOne({
+    commissions = await commissionModel.findOne({
       service: service._id,
       isDefault: true,
       isActive: true,
     });
   } else {
 
-    commission = await commissionModel.findOne({
+    commissions = await commissionModel.findOne({
       service: service._id,
-      isDefault: false,
+      isDefault: true,
       isActive: true,
       "slabs.operator": operatorName.toLowerCase(),
     });
@@ -222,13 +226,13 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
 
 
 
-  if (!commission) {
+  if (!commissions) {
     throw new Error("commission not found.");
 
   }
 
   return {
-    commission
+    commissions
     // source: `${commission.packageName}`,
     // chargeType: matchedProvider.chargeType || "fixed",
     // serviceCharges: matchedProvider.serviceCharges || 0,
