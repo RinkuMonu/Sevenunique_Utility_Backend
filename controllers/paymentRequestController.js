@@ -9,7 +9,15 @@ exports.createPaymentRequest = async (req, res) => {
   session.startTransaction();
 
   try {
-    const paymentRequest = new PaymentRequest({ ...req.body, userId: req?.user?.id });
+    let transactionSSPath = null;
+    if (req.file) {
+      transactionSSPath = `/uploads/${req.file.filename}`;
+    }
+    const paymentRequest = new PaymentRequest({
+      ...req.body,
+      userId: req?.user?.id,
+      transactionSS: transactionSSPath || req.body.transactionSS || null,
+    });
     await paymentRequest.save({ session });
 
     await session.commitTransaction();
@@ -29,7 +37,9 @@ exports.getPaymentRequestById = async (req, res) => {
     const paymentRequest = await PaymentRequest.findById(id);
 
     if (!paymentRequest) {
-      return res.status(404).json({ success: false, message: "Payment request not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Payment request not found" });
     }
 
     return res.status(200).json({ success: true, data: paymentRequest });
@@ -51,7 +61,7 @@ exports.listPaymentRequests = async (req, res) => {
       page = 1,
       limit = 10,
       sortBy = "createdAt",
-      order = "desc"
+      order = "desc",
     } = req.query;
 
     const filter = {};
@@ -86,8 +96,8 @@ exports.listPaymentRequests = async (req, res) => {
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit))
-        .populate('userId', 'name'),
-      PaymentRequest.countDocuments(filter)
+        .populate("userId", "name"),
+      PaymentRequest.countDocuments(filter),
     ]);
 
     return res.status(200).json({
@@ -112,12 +122,16 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     const { status, remark, completedAt } = req.body;
 
     if (!status) {
-      return res.status(400).json({ success: false, message: "Status is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Status is required" });
     }
 
     const paymentRequest = await PaymentRequest.findById(id).session(session);
     if (!paymentRequest) {
-      return res.status(404).json({ success: false, message: "Payment request not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Payment request not found" });
     }
 
     if (paymentRequest.status === status) {
@@ -143,7 +157,9 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     if (status === "Completed") {
       const user = await User.findById(paymentRequest.userId).session(session);
       if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
       }
 
       const currentBalance = user.eWallet || 0;
@@ -166,17 +182,17 @@ exports.updatePaymentRequestStatus = async (req, res) => {
 
       const ledgerEntry = new Transaction({
         user_id: user._id,
-        transaction_type: 'credit',
+        transaction_type: "credit",
         amount: currentBalance,
         balance_after: newBalance,
-        status: 'Success',
-        payment_mode: 'bank_transfer',
+        status: "Success",
+        payment_mode: "bank_transfer",
         transaction_id: paymentRequest.reference,
-        description: 'Wallet top-up via payment request',
+        description: "Wallet top-up via payment request",
         meta: {
-          source: 'PaymentRequest',
+          source: "PaymentRequest",
           request_id: paymentRequest.requestId,
-        }
+        },
       });
       await ledgerEntry.save({ session });
     }
@@ -187,7 +203,11 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: paymentRequest,
-      message: `Payment request ${status === "Completed" ? "completed and wallet updated" : "status updated"}`,
+      message: `Payment request ${
+        status === "Completed"
+          ? "completed and wallet updated"
+          : "status updated"
+      }`,
     });
   } catch (error) {
     await session.abortTransaction();
