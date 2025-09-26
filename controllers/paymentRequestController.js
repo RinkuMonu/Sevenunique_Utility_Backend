@@ -56,7 +56,6 @@ exports.listPaymentRequests = async (req, res) => {
       status,
       fromDate,
       toDate,
-      userId,
       search,
       page = 1,
       limit = 10,
@@ -65,12 +64,15 @@ exports.listPaymentRequests = async (req, res) => {
     } = req.query;
 
     const filter = {};
+    console.log("...........", req.user);
+
+    if (req.user.role !== "Admin") {
+      filter.userId = req.user.id;
+    }
 
     if (reference) filter.reference = reference;
     if (mode) filter.mode = mode;
     if (status) filter.status = status;
-    if (userId) filter.userId = userId;
-
     if (fromDate || toDate) {
       filter.createdAt = {};
       if (fromDate) filter.createdAt.$gte = new Date(fromDate);
