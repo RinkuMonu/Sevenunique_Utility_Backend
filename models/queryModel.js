@@ -1,31 +1,51 @@
 const mongoose = require("mongoose");
 
-const formSchema = new mongoose.Schema({
-  enquiryId: {
-    type: String,
-    required: true,
-    unique: true
+const formSchema = new mongoose.Schema(
+  {
+    enquiryId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    fullName: { type: String, required: true },
+    email: { type: String, required: true },
+    mobileNumber: { type: String, required: true },
+    regarding: {
+      type: String,
+      required: true,
+      enum: [
+        "Inquiry",
+        "Support",
+        "Feedback",
+        "Complaint",
+        "Distributor Registration",
+        "Retailer Registration",
+        "Other",
+      ],
+    },
+    message: { type: String, default: "" },
+    submittedAt: { type: Date, default: Date.now },
+    qureyPhoto: {
+      type: String,
+      defalut: null,
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "In Progress", "Resolved", "Closed"],
+      default: "Pending",
+    },
   },
-  fullName: { type: String, required: true },
-  email: { type: String, required: true },
-  mobileNumber: { type: String, required: true },
-  regarding: {
-    type: String,
-    required: true,
-    enum: ['Inquiry', 'Support', 'Feedback', 'Complaint', 'Distributor Registration', 'Retailer Registration', 'Other']
-  },
-  message: { type: String, default: "" },
-  submittedAt: { type: Date, default: Date.now },
-  status: {
-    type: String,
-    enum: ['Pending', 'In Progress', 'Resolved', 'Closed'],
-    default: 'Pending'
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true
-});
+);
 
-formSchema.pre('validate', async function(next) {
+formSchema.pre("validate", async function (next) {
   const doc = this;
   if (!doc.isNew) return next();
 
@@ -34,15 +54,15 @@ formSchema.pre('validate', async function(next) {
   const count = await mongoose.models.Form.countDocuments({
     submittedAt: {
       $gte: todayStart,
-      $lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
-    }
+      $lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000),
+    },
   });
   const seq = count + 1;
   const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0'); 
-  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
   const dateStr = `${year}${month}${day}`;
-  const paddedSeq = String(seq).padStart(3, '0');
+  const paddedSeq = String(seq).padStart(3, "0");
   doc.enquiryId = `ENQ-${dateStr}-${paddedSeq}`;
   next();
 });

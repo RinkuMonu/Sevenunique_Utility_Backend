@@ -356,14 +356,12 @@ const registerUser = async (req, res) => {
       }
     }
 
-    // ✅ Handle shop photos dynamically
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
         (file) => `/uploads/${file.filename}`
       );
     }
 
-    // ✅ Handle owner photo dynamically
     if (req.files?.ownerPhoto) {
       userData.ownerPhoto = `/uploads/${req.files.ownerPhoto[0].filename}`;
     }
