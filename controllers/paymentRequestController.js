@@ -5,6 +5,8 @@ const PayIn = require("../models/payInModel");
 const Transaction = require("../models/transactionModel");
 
 exports.createPaymentRequest = async (req, res) => {
+  console.log(req.body," body in create payment request");
+     
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -17,6 +19,7 @@ exports.createPaymentRequest = async (req, res) => {
 
     return res.status(201).json({ success: true, data: paymentRequest });
   } catch (error) {
+    // console.log(error," error in create payment request");
     await session.abortTransaction();
     session.endSession();
     return res.status(500).json({ success: false, message: error.message });
