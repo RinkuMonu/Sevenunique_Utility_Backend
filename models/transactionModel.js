@@ -15,6 +15,31 @@ const TransactionSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  gst: {
+    type: Number,
+    default: 0,
+  },
+  tds: {
+    type: Number,
+    default: 0,
+  },
+  charge: {
+    type: Number,
+    default: 0,
+  },
+  totalDebit: {
+    type: Number,
+    default: 0,
+  },
+  totalCredit: {
+    type: Number,
+    default: 0,
+  },
+  // netAmount: {
+  //   type: Number,
+  //   default: 0,
+  // },
+
   balance_after: {
     type: Number,
     required: true,
