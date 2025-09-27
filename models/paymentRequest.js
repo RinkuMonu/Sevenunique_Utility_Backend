@@ -32,7 +32,7 @@ const paymentRequestSchema = new mongoose.Schema(
           "Wallet",
           "Cheque",
           "Card",
-          "Other"
+          "Other",
         ],
         message: "Invalid payment mode",
       },
@@ -57,7 +57,7 @@ const paymentRequestSchema = new mongoose.Schema(
     },
     txnDate: {
       type: Date,
-      default: null
+      default: null,
     },
     status: {
       type: String,
@@ -86,7 +86,11 @@ const paymentRequestSchema = new mongoose.Schema(
     remark: {
       type: String,
       trim: true,
-    }
+    },
+    transactionSS: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -128,6 +132,6 @@ paymentRequestSchema.pre("save", async function (next) {
   } catch (err) {
     next(err);
   }
-})
+});
 
-module.exports = mongoose.model("PaymentRequest", paymentRequestSchema); 
+module.exports = mongoose.model("PaymentRequest", paymentRequestSchema);
