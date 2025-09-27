@@ -472,6 +472,45 @@ const removeBuyPassPlan = async (req, res) => {
   }
 };
 
+// Role wise plan history
+const getAllUsersPlanHistory = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    console.log("..............,", currentUser);
+
+    let query = {};
+
+    if (["Admin", "superAdmin"].includes(currentUser.role)) {
+      // ✅ Admin/SuperAdmin => sabka data
+      query = {};
+    } else if (currentUser.role === "Distributor") {
+      query = { distributorId: currentUser._id };
+    } else if (["Retailer", "User"].includes(currentUser.role)) {
+      query = { _id: currentUser._id };
+    } else {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const users = await userModel
+      .find(query)
+      .select("name role email status planHistory")
+      .populate("planHistory")
+      .populate("plan");
+
+    console.log(users);
+
+    return res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users,
+    });
+  } catch (error) {
+    console.error("Error in getAllUsersPlanHistory:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
+  }
+};
 module.exports = {
   createPlan,
   getAllPlans,
@@ -482,4 +521,5 @@ module.exports = {
   getUserBuyServices,
   buyPassPlan,
   removeBuyPassPlan,
+  getAllUsersPlanHistory,
 };
