@@ -62,6 +62,8 @@ app.use("/api/v1/kyc", authenticateToken, require("./routes/kycvideo.js"));
 app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
+app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
+
 
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
 
