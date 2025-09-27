@@ -47,7 +47,7 @@ const commissionModel = require("../models/commissionModel");
 // }
 
 
-function calculateCommissionFromSlabs(amount, packageData) {
+function calculateCommissionFromSlabs(amount, packageData, operatorName) {
   if (!packageData || !packageData.slabs?.length) {
     throw new Error("No slabs found in the package");
   }
@@ -73,9 +73,16 @@ function calculateCommissionFromSlabs(amount, packageData) {
       throw new Error(`Amount ₹${amount} not in any slab range`);
     }
   } else {
-    matchedSlab = packageData.slabs[0];
-    if (amount <= 0) {
-      throw new Error(`Please enter a vaild amount.`);
+    if (operatorName) {
+      matchedSlab = packageData.slabs.find(s => s.operator == operatorName.toLowerCase());
+      if (amount <= 0) {
+        throw new Error(`Please enter a vaild amount.`);
+      }
+    } else {
+      matchedSlab = packageData.slabs[0]
+      if (amount <= 0) {
+        throw new Error(`Please enter a vaild amount.`);
+      }
     }
   }
   console.log("matchedSlab---", matchedSlab);
@@ -101,42 +108,34 @@ function calculateCommissionFromSlabs(amount, packageData) {
     adminAmt = 0,
     chargeAmount = 0;
 
-  if (matchedSlab.type === "charges") {
-
-    chargeAmount = matchedSlab.chargeAmount || 0;
+  chargeAmount = calc(matchedSlab.chargeAmount) || 0;
 
 
-    retailerAmt = -calc(chargeAmount);
-    distributorAmt = calc(matchedSlab.distributor);
-    adminAmt = calc(matchedSlab.admin);
-  } else if (matchedSlab.type === "commission") {
+  retailerAmt = calc(matchedSlab.retailer) || 0;
+  distributorAmt = calc(matchedSlab.distributor);
+  adminAmt = calc(matchedSlab.admin);
 
-    retailerAmt = calc(matchedSlab.retailer);
-    distributorAmt = calc(matchedSlab.distributor);
-    adminAmt = calc(matchedSlab.admin);
-  }
 
   // GST & TDS package level
-  const gst = (amount * (packageData.gst || 0)) / 100;
-  const tds = (amount * (packageData.tds || 0)) / 100;
+  const gst = (chargeAmount * (packageData.gst || 0)) / 100;
+  const tds = (chargeAmount * (packageData.tds || 0)) / 100;
+
 
   return {
     amount,
     slabRange:
-      matchedSlab.commissionMethod === `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]`,
-    type: matchedSlab.type, // charges / commission
+      matchedSlab.commissionMethod === 'slabs' ? `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]` : '',
+    // type: matchedSlab.type, // charges / commission
     commissionMethod: matchedSlab.commissionMethod,
     commissionType: matchedSlab.commissionType,
 
-    retailer: +(chargeAmount ? -chargeAmount : retailerAmt).toFixed(2),
-    distributor: +distributorAmt.toFixed(2),
-    admin: +adminAmt.toFixed(2),
-    gst: +gst.toFixed(2),
-    tds: +tds.toFixed(2),
-
-    totalCommission: +(
-      retailerAmt + distributorAmt + adminAmt + gst + tds
-    ).toFixed(2),
+    retailer: retailerAmt.toFixed(2),
+    distributor: distributorAmt.toFixed(2),
+    admin: adminAmt.toFixed(2),
+    gst: gst.toFixed(2),
+    tds: tds.toFixed(2),
+    charge: +chargeAmount.toFixed(2),
+    totalCommission: (retailerAmt + distributorAmt + adminAmt).toFixed(2),
   };
 }
 
