@@ -64,8 +64,8 @@ exports.listPaymentRequests = async (req, res) => {
     } = req.query;
 
     const filter = {};
-    console.log("...........", req.user);
 
+    // ✅ Role-based filter
     if (req.user.role !== "Admin") {
       filter.userId = req.user.id;
     }
@@ -78,27 +78,36 @@ exports.listPaymentRequests = async (req, res) => {
       if (fromDate) filter.createdAt.$gte = new Date(fromDate);
       if (toDate) filter.createdAt.$lte = new Date(toDate);
     }
+
+    // ✅ Search filter (includes user.name)
     if (search) {
-      const searchRegex = new RegExp(search, "i");
+      const regex = new RegExp(search, "i");
+      const users = await User.find({ name: regex }, { _id: 1 });
+      const userIds = users.map((u) => u._id);
+
       filter.$or = [
-        { reference: searchRegex },
-        { description: searchRegex },
-        { remark: searchRegex },
-        { "bankDetails.accountName": searchRegex },
-        { "upiDetails.vpa": searchRegex },
+        { reference: regex },
+        { description: regex },
+        { remark: regex },
+        { requestId: regex },
+        { amount: regex },
+        { userId: { $in: userIds } },
+        { "bankDetails.accountName": regex },
+        { "upiDetails.vpa": regex },
       ];
     }
-    const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortOptions = {};
     sortOptions[sortBy] = order === "asc" ? 1 : -1;
 
+    // ✅ Fetch with populate (UI ke liye userId.name aayega)
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
+        .populate("userId", "name") // 👈 name include hoga
         .sort(sortOptions)
         .skip(skip)
-        .limit(parseInt(limit))
-        .populate("userId", "name"),
+        .limit(parseInt(limit)),
       PaymentRequest.countDocuments(filter),
     ]);
 
@@ -106,7 +115,7 @@ exports.listPaymentRequests = async (req, res) => {
       success: true,
       total,
       page: parseInt(page),
-      pageSize: parseInt(limit),
+      limit: parseInt(limit),
       totalPages: Math.ceil(total / limit),
       data,
     });
