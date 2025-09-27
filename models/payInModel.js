@@ -11,7 +11,7 @@ const payInSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
-      min: [0, 'Amount must be greater than or equal to zero'], 
+      min: [0, 'Amount must be greater than or equal to zero'],
     },
     reference: {
       type: String,
@@ -27,7 +27,7 @@ const payInSchema = new mongoose.Schema(
       type: Number,
       required: true,
       validate: {
-        validator: (v) => /\d{10}/.test(v), 
+        validator: (v) => /\d{10}/.test(v),
         message: 'Invalid mobile number',
       },
     },
@@ -51,6 +51,18 @@ const payInSchema = new mongoose.Schema(
       type: String,
       required: false,
       trim: true,
+    },
+    source: {
+      type: String,
+      enum: ["Commission", "TopUp", "PayIn"],
+      default: "PayIn",
+    },
+    fromUser: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    service: {
+      type: String,
     },
     charges: {
       type: Number,

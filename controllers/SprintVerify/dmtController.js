@@ -391,8 +391,6 @@ exports.PennyDrop = async (req, res, next) => {
                     customercharge: 0,
                     gst: 0,
                     tds: 0,
-
-
                     netcommission: 0,
                 },
                 totalDebit: amount,
@@ -509,7 +507,7 @@ exports.performTransaction = async (req, res, next) => {
             long = "78.345678"
         } = req.body;
 
-        const { commissions } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
+        const { commissions, service } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
 
         let userId = req.user.id;
 
@@ -647,7 +645,7 @@ exports.performTransaction = async (req, res, next) => {
                 Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }).session(session),
                 distributeCommission({
                     distributer: user.distributorId,
-                    service: "DMT",
+                    service: service,
                     amount,
                     commission,
                     reference: referenceid,

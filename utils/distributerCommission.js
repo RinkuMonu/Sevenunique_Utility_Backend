@@ -1,27 +1,28 @@
 const userModel = require("../models/userModel");
 const PayInModel = require("../models/payInModel");
 const transactionModel = require("../models/transactionModel");
+const servicesModal = require("../models/servicesModal");
 
 async function distributeCommission({
-  user,         // retailer id
-  distributer,  // distributor id
+  user,
+  distributer,
   service,
   amount,
-  commission,   // object containing retailer/distributor/admin, commissionMethod, and optional gst/tds
+  commission,
   reference,
   description = "",
   session = null,
 }) {
 
   const computeGross = (raw) => {
-    // raw can be a number (flat) or percentage value when commission.commissionMethod === "percentage"
+
     if (raw === undefined || raw === null) return 0;
     const rawNum = Number(raw) || 0;
     if (commission && commission.commissionMethod === "percentage") {
-      // assume raw is percent (e.g., 2 => 2%)
+
       return (rawNum / 100) * Number(amount);
     }
-    // fixed/flat
+
     return rawNum;
   };
 
@@ -64,7 +65,7 @@ async function distributeCommission({
             balance_after: retailerUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: reference,
-            description: description || `Retailer commission for ${service} (gross ₹${grossRetailer})`,
+            description: description || `Retailer commission for ${service.name} (gross ₹${grossRetailer})`,
             status: "Success",
             meta: { grossCommission: String(grossRetailer) }
           }], { session });
@@ -76,9 +77,12 @@ async function distributeCommission({
             name: retailerUser.name || "Retailer",
             mobile: retailerUser.mobileNumber || 0,
             email: retailerUser.email || "na@example.com",
+            source: "Commission",
+            fromUser: retailerUser._id,
+            service: service._id,
             status: "Success",
             charges: Number((gst + tds).toFixed(2)),
-            remark: `Commission credited for ${service} (gross ₹${grossRetailer}, gst ₹${gst}, tds ₹${tds})`
+            remark: `Commission credited for ${service.name} (gross ₹${grossRetailer}, gst ₹${gst}, tds ₹${tds})`
           }], { session });
         }
       }
@@ -108,7 +112,7 @@ async function distributeCommission({
             balance_after: distributorUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: reference,
-            description: description || `Distributor commission for ${service} (gross ₹${grossDistributor})`,
+            description: description || `Distributor commission for ${service.name} (gross ₹${grossDistributor})`,
             status: "Success",
             meta: { grossCommission: String(grossDistributor) }
           }], { session });
@@ -121,8 +125,11 @@ async function distributeCommission({
             mobile: distributorUser.mobileNumber || 0,
             email: distributorUser.email || "na@example.com",
             status: "Success",
+            source: "Commission",
+            fromUser: retailerUser._id,
+            service: service._id,
             charges: Number((gst + tds).toFixed(2)),
-            remark: `Commission credited for ${service} (gross ₹${grossDistributor}, gst ₹${gst}, tds ₹${tds})`
+            remark: `Commission credited for ${service.name} (gross ₹${grossDistributor}, gst ₹${gst}, tds ₹${tds})`
           }], { session });
 
         }
@@ -151,7 +158,7 @@ async function distributeCommission({
                 balance_after: adminUser.eWallet,
                 payment_mode: "wallet",
                 transaction_reference_id: reference,
-                description: description || `Admin commission for ${service} (gross ₹${grossAdmin})`,
+                description: description || `Admin commission for ${service.name} (gross ₹${grossAdmin})`,
                 status: "Success",
                 meta: { grossCommission: String(grossAdmin) }
               }], { session });
@@ -164,8 +171,11 @@ async function distributeCommission({
                 mobile: adminUser.mobileNumber || 0,
                 email: adminUser.email || "na@example.com",
                 status: "Success",
+                source: "Commission",
+                fromUser: retailerUser._id,
+                service: service._id,
                 charges: Number((gst + tds).toFixed(2)),
-                remark: `Commission credited for ${service} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
+                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
               }], { session });
             }
           }
