@@ -28,21 +28,73 @@ exports.createForm = async (req, res) => {
 // Get all forms
 exports.getAllForms = async (req, res) => {
   try {
+    const {
+      status,
+      from,
+      to,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = "createdAt",
+      order = "desc",
+    } = req.query;
+
     const filter = {};
+
+    // ✅ Role-based filter
     if (req.user.role !== "Admin") {
       filter.userId = req.user.id;
     }
-    console.log(filter);
 
-    const forms = await Form.find(filter).sort({ createdAt: -1 });
+    // ✅ Status filter
+    if (status) filter.status = status;
+
+    // ✅ Date filter
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) filter.createdAt.$lte = new Date(to);
+    }
+
+    // ✅ Search filter
+    if (search) {
+      const regex = new RegExp(search, "i");
+      filter.$or = [
+        { fullName: regex },
+        { email: regex },
+        { mobileNumber: regex },
+        { regarding: regex },
+        { message: regex },
+        { enquiryId: regex },
+      ];
+    }
+
+    // ✅ Pagination & Sorting
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortOptions = {};
+    sortOptions[sortBy] = order === "asc" ? 1 : -1;
+
+    const [data, total] = await Promise.all([
+      Form.find(filter).sort(sortOptions).skip(skip).limit(parseInt(limit)),
+      Form.countDocuments(filter),
+    ]);
 
     res.status(200).json({
+      flag: 1, // ✅ success flag
       success: true,
-      count: forms.length,
-      data: forms,
+      total,
+      page: parseInt(page),
+      pageSize: parseInt(limit),
+      totalPages: Math.ceil(total / limit),
+      data,
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Server Error" });
+    console.error("Error in getAllForms:", err);
+    res.status(500).json({
+      flag: 0, // ❌ error flag
+      success: false,
+      error: "Server Error",
+    });
   }
 };
 
