@@ -205,7 +205,7 @@ const verifyPAN = async (req, res) => {
 };
 
 const normalizeName = (name) => {
-  const prefixList = ["Mr.", "Ms", "Mrs", "Dr"];
+  const prefixList = ["Mr.", "Ms", "Mrs", "Dr","Mr","Miss"];
   prefixList.forEach((prefix) => {
     if (name.startsWith(prefix)) {
       name = name.replace(prefix, "").trim();
