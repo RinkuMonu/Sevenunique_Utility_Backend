@@ -25,10 +25,15 @@ const dmtReportSchema = new mongoose.Schema(
       tds: { type: Number, default: 0 },
       netcommission: { type: Number, default: 0 },
     },
-    charges: {
+    charges: { type: Number, default: 0 },
+    commission: {
       distributor: { type: Number, default: 0 },
       admin: { type: Number, default: 0 },
     },
+    gst: { type: Number, default: 0 },
+    tds: { type: Number, default: 0 },
+    amount: { type: Number, default: 0 },
+    totalDebit: { type: Number, default: 0 },
     NPCI_response_code: { type: String },
     bank_status: { type: String },
   },
