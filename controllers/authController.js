@@ -1,4 +1,5 @@
 const User = require("../models/userModel.js");
+const mongoose = require("mongoose");
 const { generateOtp, verifyOtp } = require("../services/otpService");
 const { sendOtp } = require("../services/smsService");
 const { generateJwtToken } = require("../services/jwtService");
@@ -273,7 +274,6 @@ const loginController = async (req, res) => {
 const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
-    // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     });
@@ -356,14 +356,12 @@ const registerUser = async (req, res) => {
       }
     }
 
-    // ✅ Handle shop photos dynamically
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
         (file) => `/uploads/${file.filename}`
       );
     }
 
-    // ✅ Handle owner photo dynamically
     if (req.files?.ownerPhoto) {
       userData.ownerPhoto = `/uploads/${req.files.ownerPhoto[0].filename}`;
     }
@@ -387,7 +385,7 @@ const registerUser = async (req, res) => {
     }
 
     // ✅ Create user
-    // const NewUser = await User.create(userData);
+    userData.UserId = await CounterModal.getNextUserId();
     const NewUser = new User(userData);
     await NewUser.save();
 
@@ -528,16 +526,36 @@ const getUsersWithFilters = async (req, res) => {
       order = "asc",
       page = 1,
       limit = 10,
-
       exportType = "false",
       status,
       isKycVerified,
       inactiveOrUnverified,
+      state,
+      district,
+      distributorId,
     } = req.query;
     console.log("query...", req.query);
 
     const andConditions = [];
+    if (state) {
+      andConditions.push({
+        "address.state": { $regex: new RegExp(`^${state}$`, "i") },
+      });
+    }
 
+    if (district) {
+      andConditions.push({
+        $or: [
+          { "address.city": { $regex: new RegExp(`^${district}$`, "i") } },
+          { "address.block": { $regex: new RegExp(`^${district}$`, "i") } },
+          { "address.dist": { $regex: new RegExp(`^${district}$`, "i") } },
+        ],
+      });
+    }
+
+    if (distributorId) {
+      andConditions.push({ distributorId: distributorId });
+    }
     if (keyword) {
       andConditions.push({
         $or: [
@@ -839,6 +857,7 @@ startOfToday.setHours(0, 0, 0, 0);
 const getDashboardStats = async (req, res, next) => {
   try {
     const user = req.user;
+    console.log("Dashboard user:", user);
     const role = user.role;
 
     let stats = {
@@ -855,11 +874,55 @@ const getDashboardStats = async (req, res, next) => {
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
-      [field]: user._id,
+      [field]: user.id,
       createdAt: { $gte: startOfToday },
     });
 
-    // Admin dashboard
+    // 🔹 Total earning
+    let totalEarning = 0;
+    if (["Admin", "Distributor", "Retailer"].includes(role)) {
+      const result = await CommissionTransaction.aggregate([
+        { $unwind: "$roles" },
+        {
+          $match: {
+            "roles.role": role,
+            "roles.userId": new mongoose.Types.ObjectId(user.id),
+            status: "Success",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalEarning: { $sum: "$roles.totalEarned" },
+          },
+        },
+      ]);
+      totalEarning = result[0]?.totalEarning || 0;
+    }
+
+    // 🔹 Last 10 transactions
+    let last5Txns = [];
+    if (role === "Admin") {
+      last5Txns = await Transaction.find({})
+        .sort({ createdAt: -1 })
+        .limit(7)
+        .lean();
+    } else if (role === "Distributor") {
+      const retailers = await User.find({ distributorId: user.id }, { _id: 1 });
+      const retailerIds = retailers.map((r) => r._id);
+
+      last5Txns = await Transaction.find({ user_id: { $in: retailerIds } })
+        .sort({ createdAt: -1 })
+        .limit(7)
+        .lean();
+    } else if (role === "Retailer") {
+      last5Txns = await Transaction.find({ user_id: user.id })
+        .sort({ createdAt: -1 })
+        .limit(7)
+        .lean();
+    }
+
+    // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
         totalUsers,
@@ -899,11 +962,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfToday },
-            },
-          },
+          { $match: { createdAt: { $gte: startOfToday } } },
           {
             $facet: {
               byType: [
@@ -915,14 +974,7 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [
-                {
-                  $group: {
-                    _id: "$status",
-                    count: { $sum: 1 },
-                  },
-                },
-              ],
+              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -948,15 +1000,16 @@ const getDashboardStats = async (req, res, next) => {
           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
           : "0.00";
 
-      stats.overview = {
+      stats.common = {
+        totalEarning,
         totalUsers,
         totalRetailers,
         totalDistributors,
+        activeRetailers,
+        activeDistributors,
         totalAEPS: totalAepsTxns,
         totalDMT: totalDmtTxns,
         totalBBPS: totalBbpsTxns,
-        activeRetailers,
-        activeDistributors,
         totalPayoutAmount: totalPayouts[0]?.total || 0,
         totalPayInAmount: totalPayIn[0]?.total || 0,
         totalWalletBalance: totalWalletBalance[0]?.total || 0,
@@ -969,11 +1022,14 @@ const getDashboardStats = async (req, res, next) => {
           successRate: `${successRate}%`,
           failedTransactions: failedTxns,
         },
+        recentTransactions: last5Txns,
       };
-    } else if (role === "Distributor") {
+    }
+
+    // 🔹 Distributor Dashboard
+    else if (role === "Distributor") {
       const [
         myRetailers,
-        myCommission,
         aepsTxns,
         dmtTxns,
         totalWallet,
@@ -982,26 +1038,19 @@ const getDashboardStats = async (req, res, next) => {
         todayTxns,
         failedTxns,
         successTxns,
+        activeRetailers,
       ] = await Promise.all([
-        User.countDocuments({ distributorId: user._id, role: "Retailer" }),
-        PayIn.aggregate([
-          { $match: { userId: user._id, status: "Success" } },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        AEPSWithdrawal.countDocuments({ userId: user._id }),
-        DmtReport.countDocuments({ user_id: user._id }),
+        User.countDocuments({ distributorId: user.id, role: "Retailer" }),
+        AEPSWithdrawal.countDocuments({ userId: user.id }),
+        DmtReport.countDocuments({ user_id: user.id }),
         User.aggregate([
-          { $match: { distributorId: user._id } },
+          { $match: { distributorId: user.id } },
           { $group: { _id: null, total: { $sum: "$eWallet" } } },
         ]),
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfToday },
-            },
-          },
+          { $match: { createdAt: { $gte: startOfToday } } },
           {
             $facet: {
               byType: [
@@ -1013,14 +1062,7 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [
-                {
-                  $group: {
-                    _id: "$status",
-                    count: { $sum: 1 },
-                  },
-                },
-              ],
+              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1041,6 +1083,11 @@ const getDashboardStats = async (req, res, next) => {
           ...matchTodayUser("user_id"),
           status: "Success",
         }),
+        User.countDocuments({
+          distributorId: user.id,
+          role: "Retailer",
+          status: true,
+        }),
       ]);
 
       const successRate =
@@ -1048,12 +1095,16 @@ const getDashboardStats = async (req, res, next) => {
           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
           : "0.00";
 
-      stats.distributor = {
-        retailersUnderYou: myRetailers,
-        totalCommissionEarned: myCommission[0]?.total || 0,
+      stats.common = {
+        totalEarning,
+        totalUsers: 0, // distributors ko total users nahi dikhana
+        totalRetailers: myRetailers,
+        totalDistributors: 0,
+        activeRetailers,
+        activeDistributors: 0,
         totalRetailerWallet: totalWallet[0]?.total || 0,
-        aepsTransactions: aepsTxns,
-        dmtTransactions: dmtTxns,
+        totalAEPS: aepsTxns,
+        totalDMT: dmtTxns,
         today: {
           payinCount: todayPayin,
           payoutCount: todayPayout,
@@ -1061,33 +1112,29 @@ const getDashboardStats = async (req, res, next) => {
           successRate: `${successRate}%`,
           failedTransactions: failedTxns,
         },
+        recentTransactions: last5Txns,
       };
-    } else if (["Retailer", "User"].includes(role)) {
+    }
+
+    // 🔹 Retailer/User Dashboard
+    else if (["Retailer", "User"].includes(role)) {
       const [
         aeps,
         dmt,
         bbps,
-        txns,
         todayPayin,
         todayPayout,
         todayTxns,
         failedTxns,
         successTxns,
       ] = await Promise.all([
-        AEPSWithdrawal.countDocuments({ userId: user._id }),
-        DmtReport.countDocuments({ user_id: user._id }),
-        BbpsHistory.countDocuments({ userId: user._id }),
-        Transaction.find({ user_id: user._id })
-          .sort({ createdAt: -1 })
-          .limit(5),
+        AEPSWithdrawal.countDocuments({ userId: user.id }),
+        DmtReport.countDocuments({ user_id: user.id }),
+        BbpsHistory.countDocuments({ userId: user.id }),
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startOfToday },
-            },
-          },
+          { $match: { createdAt: { $gte: startOfToday } } },
           {
             $facet: {
               byType: [
@@ -1099,14 +1146,7 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [
-                {
-                  $group: {
-                    _id: "$status",
-                    count: { $sum: 1 },
-                  },
-                },
-              ],
+              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1134,11 +1174,16 @@ const getDashboardStats = async (req, res, next) => {
           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
           : "0.00";
 
-      stats.user = {
+      stats.common = {
+        totalEarning,
+        totalUsers: 0,
+        totalRetailers: 0,
+        totalDistributors: 0,
+        activeRetailers: 0,
+        activeDistributors: 0,
         totalAEPS: aeps,
         totalDMT: dmt,
         totalBBPS: bbps,
-        recentTransactions: txns,
         today: {
           payinCount: todayPayin,
           payoutCount: todayPayout,
@@ -1146,6 +1191,7 @@ const getDashboardStats = async (req, res, next) => {
           successRate: `${successRate}%`,
           failedTransactions: failedTxns,
         },
+        recentTransactions: last5Txns,
       };
     }
 
@@ -1158,9 +1204,131 @@ const getDashboardStats = async (req, res, next) => {
     return next(err);
   }
 };
-// PUT /users/:id/permissions
-// PUT /users/:id/permissions
-const mongoose = require("mongoose");
+
+//get service usege
+
+const getServiceUsage = async (req, res) => {
+  try {
+    const user = req.user;
+    let matchQuery = { status: "Success" };
+
+    if (user.role === "Admin") {
+      // ✅ pura system
+      matchQuery = { status: "Success" };
+    } else if (user.role === "Distributor") {
+      // ✅ distributor ke niche ke saare retailers ke userId nikal lo
+      const retailers = await User.find(
+        { distributorId: user.id, role: "Retailer" },
+        "_id"
+      );
+      matchQuery = {
+        status: "Success",
+        "roles.userId": { $in: retailers.map((r) => r._id) },
+      };
+    } else if (user.role === "Retailer") {
+      // ✅ sirf apna
+      matchQuery = {
+        status: "Success",
+        "roles.userId": new mongoose.Types.ObjectId(user.id),
+      };
+    }
+
+    const serviceUsage = await CommissionTransaction.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: "$service",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    // service populate karo
+    const populatedUsage = await servicesModal.populate(serviceUsage, {
+      path: "_id",
+      select: "name",
+    });
+
+    const formatted = populatedUsage.map((item) => ({
+      name: item._id?.name || "Unknown",
+      count: item.count,
+    }));
+
+    res.json({
+      success: true,
+      role: user.role,
+      total: formatted.reduce((sum, i) => sum + i.count, 0),
+      services: formatted,
+    });
+  } catch (err) {
+    console.error("Error in getServiceUsage:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+//get payin and payout report
+
+const getPayInPayOutReport = async (req, res) => {
+  try {
+    const user = req.user; // ✅ token se aa raha hai
+    let matchQuery = {};
+
+    // 🔹 Role check
+    if (user.role === "Admin") {
+      matchQuery = {}; // pura system
+    } else if (user.role === "Distributor") {
+      // apne niche ke saare retailers ke ID nikal lo
+      const retailers = await User.find(
+        { distributorId: user.id, role: "Retailer" },
+        "_id"
+      );
+
+      matchQuery = { userId: { $in: retailers.map((r) => r._id) } };
+    } else if (user.role === "Retailer") {
+      matchQuery = { userId: new mongoose.Types.ObjectId(user.id) };
+    }
+
+    const payin = await payInModel.aggregate([
+      { $match: { ...matchQuery, status: "Success" } },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const payout = await payOutModel.aggregate([
+      { $match: { ...matchQuery, status: "Success" } },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    res.json({
+      success: true,
+      role: user.role,
+      payin,
+      payout,
+    });
+  } catch (error) {
+    console.error("Error fetching PayIn-PayOut:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const CounterModal = require("../models/Counter.modal.js");
+const CommissionTransaction = require("../models/CommissionTransaction.js");
+const payOutModel = require("../models/payOutModel.js");
+const payInModel = require("../models/payInModel.js");
 
 const updateUserPermissions = async (req, res) => {
   try {
@@ -1235,4 +1403,6 @@ module.exports = {
   getDashboardStats,
   updateUserPermissions,
   getUserPermissions,
+  getServiceUsage,
+  getPayInPayOutReport,
 };
