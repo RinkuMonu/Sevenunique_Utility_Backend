@@ -14,6 +14,8 @@ const {
   getDashboardStats,
   getUserPermissions,
   updateUserPermissions,
+  getServiceUsage,
+  getPayInPayOutReport,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -28,13 +30,13 @@ router.post(
     { name: "shopAddressProof", maxCount: 1 }, // retailer ke liye
     { name: "officeAddressProof", maxCount: 1 }, // distributor ke liye
     { name: "directorKycFiles", maxCount: 4 },
-    { name: "boardResolution", maxCount: 1 },   
+    { name: "boardResolution", maxCount: 1 },
   ]),
   registerUser
 );
 
 router.post("/login", loginController);
-router.put("/profile", authenticateToken, updateProfileController);  
+router.put("/profile", authenticateToken, updateProfileController);
 router.get("/profile", authenticateToken, getUserController);
 router.get(
   "/users",
@@ -59,6 +61,18 @@ router.get(
   authenticateToken,
   authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   getDashboardStats
+);
+router.get(
+  "/dashboard/service-usage",
+  authenticateToken,
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  getServiceUsage
+);
+router.get(
+  "/dashboard/payin-payout",
+  authenticateToken,
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  getPayInPayOutReport
 );
 router.put(
   "/users/:id/permissions",

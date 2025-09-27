@@ -1,4 +1,5 @@
 const express = require("express");
+const authenticateToken = require("../middleware/verifyToken");
 const router = express.Router();
 const {
   createPlan,
@@ -10,10 +11,11 @@ const {
   getUserBuyServices,
   buyPassPlan,
   removeBuyPassPlan,
+  getAllUsersPlanHistory,
 } = require("../controllers/servicePlanController");
-const authenticateToken = require("../middleware/verifyToken");
 
 // Routes for Plan operations
+router.get("/getAllPlansHistory", authenticateToken, getAllUsersPlanHistory);
 router.get("/getUserbuyservices", authenticateToken, getUserBuyServices);
 router.post("/buypassplan", authenticateToken, buyPassPlan);
 router.post("/removebuypass", authenticateToken, removeBuyPassPlan);
