@@ -6,6 +6,12 @@ const { format, min } = require("date-fns");
 
 const userSchema = new mongoose.Schema(
   {
+    UserId: {
+      type: String,
+      unique: true,
+      index: true,
+    },
+
     distributorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -315,7 +321,7 @@ userSchema.pre("save", async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
-// ❌ virtual me async problem deta hai (JSON me {} aata hai)
+
 // ✅ isliye method use karte hain
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
