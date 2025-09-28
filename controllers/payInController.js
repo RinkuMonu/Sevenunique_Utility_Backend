@@ -173,14 +173,15 @@ exports.generatePayment = async (req, res, next) => {
     return res.status(400).json({ success: false, message: "All fields are required" });
   }
 
-  const user = await User.findOne({ _id: req?.user?.id || userId, status: true })
+const user = await User.findOne({ _id: req?.user?.id || userId, status: true })
+
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found or not active" });
   }
 
   try {
     const response = await axios.post(
-      "https://api.worldpayme.com/api/v1.1/createUpiIntent ",
+      "https://api.worldpayme.com/api/v1.1/createUpiIntent",
       {
         amount,
         reference,
@@ -191,7 +192,7 @@ exports.generatePayment = async (req, res, next) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization:`Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiMTdiODhhYmZjMTNhMDZmYzcxMzMzZjVkMmYzMTE0YzM3OTc1ZmE2OWY1ZWZlMjViZmQ2YjE2M2ZhOTNmOTZiZjJkMDQxYmFjZWEwZTU5MTEiLCJpYXQiOjE3NDQ5NTU3ODEuMzkwMDA4LCJuYmYiOjE3NDQ5NTU3ODEuMzkwMDEsImV4cCI6MTc3NjQ5MTc4MS4zODc2MTUsInN1YiI6IjI1NiIsInNjb3BlcyI6W119.S9FPsBiod-TXlWf-t2zB0DegZ7EZrzpP1g-YaiIA6oTNayIANqDTVzmFy7llw3jyGF4uOzC8nqstuNJ727amo0qVtgC4rb1C-Sfek4RUUUstjKl5hnSHZe63cH0ss5TZ5K_QrXouHNtibggzJ6PECIEA4Q_9WMmoPWK3pe06wNUk94OctGxgDtvzqDGB-CQK9bfpdPTiUWA_b7EyN6rQ6JUYcKDN1Crw8snH3gdKz5dT91KHhQd6SzCueHcPMJpc2HbgNfxn_WqBWB7VUMURRaLW4o4Yj-fTpkiBrgyoR1i0f-Kq0E5H-YEUHTzZTaOVzkbucd2gg9kX2qo_LeVFidFJsJrJ-qOQuwUYlVpAOOO_T-oILchC-TNOqHALeUfxtNYXlsps7SsCW4qrOLr6CEPm2deojgXO5B_VEUSfHrff9VWLmIOqX5V1VFr7qocoVxq8QEuHFCXDbaes7YwxLayactAhPKwPlkmQopr9syYS9swsHWgwtQET0vLI-RD78Cg59Z9AqVOZB1df_J4ZjXBOzURCoFGqs5YgsDFZD2hhTWVoynBKa5D694wBrOyr2U1hEOgW90pjx5_6VRmPGyP60hHeZDuBUPdzioh5M-LL5Ivhy076jVEeuGi3U8VlCSxU2iOqRqaOUOMASKqevVHPoxznqhCtMXlQa3V31v4`,
+          Authorization:`Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiZjQyMjY2MDRmMjg2YjYwYmNmZGM2N2FmZTI1Yjc0MjEyMDI4MDEyZTUwNjYwYWY2NmJkMDAxNTIxNTIwY2IxYjRhYjljOTg4YzQ2NzQ2ZTciLCJpYXQiOjE3NTg5NTczMzguNjgyNzg2LCJuYmYiOjE3NTg5NTczMzguNjgyNzg4LCJleHAiOjE3OTA0OTMzMzguNjgwMDU3LCJzdWIiOiIyNTYiLCJzY29wZXMiOltdfQ.SuRTKARoCVWS7DXQMvQloq4Fatl2yb0hkcHOaqh1FJS1758p9xTDmQBT2E-x9pQvGKt0xl2xuBouPljGvZvMeBUpPJugY_eEh-LN0C1M9y2Hbw3aiQ_8ZyBRDhI3jMkeo6aJK9QMWhJg8S7JWSABshxB5SuT3ISFeT4P9qxXRatoqueuLfP9yBnZi440uMXP9MMnffIf04nUAojrIBrmN7xK7xmtm0q0cvIuheS1X5OuB8hU6rdSmHDyQuX9FSI8PasVPcZyj__WOSEwKoP41Oc9DblHR-xs3RyHIZkpdtwPGBqmJ8D-DujBFVWdg7MsPFmUaUP473Lp19iYrcf1LyYUU5roQu7tIcUV2-xe2YAGReg1i-a_Ae4bO46MaacdMiaTFkFZbGnCNOsYU5-PZ096z_nrgWlHXM-H558IKumRCoHTMrIDudqtTye6rVWay4V8VxL1v-6o7h9KS7EvJLLiIdPLCi1_J9-wYnG5OdHbqQT5c3r5BCB_U32WePnWduQNG4HoZsv64caD4373M1drj9lum5DPK-5YEnX2D_JOyIxTzvQCNlNrlS1NCU4gotELmIYvBcUrpiY33PXApdKBRqPwliGZwK9CVJLFYTJ-EE9X4LY-JX0yCMwpPTSvI3MPJdOdf8sM6VshaPX6XCzsxyYKXeYSlk2eMG5f4gQ`,
       },
         },
       
@@ -218,61 +219,80 @@ exports.generatePayment = async (req, res, next) => {
     next(error);
   }
 };
-
 exports.callbackPayIn = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     const data = req.body;
+    console.log("🔔 Callback data received:", data);
 
-    const payin = await PayIn.findOne({ reference: data.reference }).session(session);
+    // Step 1: Find PayIn with status "Pending"
+    const payin = await PayIn.findOneAndUpdate(
+      { reference: data.reference, status: "Pending" }, // only Pending allowed
+      {
+        $set: {
+          status: data.status === "Success" ? "Success" : "Failed",
+          utr: data.utr || null,
+          remark:
+            data.status === "Success"
+              ? "Payment successful"
+              : data.error || data.message || "Payment failed",
+        },
+      },
+      { new: true } // return updated document
+    );
+
+    // If PayIn not found or already processed
     if (!payin) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Transaction not found" });
+      console.log(
+        "⚠️ Callback ignored (already processed or invalid reference):",
+        data.reference
+      );
+      return res.status(200).json({
+        message: "Transaction already processed or not found",
+      });
     }
 
-    if (payin.status === "Success" || payin.status === "Failed") {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(200).json({ message: "Transaction already processed" });
+    console.log("📄 PayIn record updated:", {
+      reference: payin.reference,
+      finalStatus: payin.status,
+      dbAmount: payin.amount,
+      gatewayAmount: data.amount,
+    });
+
+    // Step 2: If Success → Increment wallet balance atomically
+    if (payin.status === "Success") {
+      const user = await User.findOneAndUpdate(
+        { _id: payin.userId, status: true },
+        { $inc: { eWallet: payin.amount } }, // always trust DB amount
+        { new: true }
+      );
+
+      if (!user) {
+        console.warn("❌ User not found or inactive:", payin.userId);
+        return res
+          .status(404)
+          .json({ message: "User not found or inactive" });
+      }
+
+      console.log("💰 Wallet updated successfully:", {
+        added: payin.amount,
+        newBalance: user.eWallet,
+      });
     }
 
-    const user = await User.findOne({ _id: payin.userId, status: true }).session(session);
-    if (!user) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "User not found or inactive" });
-    }
+    console.log("🎯 Callback processed successfully for:", data.reference);
 
-    if (data.status === "Success") {
-      payin.status = "Success";
-      payin.utr = data.utr;
-      payin.remark = "Payment successful";
-      await payin.save({ session });
-
-      user.eWallet += payin.amount;
-      await user.save({ session });
-
-    } else {
-      payin.status = "Failed";
-      payin.remark = data.error || "Payment failed";
-      await payin.save({ session });
-    }
-
-    await session.commitTransaction();
-    session.endSession();
     return res.status(200).json({
       message: "Callback processed successfully",
     });
   } catch (error) {
-    console.error("Error in callback handler:", error.message);
-    await session.abortTransaction();
-    session.endSession();
-
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("🔥 Error in callback handler:", error.message, error.stack);
+    return res.status(500).json({
+      message: "Internal server error",
+    });
   }
 };
+
+
 
 exports.checkPayInStatus = async (req, res) => {
   try {
