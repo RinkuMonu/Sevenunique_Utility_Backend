@@ -473,35 +473,77 @@ const removeBuyPassPlan = async (req, res) => {
 };
 
 // Role wise plan history
+
 const getAllUsersPlanHistory = async (req, res) => {
   try {
     const currentUser = req.user;
-    console.log("..............,", currentUser);
 
     let query = {};
 
-    if (["Admin", "superAdmin"].includes(currentUser.role)) {
-      // ✅ Admin/SuperAdmin => sabka data
+    // 🔐 Role based access
+    if (currentUser.role === "Admin" || currentUser.role === "superAdmin") {
       query = {};
     } else if (currentUser.role === "Distributor") {
-      query = { distributorId: currentUser._id };
+      query = { _id: currentUser.id };
     } else if (["Retailer", "User"].includes(currentUser.role)) {
-      query = { _id: currentUser._id };
+      query = { _id: currentUser.id };
     } else {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
-    const users = await userModel
-      .find(query)
-      .select("name role email status planHistory")
-      .populate("planHistory")
-      .populate("plan");
+    const {
+      search,
+      status,
+      fromDate,
+      toDate,
+      page = 1,
+      limit = 10,
+    } = req.query;
+    console.log(req.query);
+    if (search) {
+      const regex = new RegExp(search, "i");
+      query.$or = [
+        { name: regex },
+        { email: regex },
+        { mobileNumber: regex },
+        { UserId: regex },
+      ];
+    }
 
-    console.log(users);
+    if (status === "current") {
+      query["plan.planId"] = { $ne: null };
+    } else if (status === "expired") {
+      query["planHistory.status"] = "expired";
+    } else if (status === "noplan") {
+      query["plan.planId"] = null;
+    }
+
+    if (fromDate && toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      query["plan.startDate"] = { $gte: from, $lte: to };
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Fetch data + count
+    const [users, total] = await Promise.all([
+      userModel
+        .find(query)
+        .select("name role email UserId mobileNumber status plan planHistory")
+        .populate("planHistory")
+        .populate("plan")
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      userModel.countDocuments(query),
+    ]);
 
     return res.status(200).json({
       success: true,
-      count: users.length,
+      count: total,
+      currentPage: Number(page),
+      totalPages: Math.ceil(total / limit),
       data: users,
     });
   } catch (error) {
@@ -511,6 +553,9 @@ const getAllUsersPlanHistory = async (req, res) => {
       .json({ success: false, message: "Internal server error" });
   }
 };
+
+module.exports = { getAllUsersPlanHistory };
+
 module.exports = {
   createPlan,
   getAllPlans,
