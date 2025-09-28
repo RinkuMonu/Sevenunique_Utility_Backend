@@ -295,7 +295,9 @@ exports.PennyDrop = async (req, res, next) => {
             bene_id
         } = req.body;
 
-        const { commissionPackage } = await getDmtOrAepsMeta(req.user.id, "DMT");
+        const commissionPackage = await getDmtOrAepsMeta(req.user.id, "DMT Money Transfer");
+        console.log("commissionPackage", commissionPackage);
+
 
         const amount = commissionPackage?.dmtPennyDrop || 0;
         const userId = req.user.id;
@@ -322,6 +324,7 @@ exports.PennyDrop = async (req, res, next) => {
             transaction_type: "debit",
             amount,
             balance_after: user.eWallet,
+            totalDebit: amount,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
             description: "Penny Drop Verification for DMT",
@@ -338,6 +341,7 @@ exports.PennyDrop = async (req, res, next) => {
             email: user.email,
             status: "Pending",
             charges: 0,
+            totalDebit: amount,
             remark: `Penny Drop verification for ${accno} for DMT`
         }], { session });
 
@@ -391,10 +395,7 @@ exports.PennyDrop = async (req, res, next) => {
 
                     netcommission: 0,
                 },
-                charges: {
-                    distributor: 0,
-                    admin: 0
-                },
+                totalDebit: amount,
                 NPCI_response_code: result.response_code,
                 bank_status: result.message || ""
             }], { session });
@@ -508,16 +509,7 @@ exports.performTransaction = async (req, res, next) => {
             long = "78.345678"
         } = req.body;
 
-        await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
-
-        const commissionPackage = await getCommissionPackage(req.user.id, "DMT Money Transfer");
-
-        if (!commissionPackage) {
-            return res.status(400).json({ success: false, message: "DMT package not found" });
-        }
-        if (!commissionPackage?.isActive) {
-            return res.status(400).json({ success: false, message: "DMT package not active for this user" });
-        }
+        const { commissions } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
 
         let userId = req.user.id;
 
@@ -534,15 +526,22 @@ exports.performTransaction = async (req, res, next) => {
             return res.status(400).json({ error: true, message: `Missing required fields: ${missingFields.join(', ')}` });
         }
 
-        let commission = calculateCommissionFromSlabs(amount, commissionPackage || [])
+        let commission = calculateCommissionFromSlabs(amount, commissions || [])
+        console.log(commission);
+
 
         const user = await userModel.findById(userId).session(session);
         if (!user) {
             return res.status(404).json({ error: true, message: "User not found" });
         }
         const usableBalance = user.eWallet - (user.cappingMoney || 0);
-        const required = Number(amount) + commission.totalCommission;
+        const required = Number((
+            Number(amount) +
+            Number(commission.charge || 0) +
+            Number(commission.gst || 0) + Number(commission.tds || 0)
+        ).toFixed(2));
 
+        console.log(required);
         if (usableBalance < required) {
             return res.status(400).json({
                 error: true,
@@ -560,6 +559,11 @@ exports.performTransaction = async (req, res, next) => {
             user_id: userId,
             transaction_type: "debit",
             amount: Number(amount),
+            gst: Number(commission.gst),
+            tds: Number(commission.tds),
+            charge: Number(commission.charge),
+            totalDebit: Number(required),
+            // netAmount: Number(required),
             balance_after: user.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
@@ -576,7 +580,10 @@ exports.performTransaction = async (req, res, next) => {
             mobile: user.mobileNumber,
             email: user.email,
             status: "Pending",
-            charges: commission.totalCommission,
+            charges: commission.charge || 0,
+            gst: commission.gst || 0,
+            tds: commission.tds || 0,
+            totalDebit: required,
             remark: `Money Transfer for beneficiary ID ${bene_id}`
         }).save({ session });
 
@@ -622,11 +629,15 @@ exports.performTransaction = async (req, res, next) => {
                     tds: parseFloat(result.tds || 0),
                     netcommission: parseFloat(result.netcommission || 0),
                 },
-                charges: {
-                    retailer: commission.retailer,
+                charges: commission.charge,
+                commission: {
                     distributor: commission.distributor,
                     admin: commission.admin
                 },
+                gst: commission.gst,
+                tds: commission.tds,
+                amount: amount,
+                totalDebit: required,
                 NPCI_response_code: result.NPCI_response_code || '',
                 bank_status: result.bank_status || ''
             }], { session });
@@ -636,7 +647,7 @@ exports.performTransaction = async (req, res, next) => {
                 Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }).session(session),
                 distributeCommission({
                     distributer: user.distributorId,
-                    service: commissionPackage.service,
+                    service: "DMT",
                     amount,
                     commission,
                     reference: referenceid,
@@ -649,12 +660,19 @@ exports.performTransaction = async (req, res, next) => {
 
             await CommissionTransaction.create([{
                 referenceId: referenceid,
-                service: commissionPackage.service,
+                service: commissions.service,
                 baseAmount: Number(amount),
+                charge: commission.charge + commission.gst,
+                netAmount: required,
                 roles: [
-                    { userId, role: "retailer", commission: commission.retailer || 0, chargeShare: 0 },
-                    { userId: user.distributorId, role: "distributor", commission: commission.distributor || 0, chargeShare: 0 },
-                    { userId: process.env.ADMIN_USER_ID, role: "admin", commission: commission.admin || 0, chargeShare: 0 }
+                    {
+                        userId,
+                        role: "Retailer",
+                        commission: commission.retailer || 0,
+                        chargeShare: commission.charge || 0,
+                    },
+                    { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+                    { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
                 ],
                 type: "credit",
                 status: "Success",
@@ -665,7 +683,7 @@ exports.performTransaction = async (req, res, next) => {
 
 
         } else {
-            user.eWallet += Number(amount + commission.totalCommission);
+            user.eWallet += Number(required);
             await user.save({ session });
 
             await Promise.all([

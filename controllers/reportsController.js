@@ -6,6 +6,8 @@ const AEPSWithdrawal = require("../models/aepsModels/withdrawalEntry.js");
 const { default: mongoose } = require("mongoose");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit"); // Make sure PDF is also imported
+const userModel = require("../models/userModel.js");
+
 
 exports.getBbpsReport = async (req, res) => {
   try {
@@ -23,21 +25,26 @@ exports.getBbpsReport = async (req, res) => {
       download, // flag: download=csv
     } = req.query;
 
+    // Role-based matchStage
     const matchStage = {};
 
     if (rechargeType) matchStage.rechargeType = rechargeType;
     if (status) matchStage.status = status;
+
     if (req.user.role === "Admin") {
-      if (userId) matchStage.userId = mongoose.Types.ObjectId(userId);
+      if (userId) matchStage.userId = new mongoose.Types.ObjectId(userId);
     } else if (req.user.role === "Distributor") {
-      matchStage.distributorId = req.user.id;
+      // Find all retailers under this distributor
+      const users = await userModel.find({ distributorId: req.user.id }).select("_id");
+      const userIds = users.map((u) => u._id);
+      matchStage.userId = { $in: userIds };
     } else {
-      matchStage.userId = req.user.id;
+      // Retailer
+      matchStage.userId = new mongoose.Types.ObjectId(req.user.id);
     }
 
     if (operator) matchStage.operator = new RegExp(operator, "i");
-    if (customerNumber)
-      matchStage.customerNumber = new RegExp(customerNumber, "i");
+    if (customerNumber) matchStage.customerNumber = new RegExp(customerNumber, "i");
     if (startDate || endDate) {
       matchStage.createdAt = {};
       if (startDate) matchStage.createdAt.$gte = new Date(startDate);
@@ -47,6 +54,7 @@ exports.getBbpsReport = async (req, res) => {
     const commonPipeline = [
       { $match: matchStage },
       { $sort: { createdAt: -1 } },
+      // Join with user
       {
         $lookup: {
           from: "users",
@@ -56,9 +64,20 @@ exports.getBbpsReport = async (req, res) => {
         },
       },
       { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
-      ...(search
-        ? [{ $match: { "user.name": { $regex: search, $options: "i" } } }]
-        : []),
+
+      // Join with distributor
+      {
+        $lookup: {
+          from: "users",
+          localField: "user.distributorId",
+          foreignField: "_id",
+          as: "distributor",
+        },
+      },
+      { $unwind: { path: "$distributor", preserveNullAndEmptyArrays: true } },
+
+      // Search by user name
+      ...(search ? [{ $match: { "user.name": { $regex: search, $options: "i" } } }] : []),
 
       {
         $project: {
@@ -69,23 +88,33 @@ exports.getBbpsReport = async (req, res) => {
           amount: 1,
           status: 1,
           charges: 1,
+          gst: 1,
+          tds: 1,
+          totalCommission: 1,
+          adminCommission: 1,
+          distributorCommission: 1,
+          retailerCommission: 1,
           transactionId: 1,
           extraDetails: 1,
           "user.name": 1,
           "user.email": 1,
+          "distributor._id": 1,
+          "distributor.name": 1,
+          "distributor.email": 1,
           createdAt: 1,
           updatedAt: 1,
         },
       },
     ];
 
-    // 📥 CSV Download Mode
+    // CSV Download
     if (download === "csv") {
       const data = await BbpsHistory.aggregate(commonPipeline);
 
       const formattedData = data.map((item) => ({
         Name: item.user?.name || "",
         Email: item.user?.email || "",
+        Distributor: item.distributor?.name || "",
         Operator: item.operator,
         CustomerNumber: item.customerNumber,
         Amount: item.amount,
@@ -97,13 +126,12 @@ exports.getBbpsReport = async (req, res) => {
       }));
 
       const csv = new Parser().parse(formattedData);
-
       res.header("Content-Type", "text/csv");
       res.attachment("bbps-report.csv");
       return res.send(csv);
     }
 
-    // 📤 Normal Paginated Response
+    // Pagination
     const pageNumber = parseInt(page, 10);
     const limitNumber = parseInt(limit, 10);
 
@@ -112,8 +140,6 @@ exports.getBbpsReport = async (req, res) => {
       { $skip: (pageNumber - 1) * limitNumber },
       { $limit: limitNumber },
     ];
-    console.log("🔍 Query received:", req.query);
-    console.log("Parsed page:", pageNumber, "limit:", limitNumber);
 
     const results = await BbpsHistory.aggregate(paginatedPipeline);
 
@@ -341,10 +367,8 @@ exports.getAllDmtReports = async (req, res, next) => {
             doc
               .fontSize(10)
               .text(
-                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${
-                  report.benename
-                } (${report.account_number}) - ₹${
-                  report.gatewayCharges?.txn_amount || 0
+                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${report.benename
+                } (${report.account_number}) - ₹${report.gatewayCharges?.txn_amount || 0
                 } - ${report.status ? "Success" : "Failed"}`,
                 50,
                 yPosition
@@ -496,8 +520,8 @@ exports.aepsTransactions = async (req, res, next) => {
         status === "true" || status === true
           ? true
           : status === "false" || status === false
-          ? false
-          : undefined;
+            ? false
+            : undefined;
 
       if (parsedStatus !== undefined) {
         matchStage.status = parsedStatus;
