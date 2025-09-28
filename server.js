@@ -18,14 +18,15 @@ const authenticateToken = require("./middleware/verifyToken.js");
 const NewsRouter = require("./routes/news.routes.js");
 const { getAllRole } = require("./controllers/permissionByRoleController.js");
 const { planCheckCronJob } = require("./services/cornjob.js");
+const loan = require("./routes/loan.routes.js");
 
 const app = express();
-planCheckCronJob()
+planCheckCronJob();
 
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "https://utility.finuniques.in"
+  "https://utility.finuniques.in",
 ];
 
 app.use(
@@ -69,6 +70,8 @@ app.use("/api/recharge", rechargeRoute);
 app.use("/api/biller", billerRoutes);
 app.use("/api/v1/news", NewsRouter);
 app.use("/api/v1/getallrole", getAllRole);
+app.use("/api/loans", loan);
+app.use("/api/assets", require("./routes/device.routes"));
 
 app.get("/", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the API" })
