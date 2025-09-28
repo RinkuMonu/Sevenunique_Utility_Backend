@@ -26,16 +26,26 @@ const bbpsHistorySchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-    commission: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
+    retailerCommission: { type: Number, default: 0 },
+    distributorCommission: { type: Number, default: 0 },
+    adminCommission: { type: Number, default: 0 },
+    totalCommission: { type: Number, default: 0 },
     charges: {
       type: Number,
       min: 0,
       default: 0
     },
+    gst: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    tds: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    totalDebit: { type: Number, default: 0 },
     transactionId: {
       type: String,
       trim: true,
