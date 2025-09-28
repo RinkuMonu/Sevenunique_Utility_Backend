@@ -183,7 +183,7 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
         throw new Error("Package not found");
       }
       return {
-        commissions
+        commissions, service
         // source: "UserMeta",
         // chargeType: matchedService.chargeType,
         // serviceCharges: matchedService.serviceCharges,
@@ -231,7 +231,7 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
   }
 
   return {
-    commissions
+    commissions, service
     // source: `${commission.packageName}`,
     // chargeType: matchedProvider.chargeType || "fixed",
     // serviceCharges: matchedProvider.serviceCharges || 0,

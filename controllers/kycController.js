@@ -56,6 +56,7 @@ const submitAadharOTP = async (req, res) => {
 
   let user = await User.findById(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
+  console.log(user);
 
   const requestData = { otp, client_id };
 
@@ -80,11 +81,14 @@ const submitAadharOTP = async (req, res) => {
       submitOtpResponse.data.data &&
       submitOtpResponse.data.data.status === true
     ) {
-      await User.findByIdAndUpdate(
+      console.log("hii");
+
+      const newData = await User.findByIdAndUpdate(
         userId,
-        { $set: { aadharDetails: nameFromAadhar, isKycVerified: true } },
+        { aadharDetails: nameFromAadhar, isKycVerified: true },
         { new: true }
       );
+      console.log(newData);
 
       return res.status(200).json({
         message: "Aadhaar verification successful",
@@ -205,7 +209,7 @@ const verifyPAN = async (req, res) => {
 };
 
 const normalizeName = (name) => {
-  const prefixList = ["Mr.", "Ms", "Mrs", "Dr","Mr","Miss"];
+  const prefixList = ["Mr.", "Ms", "Mrs", "Dr", "Mr", "Miss"];
   prefixList.forEach((prefix) => {
     if (name.startsWith(prefix)) {
       name = name.replace(prefix, "").trim();
@@ -243,7 +247,7 @@ const userVerify = async (req, res) => {
   }
 
   // user.aadharDetails = {};
-  // user.panDetails = {};
+  // user.panDetails = {}; 
   // user.bankDetails = {};
   user.isKycVerified = false;
   await user.save();
