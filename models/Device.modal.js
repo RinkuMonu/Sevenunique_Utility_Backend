@@ -2,11 +2,11 @@ const mongoose = require("mongoose");
 
 const DeviceSchema = new mongoose.Schema(
   {
-    brand: { type: String, required: true, trim: true }, // e.g. Mantra, Morpho
-    model: { type: String, required: true, trim: true }, // e.g. L0, L1
-    image: { type: String }, // URL
+    brand: { type: String, required: true, trim: true },
+    model: { type: String, required: true, trim: true },
+    image: { type: String }, 
     price: { type: Number, required: true },
-    warranty: { type: String }, // "1 Year"
+    warranty: { type: String }, 
     description: { type: String },
     isActive: { type: Boolean, default: true },
   },
