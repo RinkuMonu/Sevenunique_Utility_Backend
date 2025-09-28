@@ -170,16 +170,17 @@ exports.doRecharge = async (req, res, next) => {
 
     if (commissions.slabs && commissions.slabs.length > 0) {
       // Slabs present → calculate from slabs
-      commission = calculateCommissionFromSlabs(amount, commissions);
+      commission = calculateCommissionFromSlabs(amount, commissions, operatorName);
 
     }
+   
     const user = await userModel.findOne({ _id: userId }).session(session);
 
     if (user.mpin != mpin) {
       throw new Error("Invalid mpin ! Please enter a vaild mpin");
     }
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number(amount) + commission.totalCommission;
+    const required = Number(amount) + (commission.charge || 0);
 
     if (usableBalance < required) {
       return res.status(400).json({
@@ -201,6 +202,10 @@ exports.doRecharge = async (req, res, next) => {
       user_id: userId,
       transaction_type: "debit",
       amount: Number(amount),
+      gst: Number(commission.gst),
+      tds: Number(commission.tds),
+      charge: Number(commission.charge),
+      totalDebit: Number(required),
       balance_after: user.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
@@ -229,13 +234,36 @@ exports.doRecharge = async (req, res, next) => {
       rechargeType: category,
       operator: operatorName,
       customerNumber: canumber,
-      amount: amount,
-      charges: commission.totalCommission,
+      amount: Number(amount),
+
+      charges: Number(commission.charge || 0),
+
+      retailerCommission:
+        (Number(commission.retailer || 0) *
+          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100).toFixed(2)),
+
+      distributorCommission:
+        (Number(commission.distributor || 0) *
+          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100)).toFixed(2),
+
+      adminCommission:
+        (Number(commission.admin || 0) *
+          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100)).toFixed(2),
+
+      gst: Number(commission.gst || 0),
+      tds: Number(commission.tds || 0),
+      totalCommission: Number(commission.totalCommission || 0),
+      totalDebit: Number(required),
+
       transactionId: referenceid,
       extraDetails: { mobileNumber: canumber },
       status: "Pending"
     }], { session });
-    console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);
+
+
+
+    console.log("🗂️ Recharge record created:", rechargeRecord._id);
+
 
     const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
@@ -269,7 +297,12 @@ exports.doRecharge = async (req, res, next) => {
       await Transaction.create([{
         user_id: userId,
         transaction_type: "credit",
-        amount: required,
+        amount: amount,
+        charges: commission.charge || 0,
+        commission: commission.totalCommission || 0,
+        gst: commission.gst || 0,
+        tds: commission.tds || 0,
+        totalCredit: required,
         balance_after: user.eWallet,
         payment_mode: "wallet",
         transaction_reference_id: `${referenceid}-refund`,
@@ -295,7 +328,10 @@ exports.doRecharge = async (req, res, next) => {
         mobile: user.mobileNumber,
         email: user.email,
         status: "Success",
-        charges: commission.totalCommission,
+        charges: commission.charge || 0,
+        gst: commission.gst || 0,
+        tds: commission.tds || 0,
+        totalDebit: required,
         remark: `Recharge for ${canumber}`
       });
       await newPayOut.save({ session });
@@ -305,10 +341,17 @@ exports.doRecharge = async (req, res, next) => {
         referenceId: referenceid,
         service: commissions.service,
         baseAmount: Number(amount),
+        charge: Number(commission.charge),
+        netAmount: Number(required),
         roles: [
-          { userId, role: "retailer", commission: commission.retailer || 0, chargeShare: 0 },
-          { userId: user.distributorId, role: "distributor", commission: commission.distributor || 0, chargeShare: 0 },
-          { userId: process.env.ADMIN_USER_ID, role: "admin", commission: commission.admin || 0, chargeShare: 0 }
+          {
+            userId,
+            role: "Retailer",
+            commission: commission.retailer || 0,
+            chargeShare: commission.charge || 0,
+          },
+          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
         type: "credit",
         status: "Success",

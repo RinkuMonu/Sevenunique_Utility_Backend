@@ -274,6 +274,7 @@ const loginController = async (req, res) => {
 const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
+    console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     });

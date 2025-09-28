@@ -15,18 +15,18 @@ const CommissionTransactionSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    charge: {
+      type: Number,
+      default: 0,
+    },
+    netAmount: {
+      type: Number,
+      default: 0,
+    },
     roles: [
       {
-        userId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        role: {
-          type: String,
-          enum: ["retailer", "distributor", "admin"],
-          required: true,
-        },
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        role: { type: String, enum: ["Retailer", "Distributor", "Admin"], required: true },
         commission: { type: Number, default: 0 },
         chargeShare: { type: Number, default: 0 },
         totalEarned: { type: Number, default: 0 },
@@ -46,17 +46,17 @@ const CommissionTransactionSchema = new mongoose.Schema(
       type: Object,
       default: {},
     },
-    sourceRetailerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // optional for distributor/admin reference
-  },
+    sourceRetailerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+  }, // optional for distributor/admin reference
   { timestamps: true }
 );
 
 // Auto-calculate totalEarned for each role
 CommissionTransactionSchema.pre("save", function (next) {
   if (this.roles && this.roles.length) {
-    this.roles = this.roles.map((r) => ({
+    this.roles = this.roles.map(r => ({
       ...r,
-      totalEarned: (r.commission || 0) + (r.chargeShare || 0),
+      totalEarned: (r.commission || 0) - (r.chargeShare || 0),
     }));
   }
   next();
