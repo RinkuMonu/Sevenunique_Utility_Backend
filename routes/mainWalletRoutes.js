@@ -57,8 +57,8 @@ const validation = {
 
 
 router.get('/payin', celebrate(validation), authenticateToken, allPayin);
-router.post('/paygen', authenticateToken, createPayIn)
-router.post('/payin', authenticateToken, generatePayment);
+router.post('/paygen', createPayIn)
+router.post('/payin', generatePayment);
 router.post('/payin/callback', callbackPayIn);
 router.get('/payin/:reference', authenticateToken, checkPayInStatus);
 

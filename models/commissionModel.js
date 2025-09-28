@@ -32,8 +32,8 @@ const commissionSlabSchema = new mongoose.Schema(
         "Sun Direct",
       ],
     },
-    minAmount: { type: Number, required: true },
-    maxAmount: { type: Number, required: true },
+    minAmount: { type: Number },
+    maxAmount: { type: Number },
     commissionType: {
       type: String,
       enum: ["flat", "percentage", "slab"],
@@ -49,11 +49,10 @@ const commissionSlabSchema = new mongoose.Schema(
       default: "fixed",
     },
     retailer: { type: Number, required: true },
-    type: {
-      type: String,
-      enum: ["commission", "charges"],
-      required: true,
-    },
+    // type: {
+    //   type: String,
+    //   // enum: ["commission", "charges"]
+    // },
     distributor: { type: Number, required: true },
     admin: { type: Number, default: 0 },
   },

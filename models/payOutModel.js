@@ -21,7 +21,7 @@ const payOutSchema = new mongoose.Schema(
     trans_mode: {
       type: String,
       required: false,
-      enum: ["Bank Transfer", "UPI", "Cash", "Cheque",'IMPS','NEFT','WALLET'], // Adding some common payment modes
+      enum: ["Bank Transfer", "UPI", "Cash", "Cheque", 'IMPS', 'NEFT', 'WALLET'], // Adding some common payment modes
     },
     account: {
       type: String
@@ -65,12 +65,25 @@ const payOutSchema = new mongoose.Schema(
       required: false,
       trim: true, // Trim whitespace from remark
     },
+
     charges: {
       type: Number, // Changed to Number type for charges
       required: true,
       default: 0, // Default value for charges
       min: [0, 'Charges must be greater than or equal to zero'],
-    }
+    },
+    gst: {
+      type: Number,
+      default: 0,
+    },
+    tds: {
+      type: Number,
+      default: 0,
+    },
+    totalDebit: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true, // Automatically manage createdAt and updatedAt
