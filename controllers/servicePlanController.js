@@ -480,13 +480,13 @@ const getAllUsersPlanHistory = async (req, res) => {
 
     let query = {};
 
-    if (["Admin", "superAdmin"].includes(currentUser.role)) {
+    if (currentUser.role === "Admin") {
       // ✅ Admin/SuperAdmin => sabka data
       query = {};
     } else if (currentUser.role === "Distributor") {
-      query = { distributorId: currentUser._id };
+      query = { _id: currentUser.id };
     } else if (["Retailer", "User"].includes(currentUser.role)) {
-      query = { _id: currentUser._id };
+      query = { _id: currentUser.id };
     } else {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
@@ -497,7 +497,7 @@ const getAllUsersPlanHistory = async (req, res) => {
       .populate("planHistory")
       .populate("plan");
 
-    console.log(users);
+    // console.log(users);
 
     return res.status(200).json({
       success: true,
