@@ -4,7 +4,7 @@ import userModel from "../models/userModel.js";
 // Every day at midnight
 export const planCheckCronJob = () => {
   // cron.schedule("*/30 * * * * *", async () => {
-    cron.schedule("0 0 * * *", async () => {
+  cron.schedule("0 0 * * *", async () => {
     console.log("🔄 Running daily plan expiry check...");
 
     try {
