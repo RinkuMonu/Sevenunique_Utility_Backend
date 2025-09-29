@@ -14,41 +14,68 @@ const { default: axios } = require("axios");
 const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
-
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
-    console.log(req.body);
+    console.log("📩 Request Body:", req.body);
+
+    // ✅ Validation
     if (!mobileNumber) {
-      return res.status(400).json({ message: "Mobile number is required" });
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required"
+      });
     }
 
-    // Find user once and reuse
+    // ✅ Find user once and reuse
     const userExisting = await User.findOne({ mobileNumber });
 
-    // Register flow: stop if user already exists
+    // ✅ Register flow: stop if user already exists
     if (isRegistered === true) {
       if (userExisting) {
-        return res.status(400).json({ message: "User already registered" });
+        return res.status(400).json({
+          success: false,
+          message: "User already registered"
+        });
       }
     }
 
-    // Login flow: stop if user does not exist
+    // ✅ Login flow: stop if user does not exist
     if (ifLogin === true) {
       if (!userExisting) {
-        return res.status(400).json({ message: "User not found" });
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
       }
     }
+
+    // ✅ Generate OTP
     const otp = await generateOtp(mobileNumber);
+
+    // ✅ Send OTP
     const smsResult = await sendOtp(mobileNumber, otp);
+
     if (smsResult.success) {
-      return res.status(200).json({ message: "OTP sent successfully" });
+      return res.status(200).json({
+        success: true,
+        message: "OTP sent successfully",
+        data: { mobileNumber } // optional, can remove if you want
+      });
     } else {
-      return res.status(400).json({ message: smsResult.message });
+      return res.status(400).json({
+        success: false,
+        message: smsResult.message || "Failed to send OTP"
+      });
     }
+
   } catch (error) {
-    console.error("Error in sendOtpController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("❌ Error in sendOtpController:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
   }
 };
 
@@ -56,24 +83,40 @@ const verifyOTPController = async (req, res) => {
   try {
     const { mobileNumber, otp } = req.body;
 
+    // ✅ Validation
     if (!mobileNumber || !otp) {
-      return res
-        .status(400)
-        .json({ message: "Mobile number and OTP are required" });
-    }
-    const verificationResult = await verifyOtp(mobileNumber, otp);
-    if (!verificationResult.success) {
-      return res.status(400).json({ message: verificationResult.message });
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number and OTP are required"
+      });
     }
 
+    // ✅ Verify OTP
+    const verificationResult = await verifyOtp(mobileNumber, otp);
+
+    if (!verificationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.message || "Invalid OTP"
+      });
+    }
+
+    // ✅ Success
     return res.status(200).json({
-      message: "OTP verified successfully",
+      success: true,
+      message: "OTP verified successfully"
     });
+
   } catch (error) {
-    console.error("Error in verifyOTPController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("❌ Error in verifyOTPController:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
   }
 };
+
 
 // const loginController = async (req, res) => {
 //   try {
