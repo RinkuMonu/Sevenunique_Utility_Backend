@@ -2,27 +2,6 @@ const CommissionPackage = require("../models/commissionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const mongoose = require("mongoose");
 
-// exports.createPackage = async (req, res, next) => {
-//   console.log(req.body);
-//   try {
-//     const packageData = req.body;
-
-//     const newPackage = new CommissionPackage(packageData);
-//     await newPackage.save();
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Commission package created successfully",
-//       data: newPackage,
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message || "Internal Server Error",
-//     });
-//   }
-// };
-
 exports.createPackage = async (req, res, next) => {
   try {
     const packageData = req.body;
@@ -121,7 +100,7 @@ exports.getAllPackages = async (req, res) => {
 exports.getPackageById = async (req, res) => {
   try {
     const packageId = req.params.id;
-    const pkg = await CommissionPackage.findById(packageId);
+    const pkg = await CommissionPackage.findById(packageId).populate("service");
 
     if (!pkg) {
       return res
@@ -141,20 +120,40 @@ exports.updatePackage = async (req, res) => {
     const packageId = req.params.id;
     const updates = req.body;
 
-    const updated = await CommissionPackage.findByIdAndUpdate(
-      packageId,
-      updates,
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-
-    if (!updated) {
+    // 🟢 पहले package निकालो
+    const currentPackage = await CommissionPackage.findById(packageId);
+    if (!currentPackage) {
       return res
         .status(404)
         .json({ success: false, message: "Package not found" });
     }
+
+    // अगर service body में नहीं है → तो current से ले लो
+    const serviceId = updates.service || currentPackage.service;
+
+    // 🟢 Default check
+    if (updates.isDefault === true) {
+      const existingDefault = await CommissionPackage.findOne({
+        service: serviceId,
+        isDefault: true,
+      });
+
+      // अगर कोई aur default है (और ये package नहीं है) → block
+      if (existingDefault && existingDefault._id.toString() !== packageId) {
+        return res.status(400).json({
+          success: false,
+          message: `Default package for this service already exists.`,
+          existingDefault,
+        });
+      }
+    }
+
+    // 🟢 अब safe update
+    const updated = await CommissionPackage.findByIdAndUpdate(
+      packageId,
+      { ...updates, service: serviceId },
+      { new: true, runValidators: true }
+    );
 
     res.status(200).json({
       success: true,
