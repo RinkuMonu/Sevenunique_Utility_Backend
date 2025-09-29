@@ -11,6 +11,12 @@ const ISU = axios.create({
 async function postEncrypted(endpoint, payload) {
   const header_secrets = buildHeaderSecrets();
   const body = { RequestData: encryptObject(payload) };
+  console.log(body);
+
+  console.log({
+    header_secrets,
+    pass_key: process.env.ISU_PASS_KEY,
+  },);
 
   const { data, status } = await ISU.post(endpoint, body, {
     headers: {
