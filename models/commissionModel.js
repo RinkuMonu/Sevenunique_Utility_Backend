@@ -1,14 +1,5 @@
 const mongoose = require("mongoose");
 
-
-
-
-
-
-
-
-
-
 const commissionSlabSchema = new mongoose.Schema(
   {
     operator: {
