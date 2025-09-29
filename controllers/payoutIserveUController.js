@@ -35,6 +35,7 @@ function decryptAES256(text, key) {
 // ========================
 // 🟢 1. Payout Initiate
 // ========================
+// 🟢 1. Payout Initiate
 exports.initiatePayout = async (req, res) => {
   try {
     const { beneName, beneAccountNo, beneifsc, amount, fundTransferType } = req.body;
@@ -45,10 +46,8 @@ exports.initiatePayout = async (req, res) => {
     const headerSecrets = {
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-    epoch: Math.floor(Date.now() / 1000).toString(),
+      epoch: Math.floor(Date.now() / 1000).toString(),
     };
-    console.log("🕒 Epoch Sent:", headerSecrets.epoch, typeof headerSecrets.epoch);
-
     const encHeaderSecrets = encryptAES256(JSON.stringify(headerSecrets), AES_KEY);
 
     // Payload
@@ -62,12 +61,9 @@ exports.initiatePayout = async (req, res) => {
     };
     const encPayload = encryptAES256(JSON.stringify(payload), AES_KEY);
 
-    console.log("🔒 Encrypted Header Secrets:", encHeaderSecrets);
-    console.log("🔒 Encrypted Payload:", encPayload);
-
-    // API Request
+    // ✅ Correct endpoint
     const response = await axios.post(
-      `https://apidev-sdk.iserveu.online/payout/transfer`,
+      `${API_BASE}/w1w2-payout/w1/cashtransfer`,
       { RequestData: encPayload },
       {
         headers: {
@@ -89,6 +85,7 @@ exports.initiatePayout = async (req, res) => {
     return res.status(500).json({ success: false, message: "Something went wrong" });
   }
 };
+
 
 // ========================
 // 🟢 2. Callback
@@ -135,7 +132,7 @@ exports.checkStatus = async (req, res) => {
     console.log("🔒 Encrypted Status Payload:", encPayload);
 
     const response = await axios.post(
-      `https://apidev-sdk.iserveu.online/payout/status`,
+      `https://apidev-sdk.iserveu.online/w1w2-payout/w1/cashtransfer/payout/status`,
       { RequestData: encPayload },
       {
         headers: {
