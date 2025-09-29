@@ -161,7 +161,7 @@ exports.doRecharge = async (req, res, next) => {
     console.log("🔁 Starting Recharge Flow...");
 
     // ✅ Get service charges
-    const { commissions } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
+    const { commissions, service } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
     console.log("💰 Service charges & meta:", commissions);
 
 
@@ -173,7 +173,7 @@ exports.doRecharge = async (req, res, next) => {
       commission = calculateCommissionFromSlabs(amount, commissions, operatorName);
 
     }
-   
+
     const user = await userModel.findOne({ _id: userId }).session(session);
 
     if (user.mpin != mpin) {
@@ -339,7 +339,7 @@ exports.doRecharge = async (req, res, next) => {
 
       await CommissionTransaction.create([{
         referenceId: referenceid,
-        service: commissions.service,
+        service: service._id,
         baseAmount: Number(amount),
         charge: Number(commission.charge),
         netAmount: Number(required),
@@ -364,7 +364,7 @@ exports.doRecharge = async (req, res, next) => {
       await distributeCommission({
         user: userId,
         distributer: user.distributorId,
-        service: commissions.service,
+        service: service._id,
         amount,
         commission,
         reference: referenceid,
