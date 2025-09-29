@@ -222,7 +222,7 @@ const userVerify = async (req, res) => {
   if (!user) return res.status(404).send("User not found!");
 
   const normalizedAadharName = normalizeName(
-    user.aadharDetails.full_name || ""
+    user.aadharDetails.data.full_name || ""
   );
   const normalizedPanName = normalizeName(user.panDetails.full_name || "");
   const normalizedBankName = normalizeName(user.bankDetails.account_name || "");
@@ -237,7 +237,7 @@ const userVerify = async (req, res) => {
     normalizedAadharName === normalizedPanName &&
     normalizedPanName === normalizedBankName
   ) {
-    user.isKycVerified = false;
+    user.isKycVerified = true;
     await user.save();
     return res.status(200).send("User verified successfully");
   }

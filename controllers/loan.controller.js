@@ -60,7 +60,7 @@ exports.createLead = async (req, res) => {
   }
 };
 
-// Retailer: my loan leads 
+// Retailer: my loan leads
 exports.getMyLeads = async (req, res) => {
   try {
     const filter = req.query;
