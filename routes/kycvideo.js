@@ -16,6 +16,13 @@ const upload = multer({ storage });
 
 // 1. Request KYC
 router.post("/request", async (req, res) => {
+  console.log(req?.user?.id);
+
+  const already = await KYCRequest.findOne({ user: req.user.id });
+
+  if (already) {
+    return res.json({ message: "Request already submited" });
+  }
   const kyc = await KYCRequest.create({ user: req?.user?.id });
   await kyc.save();
   res.json({ message: "KYC requested", kyc });
