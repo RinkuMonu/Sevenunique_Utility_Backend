@@ -73,7 +73,7 @@ const paymentRequestSchema = new mongoose.Schema(
       default: "Pending",
       required: true,
     },
-    mode: {
+    transactionType: {
       type: String,
       enum: ["debit", "credit"],
     },

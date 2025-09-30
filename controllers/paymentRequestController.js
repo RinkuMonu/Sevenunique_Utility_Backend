@@ -112,7 +112,7 @@ exports.listPaymentRequests = async (req, res) => {
 
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name") 
+        .populate("userId", "name")
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -321,7 +321,7 @@ exports.fundTransfer = async (req, res) => {
       reference: transaction.transaction_reference_id,
       mode: "Wallet", // Fund Transfer
       amount: amt,
-      mode: mode,
+      transactionType: mode,
       description: reason,
       status: "Completed",
       completedAt: new Date(),
