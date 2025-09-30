@@ -65,6 +65,7 @@ exports.listPaymentRequests = async (req, res) => {
       sortBy = "createdAt",
       order = "desc",
     } = req.query;
+    console.log(req.query);
 
     const filter = {};
 
@@ -88,26 +89,30 @@ exports.listPaymentRequests = async (req, res) => {
       const users = await User.find({ name: regex }, { _id: 1 });
       const userIds = users.map((u) => u._id);
 
-      filter.$or = [
+      const orConditions = [
         { reference: regex },
         { description: regex },
         { remark: regex },
         { requestId: regex },
-        { amount: regex },
         { userId: { $in: userIds } },
         { "bankDetails.accountName": regex },
         { "upiDetails.vpa": regex },
       ];
+
+      if (!isNaN(search)) {
+        orConditions.push({ amount: Number(search) });
+      }
+
+      filter.$or = orConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortOptions = {};
     sortOptions[sortBy] = order === "asc" ? 1 : -1;
 
-    // ✅ Fetch with populate (UI ke liye userId.name aayega)
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name") // 👈 name include hoga
+        .populate("userId", "name") 
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -223,6 +228,7 @@ exports.updatePaymentRequestStatus = async (req, res) => {
         }`,
     });
   } catch (error) {
+    console.log(error);
     await session.abortTransaction();
     session.endSession();
     return res.status(500).json({ success: false, message: error.message });
