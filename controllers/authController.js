@@ -317,6 +317,7 @@ const loginController = async (req, res) => {
 const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
+
     console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
@@ -945,6 +946,7 @@ startOfToday.setHours(0, 0, 0, 0);
 
 const getDashboardStats = async (req, res, next) => {
   try {
+    const userRole = req.query.userRole;
     const user = req.user;
     console.log("Dashboard user:", user);
     const role = user.role;
@@ -1045,6 +1047,20 @@ const getDashboardStats = async (req, res, next) => {
         .lean();
     }
 
+    let query = {}
+    if (role === "Admin") {
+      query.role = userRole;
+    } else if (role === "Distributor") {
+      if (role === "Distributor") {
+        query = { role: "Distributor", distributorId: req.user._id };
+      } else {
+        return res.status(400).json({ status: false, message: "Invalid role" });
+      }
+    } else {
+      return res.status(403).json({ status: false, message: "Unauthorized" });
+    }
+
+    const users = await User.find(query).select("_id name email eWallet phone");
     // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
@@ -1065,7 +1081,7 @@ const getDashboardStats = async (req, res, next) => {
         activeUsers,
         activeServices,
         activeRetailers,
-        activeDistributors,
+        activeDistributors
       ] = await Promise.all([
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
@@ -1124,6 +1140,7 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
+        users,
         todayEarning,
         todayCharges,
         totalUsers,

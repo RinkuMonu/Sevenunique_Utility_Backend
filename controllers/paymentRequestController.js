@@ -222,11 +222,10 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: paymentRequest,
-      message: `Payment request ${
-        status === "Completed"
-          ? "completed and wallet updated"
-          : "status updated"
-      }`,
+      message: `Payment request ${status === "Completed"
+        ? "completed and wallet updated"
+        : "status updated"
+        }`,
     });
   } catch (error) {
     console.log(error);
@@ -235,3 +234,118 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.fundTransfer = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { recipientId, amount, mode, reason } = req.body;
+
+    if (!recipientId || !amount || !mode || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "recipientId, amount, mode and reason are required",
+      });
+    }
+
+    const amt = Number(amount);
+    if (isNaN(amt) || amt <= 0)
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+
+
+    // sender = logged in user (Admin or Distributor)
+    const sender = await User.findById(req.user.id).session(session);
+    if (!sender)
+      return res.status(404).json({ success: false, message: "Sender not found" });
+
+    const recipient = await User.findById(recipientId).session(session);
+    if (!recipient)
+      return res
+        .status(404)
+        .json({ success: false, message: "Recipient not found" });
+
+    // Debit mode: sender balance must be enough
+    if (mode === "debit") {
+      if ((sender.eWallet || 0) < amt) {
+        return res.status(400).json({ success: false, message: "Insufficient balance" });
+      }
+      // sender.eWallet -= amt;
+      recipient.eWallet -= amt;
+    } else if (mode === "credit") {
+      recipient.eWallet += amt;
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid mode" });
+    }
+
+    // await sender.save({ session });
+    await recipient.save({ session });
+
+    // Ledger/Transaction entry
+    const transaction = new Transaction({
+      user_id: recipient._id,
+      sender_Id: sender._id,
+      transaction_type: mode === "debit" ? "debit" : "credit",
+      amount: amt,
+      balance_after: recipient.eWallet,
+      status: "Success",
+      payment_mode: "wallet",
+      transaction_reference_id: `FT-${Date.now()}`,
+      description: reason,
+      meta: {
+        source: "FundTransfer",
+        recipientType: recipient.role,
+      },
+    });
+    await transaction.save({ session });
+
+    // Optional PayIn for recipient if mode=credit
+    if (mode === "credit") {
+      const payIn = new PayIn({
+        userId: recipient._id,
+        fromUser: sender._id,
+        amount: amt,
+        reference: transaction.transaction_reference_id,
+        name: recipient.name,
+        mobile: recipient.mobileNumber,
+        email: recipient.email,
+        status: "Success",
+        remark: reason,
+      });
+      await payIn.save({ session });
+    }
+
+    const paymentRequest = new PaymentRequest({
+      userId: recipient._id,
+      sender_Id: sender._id,
+      reference: transaction.transaction_reference_id,
+      mode: "Wallet", // Fund Transfer
+      amount: amt,
+      mode: mode,
+      description: reason,
+      status: "Completed",
+      completedAt: new Date(),
+      txnDate: new Date(),
+    });
+    await paymentRequest.save({ session });
+
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      success: true,
+      message: `Fund transfer ${mode} successful`,
+      data: {
+        senderBalance: sender.eWallet,
+        recipientBalance: recipient.eWallet,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
