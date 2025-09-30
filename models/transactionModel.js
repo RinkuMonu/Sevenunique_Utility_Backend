@@ -6,6 +6,11 @@ const TransactionSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  sender_Id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+  },
   transaction_type: {
     type: String,
     enum: ['credit', 'debit'],
