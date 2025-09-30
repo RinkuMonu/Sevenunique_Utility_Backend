@@ -120,7 +120,6 @@ exports.updatePackage = async (req, res) => {
     const packageId = req.params.id;
     const updates = req.body;
 
-    // 🟢 पहले package निकालो
     const currentPackage = await CommissionPackage.findById(packageId);
     if (!currentPackage) {
       return res
@@ -128,7 +127,6 @@ exports.updatePackage = async (req, res) => {
         .json({ success: false, message: "Package not found" });
     }
 
-    // अगर service body में नहीं है → तो current से ले लो
     const serviceId = updates.service || currentPackage.service;
 
     // 🟢 Default check
@@ -138,7 +136,6 @@ exports.updatePackage = async (req, res) => {
         isDefault: true,
       });
 
-      // अगर कोई aur default है (और ये package नहीं है) → block
       if (existingDefault && existingDefault._id.toString() !== packageId) {
         return res.status(400).json({
           success: false,
@@ -148,7 +145,6 @@ exports.updatePackage = async (req, res) => {
       }
     }
 
-    // 🟢 अब safe update
     const updated = await CommissionPackage.findByIdAndUpdate(
       packageId,
       { ...updates, service: serviceId },
