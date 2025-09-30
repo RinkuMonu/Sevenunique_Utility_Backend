@@ -69,8 +69,16 @@ exports.listPaymentRequests = async (req, res) => {
 
     const filter = {};
 
-    // ✅ Role-based filter
-    if (req.user.role !== "Admin") {
+    if (req.user.role === "Admin") {
+      // admin sab dekh sakta hai → filter me kuch nahi
+    } else if (req.user.role === "Distributor") {
+      // distributor apni received aur di hui dono entry dekhe
+      filter.$or = [
+        { userId: req.user.id }, // usne jo receive kiya
+        { sender_Id: req.user.id }, // usne jo diya
+      ];
+    } else if (req.user.role === "Retailer") {
+      // retailer sirf apne khud ke receive kare huye dekh sakta hai
       filter.userId = req.user.id;
     }
 
@@ -112,7 +120,8 @@ exports.listPaymentRequests = async (req, res) => {
 
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name")
+        .populate("userId", "name role email") // Recipient
+        .populate("sender_Id", "name role email") // Sender
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -222,10 +231,11 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: paymentRequest,
-      message: `Payment request ${status === "Completed"
-        ? "completed and wallet updated"
-        : "status updated"
-        }`,
+      message: `Payment request ${
+        status === "Completed"
+          ? "completed and wallet updated"
+          : "status updated"
+      }`,
     });
   } catch (error) {
     console.log(error);
@@ -251,13 +261,16 @@ exports.fundTransfer = async (req, res) => {
 
     const amt = Number(amount);
     if (isNaN(amt) || amt <= 0)
-      return res.status(400).json({ success: false, message: "Invalid amount" });
-
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
 
     // sender = logged in user (Admin or Distributor)
     const sender = await User.findById(req.user.id).session(session);
     if (!sender)
-      return res.status(404).json({ success: false, message: "Sender not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Sender not found" });
 
     const recipient = await User.findById(recipientId).session(session);
     if (!recipient)
@@ -268,7 +281,9 @@ exports.fundTransfer = async (req, res) => {
     // Debit mode: sender balance must be enough
     if (mode === "debit") {
       if ((sender.eWallet || 0) < amt) {
-        return res.status(400).json({ success: false, message: "Insufficient balance" });
+        return res
+          .status(400)
+          .json({ success: false, message: "Insufficient balance" });
       }
       // sender.eWallet -= amt;
       recipient.eWallet -= amt;
@@ -329,7 +344,6 @@ exports.fundTransfer = async (req, res) => {
     });
     await paymentRequest.save({ session });
 
-
     await session.commitTransaction();
     session.endSession();
 
@@ -348,4 +362,3 @@ exports.fundTransfer = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
