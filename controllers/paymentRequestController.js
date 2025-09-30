@@ -5,8 +5,8 @@ const PayIn = require("../models/payInModel");
 const Transaction = require("../models/transactionModel");
 
 exports.createPaymentRequest = async (req, res) => {
-  console.log(req.body," body in create payment request");
-     
+  console.log(req.body, " body in create payment request");
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -65,6 +65,7 @@ exports.listPaymentRequests = async (req, res) => {
       sortBy = "createdAt",
       order = "desc",
     } = req.query;
+    console.log(req.query);
 
     const filter = {};
 
@@ -88,16 +89,21 @@ exports.listPaymentRequests = async (req, res) => {
       const users = await User.find({ name: regex }, { _id: 1 });
       const userIds = users.map((u) => u._id);
 
-      filter.$or = [
+      const orConditions = [
         { reference: regex },
         { description: regex },
         { remark: regex },
         { requestId: regex },
-        { amount: regex },
         { userId: { $in: userIds } },
         { "bankDetails.accountName": regex },
         { "upiDetails.vpa": regex },
       ];
+
+      if (!isNaN(search)) {
+        orConditions.push({ amount: Number(search) });
+      }
+
+      filter.$or = orConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -224,6 +230,7 @@ exports.updatePaymentRequestStatus = async (req, res) => {
       }`,
     });
   } catch (error) {
+    console.log(error);
     await session.abortTransaction();
     session.endSession();
     return res.status(500).json({ success: false, message: error.message });
