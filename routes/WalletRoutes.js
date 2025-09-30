@@ -4,7 +4,7 @@ const router = express.Router();
 const controller = require('../controllers/WalletControlller.js');
 const authenticateToken = require('../middleware/verifyToken.js');
 
-
+ 
 const validation = {
   [Segments.QUERY]: Joi.object().keys({
     userId: Joi.string().hex().length(24).optional().allow(null, ""),
