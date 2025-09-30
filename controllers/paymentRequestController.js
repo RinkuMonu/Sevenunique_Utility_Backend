@@ -110,10 +110,9 @@ exports.listPaymentRequests = async (req, res) => {
     const sortOptions = {};
     sortOptions[sortBy] = order === "asc" ? 1 : -1;
 
-    // ✅ Fetch with populate (UI ke liye userId.name aayega)
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name") // 👈 name include hoga
+        .populate("userId", "name") 
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
