@@ -2,8 +2,7 @@ const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
 const PayIn = require("../models/payInModel.js"); // Renamed to match model convention
 const axios = require("axios");
-const { parse } = require('json2csv');
-
+const { parse } = require("json2csv");
 
 exports.allPayin = async (req, res, next) => {
   try {
@@ -12,21 +11,24 @@ exports.allPayin = async (req, res, next) => {
       status,
       fromDate,
       toDate,
+      searchText,
       page = 1,
       limit = 10,
-      exportCsv = 'false'
+      exportCsv = "false",
     } = req.query;
+    console.log(req.query);
 
     const match = {};
 
     const userId = req.user.role == "Admin" ? req.query.userId : req.user?.id;
-
-    if (keyword) {
+    if (searchText) {
       match.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { email: { $regex: keyword, $options: 'i' } },
-        { mobile: parseInt(keyword) || 0 }, // Try to match mobile as number
-        { reference: { $regex: keyword, $options: 'i' } }
+        { name: { $regex: searchText, $options: "i" } },
+        { email: { $regex: searchText, $options: "i" } },
+        { mobile: parseInt(searchText) || 0 },
+        { amount: parseInt(searchText) || 0 },
+        { utr: { $regex: searchText, $options: "i" } },
+        { reference: { $regex: searchText, $options: "i" } },
       ];
     }
     if (userId) match.userId = new mongoose.Types.ObjectId(userId);
@@ -43,19 +45,19 @@ exports.allPayin = async (req, res, next) => {
       { $match: match },
       {
         $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'user'
-        }
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
       },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 1,
           userId: 1,
-          userName: '$user.name',
-          userEmail: '$user.email',
+          userName: "$user.name",
+          userEmail: "$user.email",
           name: 1,
           email: 1,
           mobile: 1,
@@ -66,13 +68,13 @@ exports.allPayin = async (req, res, next) => {
           utr: 1,
           status: 1,
           remark: 1,
-          createdAt: 1
-        }
+          createdAt: 1,
+        },
       },
-      { $sort: { createdAt: -1 } }
+      { $sort: { createdAt: -1 } },
     ];
 
-    if (exportCsv !== 'true') {
+    if (exportCsv !== "true") {
       pipeline.push(
         { $skip: (page - 1) * parseInt(limit) },
         { $limit: parseInt(limit) }
@@ -81,31 +83,31 @@ exports.allPayin = async (req, res, next) => {
 
     const payIns = await PayIn.aggregate(pipeline);
 
-    if (exportCsv === 'true') {
+    if (exportCsv === "true") {
       const fields = [
-        '_id',
-        'userId',
-        'userName',
-        'userEmail',
-        'name',
-        'email',
-        'mobile',
-        'amount',
-        'afterAmount',
-        'charges',
-        'reference',
-        'utr',
-        'status',
-        'remark',
-        'createdAt'
+        "_id",
+        "userId",
+        "userName",
+        "userEmail",
+        "name",
+        "email",
+        "mobile",
+        "amount",
+        "afterAmount",
+        "charges",
+        "reference",
+        "utr",
+        "status",
+        "remark",
+        "createdAt",
       ];
       const csv = parse(payIns, { fields });
-      res.header('Content-Type', 'text/csv');
-      res.header('Content-Disposition', 'attachment; filename=payins.csv');
+      res.header("Content-Type", "text/csv");
+      res.header("Content-Disposition", "attachment; filename=payins.csv");
       return res.send(csv);
     }
 
-    const totalPipeline = [{ $match: match }, { $count: 'total' }];
+    const totalPipeline = [{ $match: match }, { $count: "total" }];
     const totalResult = await PayIn.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
 
@@ -116,11 +118,12 @@ exports.allPayin = async (req, res, next) => {
         currentPage: parseInt(page),
         limit: parseInt(limit),
         total,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     });
-
-  } catch (error) { return next(error) }
+  } catch (error) {
+    return next(error);
+  }
 };
 
 exports.createPayIn = async (req, res, next) => {
@@ -134,16 +137,20 @@ exports.createPayIn = async (req, res, next) => {
       email,
       utr,
       remark,
-      charges
+      charges,
     } = req.body;
 
     if (!userId || amount == null || !reference || !name || !mobile || !email) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing required fields" });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     const payIn = await PayIn.create({
@@ -156,8 +163,8 @@ exports.createPayIn = async (req, res, next) => {
       utr,
       remark,
       charges,
-      status: 'Pending',
-      adminAction: 'Pending'
+      status: "Pending",
+      adminAction: "Pending",
     });
 
     res.status(201).json({ success: true, data: payIn });
@@ -170,13 +177,20 @@ exports.generatePayment = async (req, res, next) => {
   const { userId, amount, reference, name, mobile, email } = req.body;
 
   if (!amount || !reference || !name || !mobile || !email) {
-    return res.status(400).json({ success: false, message: "All fields are required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "All fields are required" });
   }
 
-const user = await User.findOne({ _id: req?.user?.id || userId, status: true })
+  const user = await User.findOne({
+    _id: req?.user?.id || userId,
+    status: true,
+  });
 
   if (!user) {
-    return res.status(404).json({ success: false, message: "User not found or not active" });
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found or not active" });
   }
 
   try {
@@ -192,12 +206,10 @@ const user = await User.findOne({ _id: req?.user?.id || userId, status: true })
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization:`Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiZjQyMjY2MDRmMjg2YjYwYmNmZGM2N2FmZTI1Yjc0MjEyMDI4MDEyZTUwNjYwYWY2NmJkMDAxNTIxNTIwY2IxYjRhYjljOTg4YzQ2NzQ2ZTciLCJpYXQiOjE3NTg5NTczMzguNjgyNzg2LCJuYmYiOjE3NTg5NTczMzguNjgyNzg4LCJleHAiOjE3OTA0OTMzMzguNjgwMDU3LCJzdWIiOiIyNTYiLCJzY29wZXMiOltdfQ.SuRTKARoCVWS7DXQMvQloq4Fatl2yb0hkcHOaqh1FJS1758p9xTDmQBT2E-x9pQvGKt0xl2xuBouPljGvZvMeBUpPJugY_eEh-LN0C1M9y2Hbw3aiQ_8ZyBRDhI3jMkeo6aJK9QMWhJg8S7JWSABshxB5SuT3ISFeT4P9qxXRatoqueuLfP9yBnZi440uMXP9MMnffIf04nUAojrIBrmN7xK7xmtm0q0cvIuheS1X5OuB8hU6rdSmHDyQuX9FSI8PasVPcZyj__WOSEwKoP41Oc9DblHR-xs3RyHIZkpdtwPGBqmJ8D-DujBFVWdg7MsPFmUaUP473Lp19iYrcf1LyYUU5roQu7tIcUV2-xe2YAGReg1i-a_Ae4bO46MaacdMiaTFkFZbGnCNOsYU5-PZ096z_nrgWlHXM-H558IKumRCoHTMrIDudqtTye6rVWay4V8VxL1v-6o7h9KS7EvJLLiIdPLCi1_J9-wYnG5OdHbqQT5c3r5BCB_U32WePnWduQNG4HoZsv64caD4373M1drj9lum5DPK-5YEnX2D_JOyIxTzvQCNlNrlS1NCU4gotELmIYvBcUrpiY33PXApdKBRqPwliGZwK9CVJLFYTJ-EE9X4LY-JX0yCMwpPTSvI3MPJdOdf8sM6VshaPX6XCzsxyYKXeYSlk2eMG5f4gQ`,
-      },
+          Authorization: `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiZjQyMjY2MDRmMjg2YjYwYmNmZGM2N2FmZTI1Yjc0MjEyMDI4MDEyZTUwNjYwYWY2NmJkMDAxNTIxNTIwY2IxYjRhYjljOTg4YzQ2NzQ2ZTciLCJpYXQiOjE3NTg5NTczMzguNjgyNzg2LCJuYmYiOjE3NTg5NTczMzguNjgyNzg4LCJleHAiOjE3OTA0OTMzMzguNjgwMDU3LCJzdWIiOiIyNTYiLCJzY29wZXMiOltdfQ.SuRTKARoCVWS7DXQMvQloq4Fatl2yb0hkcHOaqh1FJS1758p9xTDmQBT2E-x9pQvGKt0xl2xuBouPljGvZvMeBUpPJugY_eEh-LN0C1M9y2Hbw3aiQ_8ZyBRDhI3jMkeo6aJK9QMWhJg8S7JWSABshxB5SuT3ISFeT4P9qxXRatoqueuLfP9yBnZi440uMXP9MMnffIf04nUAojrIBrmN7xK7xmtm0q0cvIuheS1X5OuB8hU6rdSmHDyQuX9FSI8PasVPcZyj__WOSEwKoP41Oc9DblHR-xs3RyHIZkpdtwPGBqmJ8D-DujBFVWdg7MsPFmUaUP473Lp19iYrcf1LyYUU5roQu7tIcUV2-xe2YAGReg1i-a_Ae4bO46MaacdMiaTFkFZbGnCNOsYU5-PZ096z_nrgWlHXM-H558IKumRCoHTMrIDudqtTye6rVWay4V8VxL1v-6o7h9KS7EvJLLiIdPLCi1_J9-wYnG5OdHbqQT5c3r5BCB_U32WePnWduQNG4HoZsv64caD4373M1drj9lum5DPK-5YEnX2D_JOyIxTzvQCNlNrlS1NCU4gotELmIYvBcUrpiY33PXApdKBRqPwliGZwK9CVJLFYTJ-EE9X4LY-JX0yCMwpPTSvI3MPJdOdf8sM6VshaPX6XCzsxyYKXeYSlk2eMG5f4gQ`,
         },
-      
+      }
     );
-
 
     if (response.status !== 200) {
       throw new Error("Failed to create payment intent");
@@ -268,9 +280,7 @@ exports.callbackPayIn = async (req, res) => {
 
       if (!user) {
         console.warn("❌ User not found or inactive:", payin.userId);
-        return res
-          .status(404)
-          .json({ message: "User not found or inactive" });
+        return res.status(404).json({ message: "User not found or inactive" });
       }
 
       console.log("💰 Wallet updated successfully:", {
@@ -292,14 +302,14 @@ exports.callbackPayIn = async (req, res) => {
   }
 };
 
-
-
 exports.checkPayInStatus = async (req, res) => {
   try {
     const { reference } = req.params;
 
     if (!reference) {
-      return res.status(400).json({ success: false, message: "Reference ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Reference ID is required" });
     }
 
     const payin = await PayIn.findOne(
@@ -316,7 +326,9 @@ exports.checkPayInStatus = async (req, res) => {
     );
 
     if (!payin) {
-      return res.status(404).json({ success: false, message: "Transaction not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Transaction not found" });
     }
 
     return res.status(200).json({
@@ -326,9 +338,10 @@ exports.checkPayInStatus = async (req, res) => {
         timestamp: payin.createdAt,
       },
     });
-
   } catch (error) {
     console.error("Error checking PayIn status:", error.message);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
   }
 };
