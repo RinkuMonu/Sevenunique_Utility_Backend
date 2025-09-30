@@ -2,7 +2,7 @@ const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const PayOut = require("../models/payOutModel.js");
-const { parse } = require('json2csv');
+const { parse } = require("json2csv");
 
 exports.getPayOuts = async (req, res, next) => {
   try {
@@ -13,7 +13,8 @@ exports.getPayOuts = async (req, res, next) => {
       toDate,
       page = 1,
       limit = 10,
-      exportCsv = 'false'
+      exportCsv = "false",
+      mode,
     } = req.query;
 
     const match = {};
@@ -21,14 +22,16 @@ exports.getPayOuts = async (req, res, next) => {
 
     if (keyword) {
       match.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { email: { $regex: keyword, $options: 'i' } },
-        { mobile: keyword },
-        { reference: { $regex: keyword, $options: 'i' } }
+        { name: { $regex: keyword, $options: "i" } },
+        { email: { $regex: keyword, $options: "i" } },
+        { mobile: { $regex: keyword, $options: "i" } },
+        { amount: parseInt(keyword) || 0 },
+        { utr: { $regex: keyword, $options: "i" } },
+        { reference: { $regex: keyword, $options: "i" } },
       ];
     }
     if (userId) match.user_id = new mongoose.Types.ObjectId(userId);
-
+    if (mode) match.trans_mode = mode;
     if (status) match.status = status;
 
     if (fromDate || toDate) {
@@ -41,19 +44,19 @@ exports.getPayOuts = async (req, res, next) => {
       { $match: match },
       {
         $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'user'
-        }
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
       },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 1,
           userId: 1,
-          userName: '$user.name',
-          userEmail: '$user.email',
+          userName: "$user.name",
+          userEmail: "$user.email",
           name: 1,
           email: 1,
           mobile: 1,
@@ -67,13 +70,13 @@ exports.getPayOuts = async (req, res, next) => {
           utr: 1,
           status: 1,
           remark: 1,
-          createdAt: 1
-        }
+          createdAt: 1,
+        },
       },
-      { $sort: { createdAt: -1 } }
+      { $sort: { createdAt: -1 } },
     ];
 
-    if (exportCsv !== 'true') {
+    if (exportCsv !== "true") {
       pipeline.push(
         { $skip: (page - 1) * parseInt(limit) },
         { $limit: parseInt(limit) }
@@ -82,48 +85,65 @@ exports.getPayOuts = async (req, res, next) => {
 
     const payOuts = await PayOut.aggregate(pipeline);
 
-    if (exportCsv === 'true') {
+    if (exportCsv === "true") {
       const fields = [
-        '_id',
-        'userId',
-        'userName',
-        'userEmail',
-        'name',
-        'email',
-        'mobile',
-        'amount',
-        'afterAmount',
-        'charges',
-        'reference',
-        'trans_mode',
-        'account',
-        'ifsc',
-        'utr',
-        'status',
-        'remark',
-        'createdAt'
+        "_id",
+        "userId",
+        "userName",
+        "userEmail",
+        "name",
+        "email",
+        "mobile",
+        "amount",
+        "afterAmount",
+        "charges",
+        "reference",
+        "trans_mode",
+        "account",
+        "ifsc",
+        "utr",
+        "status",
+        "remark",
+        "createdAt",
       ];
       const csv = parse(payOuts, { fields });
-      res.header('Content-Type', 'text/csv');
-      res.header('Content-Disposition', 'attachment; filename=payouts.csv');
+      res.header("Content-Type", "text/csv");
+      res.header("Content-Disposition", "attachment; filename=payouts.csv");
       return res.send(csv);
     }
 
-    const totalPipeline = [{ $match: match }, { $count: 'total' }];
+    const totalPipeline = [{ $match: match }, { $count: "total" }];
     const totalResult = await PayOut.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    const result = await PayOut.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          totalAmount: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const statusSummary = result.reduce((acc, curr) => {
+      acc[curr._id] = {
+        totalAmount: curr.totalAmount,
+        count: curr.count,
+      };
+      return acc;
+    }, {});
 
     res.json({
       success: true,
       data: payOuts,
+      statusSummary,
       pagination: {
         currentPage: parseInt(page),
         limit: parseInt(limit),
         total,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     });
-
   } catch (error) {
     next(error);
   }
@@ -134,7 +154,16 @@ exports.generatePayOut = async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const { amount, reference, account, trans_mode, ifsc, name, mobile, email } = req.body;
+    const {
+      amount,
+      reference,
+      account,
+      trans_mode,
+      ifsc,
+      name,
+      mobile,
+      email,
+    } = req.body;
 
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const updatedUser = await User.findOneAndUpdate(
@@ -233,7 +262,7 @@ exports.generatePayOut = async (req, res, next) => {
     session.endSession();
     next(error);
   }
-}
+};
 
 exports.callbackPayout = async (req, res) => {
   const session = await mongoose.startSession();
@@ -242,11 +271,15 @@ exports.callbackPayout = async (req, res) => {
   try {
     const data = req.body;
 
-    const payout = await PayOut.findOne({ reference: data.reference }).session(session);
+    const payout = await PayOut.findOne({ reference: data.reference }).session(
+      session
+    );
     if (!payout || payout.status != "Pending") {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json({ message: "Transaction not found or already proceed" });
+      return res
+        .status(404)
+        .json({ message: "Transaction not found or already proceed" });
     }
     if (data.status === "Success") {
       payout.status = "Success";
@@ -275,9 +308,8 @@ exports.callbackPayout = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
     return res.status(200).json({
-      message: "Ok"
+      message: "Ok",
     });
-
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
