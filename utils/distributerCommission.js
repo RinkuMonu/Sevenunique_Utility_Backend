@@ -126,7 +126,7 @@ async function distributeCommission({
             email: distributorUser.email || "na@example.com",
             status: "Success",
             source: "Commission",
-            fromUser: retailerUser._id,
+            fromUser: user,
             service: service._id,
             charges: Number((gst + tds).toFixed(2)),
             remark: `Commission credited for ${service.name} (gross ₹${grossDistributor}, gst ₹${gst}, tds ₹${tds})`
@@ -172,7 +172,7 @@ async function distributeCommission({
                 email: adminUser.email || "na@example.com",
                 status: "Success",
                 source: "Commission",
-                fromUser: retailerUser._id,
+                fromUser: user,
                 service: service._id,
                 charges: Number((gst + tds).toFixed(2)),
                 remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
