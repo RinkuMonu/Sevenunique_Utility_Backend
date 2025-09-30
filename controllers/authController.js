@@ -14,41 +14,68 @@ const { default: axios } = require("axios");
 const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
-
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
-    console.log(req.body);
+    console.log("📩 Request Body:", req.body);
+
+    // ✅ Validation
     if (!mobileNumber) {
-      return res.status(400).json({ message: "Mobile number is required" });
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required"
+      });
     }
 
-    // Find user once and reuse
+    // ✅ Find user once and reuse
     const userExisting = await User.findOne({ mobileNumber });
 
-    // Register flow: stop if user already exists
+    // ✅ Register flow: stop if user already exists
     if (isRegistered === true) {
       if (userExisting) {
-        return res.status(400).json({ message: "User already registered" });
+        return res.status(400).json({
+          success: false,
+          message: "User already registered"
+        });
       }
     }
 
-    // Login flow: stop if user does not exist
+    // ✅ Login flow: stop if user does not exist
     if (ifLogin === true) {
       if (!userExisting) {
-        return res.status(400).json({ message: "User not found" });
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
       }
     }
+
+    // ✅ Generate OTP
     const otp = await generateOtp(mobileNumber);
+
+    // ✅ Send OTP
     const smsResult = await sendOtp(mobileNumber, otp);
+
     if (smsResult.success) {
-      return res.status(200).json({ message: "OTP sent successfully" });
+      return res.status(200).json({
+        success: true,
+        message: "OTP sent successfully",
+        data: { mobileNumber } // optional, can remove if you want
+      });
     } else {
-      return res.status(400).json({ message: smsResult.message });
+      return res.status(400).json({
+        success: false,
+        message: smsResult.message || "Failed to send OTP"
+      });
     }
+
   } catch (error) {
-    console.error("Error in sendOtpController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("❌ Error in sendOtpController:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
   }
 };
 
@@ -56,24 +83,40 @@ const verifyOTPController = async (req, res) => {
   try {
     const { mobileNumber, otp } = req.body;
 
+    // ✅ Validation
     if (!mobileNumber || !otp) {
-      return res
-        .status(400)
-        .json({ message: "Mobile number and OTP are required" });
-    }
-    const verificationResult = await verifyOtp(mobileNumber, otp);
-    if (!verificationResult.success) {
-      return res.status(400).json({ message: verificationResult.message });
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number and OTP are required"
+      });
     }
 
+    // ✅ Verify OTP
+    const verificationResult = await verifyOtp(mobileNumber, otp);
+
+    if (!verificationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.message || "Invalid OTP"
+      });
+    }
+
+    // ✅ Success
     return res.status(200).json({
-      message: "OTP verified successfully",
+      success: true,
+      message: "OTP verified successfully"
     });
+
   } catch (error) {
-    console.error("Error in verifyOTPController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("❌ Error in verifyOTPController:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
   }
 };
+
 
 // const loginController = async (req, res) => {
 //   try {
@@ -484,6 +527,51 @@ const getUserController = async (req, res) => {
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
+      }).populate('distributorId')
+      .populate("extraPermissions");
+
+    if (!userDoc) {
+      return res.status(404).json({ message: "No user found" });
+    }
+
+    // ✅ Call method safely
+    const effectivePermissions = await userDoc.getEffectivePermissions();
+
+    // ✅ Convert to object only after calling method
+    let user = userDoc.toObject();
+
+    // Filter plan.amount
+    if (user.plan?.planId?.amount && user.plan?.planType) {
+      user.plan.planId.amount = user.plan.planId.amount.filter(
+        (a) => a.type === user.plan.planType
+      );
+    }
+
+    const userMeta =
+      (await userMetaModel
+        .findOne({ userId: req.user.id })
+        .populate("services.serviceId")) || {};
+
+    return res.status(200).json({ user, userMeta, effectivePermissions });
+  } catch (error) {
+    console.error("Error in getUserController:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+const getUserId = async (req, res) => {
+  try {
+
+    let userDoc = await User.findById(
+      req.params.id,
+      "-mpin -commissionPackage -meta -password"
+    )
+      .populate("role")
+      .populate({
+        path: "plan.planId",
+        populate: { path: "services", model: "Service" },
+      }).populate({
+        path: "distributorId",
+        select: "id name"
       })
       .populate("extraPermissions");
 
@@ -879,27 +967,61 @@ const getDashboardStats = async (req, res, next) => {
       createdAt: { $gte: startOfToday },
     });
 
-    // 🔹 Total earning
-    let totalEarning = 0;
+    let todayEarning = 0;
+    let todayCharges = 0;
+
     if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      const result = await CommissionTransaction.aggregate([
+      // Today’s start and end
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Today Earnings
+      const earningResult = await CommissionTransaction.aggregate([
         { $unwind: "$roles" },
         {
           $match: {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
           },
         },
         {
           $group: {
             _id: null,
-            totalEarning: { $sum: "$roles.totalEarned" },
+            todayEarning: { $sum: "$roles.totalEarned" },
           },
         },
       ]);
-      totalEarning = result[0]?.totalEarning || 0;
+
+      todayEarning = earningResult[0]?.todayEarning || 0;
+
+      // Today Charges
+      const chargeResult = await CommissionTransaction.aggregate([
+        { $unwind: "$roles" },
+        {
+          $match: {
+            "roles.role": role,
+            "roles.userId": new mongoose.Types.ObjectId(user.id),
+            status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            todayCharges: { $sum: "$roles.charge" }, // 👈 assuming 'charge' field exists
+          },
+        },
+      ]);
+
+      todayCharges = chargeResult[0]?.todayCharges || 0;
     }
+
+
 
     // 🔹 Last 10 transactions
     let last5Txns = [];
@@ -1002,7 +1124,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers,
         totalRetailers,
         totalDistributors,
@@ -1097,7 +1220,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers: 0, // distributors ko total users nahi dikhana
         totalRetailers: myRetailers,
         totalDistributors: 0,
@@ -1176,7 +1300,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers: 0,
         totalRetailers: 0,
         totalDistributors: 0,
@@ -1406,4 +1531,5 @@ module.exports = {
   getUserPermissions,
   getServiceUsage,
   getPayInPayOutReport,
+  getUserId
 };

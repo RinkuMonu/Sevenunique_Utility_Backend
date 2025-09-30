@@ -173,16 +173,19 @@ exports.getAllDmtReports = async (req, res, next) => {
       startDate,
       endDate,
       export: exportType,
-      user_id: queryUserId,
+      user_id,
     } = req.query;
-
-    const role = req.user.role;
-    const userId = req.user.id;
     const filter = {};
-    if (role === "Admin") {
-      if (queryUserId) filter.user_id = queryUserId;
+    if (req.user.role === "Admin") {
+      if (user_id) filter.user_id = new mongoose.Types.ObjectId(user_id);
+    } else if (req.user.role === "Distributor") {
+      // Find all retailers under this distributor
+      const users = await userModel.find({ distributorId: req.user.id }).select("_id");
+      const userIds = users.map((u) => u._id);
+      filter.user_id = { $in: userIds };
     } else {
-      filter.user_id = userId;
+      // Retailer
+      filter.user_id = new mongoose.Types.ObjectId(req.user.id);
     }
     if (typeof status !== "undefined" && status !== "") {
       if (status === "1" || status === 1 || status === true) {
@@ -194,8 +197,13 @@ exports.getAllDmtReports = async (req, res, next) => {
 
     if (referenceid) filter.referenceid = referenceid;
     if (remitter) {
-      filter.remitter = { $regex: remitter, $options: "i" };
+      filter.$or = [
+        { remitter: { $regex: remitter, $options: "i" } },
+        { benename: { $regex: remitter, $options: "i" } },
+        { referenceid: { $regex: remitter, $options: "i" } },
+      ];
     }
+
 
     if (startDate && endDate) {
       filter.createdAt = {
@@ -203,10 +211,12 @@ exports.getAllDmtReports = async (req, res, next) => {
         $lte: new Date(new Date(endDate).setHours(23, 59, 59, 999)),
       };
     }
+    console.log(filter);
 
     const reportsQuery = DmtReport.find(filter)
       .populate("user_id", "name")
       .sort({ createdAt: -1 });
+    console.log(reportsQuery);
 
     // Handle export functionality
     if (exportType) {
