@@ -317,6 +317,7 @@ const loginController = async (req, res) => {
 const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
+
     console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
@@ -333,7 +334,7 @@ const registerUser = async (req, res) => {
       }
     }
 
-    if (userData.password) { 
+    if (userData.password) {
       const salt = await bcrypt.genSalt(10);
       userData.password = await bcrypt.hash(userData.password, salt);
     }
@@ -945,6 +946,7 @@ startOfToday.setHours(0, 0, 0, 0);
 
 const getDashboardStats = async (req, res, next) => {
   try {
+    const userRole = req.query.userRole;
     const user = req.user;
     console.log("Dashboard user:", user);
     const role = user.role;
@@ -967,27 +969,61 @@ const getDashboardStats = async (req, res, next) => {
       createdAt: { $gte: startOfToday },
     });
 
-    // 🔹 Total earning
-    let totalEarning = 0;
+    let todayEarning = 0;
+    let todayCharges = 0;
+
     if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      const result = await CommissionTransaction.aggregate([
+      // Today’s start and end
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Today Earnings
+      const earningResult = await CommissionTransaction.aggregate([
         { $unwind: "$roles" },
         {
           $match: {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
           },
         },
         {
           $group: {
             _id: null,
-            totalEarning: { $sum: "$roles.totalEarned" },
+            todayEarning: { $sum: "$roles.totalEarned" },
           },
         },
       ]);
-      totalEarning = result[0]?.totalEarning || 0;
+
+      todayEarning = earningResult[0]?.todayEarning || 0;
+
+      // Today Charges
+      const chargeResult = await CommissionTransaction.aggregate([
+        { $unwind: "$roles" },
+        {
+          $match: {
+            "roles.role": role,
+            "roles.userId": new mongoose.Types.ObjectId(user.id),
+            status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            todayCharges: { $sum: "$roles.charge" }, // 👈 assuming 'charge' field exists
+          },
+        },
+      ]);
+
+      todayCharges = chargeResult[0]?.todayCharges || 0;
     }
+
+
 
     // 🔹 Last 10 transactions
     let last5Txns = [];
@@ -1011,6 +1047,21 @@ const getDashboardStats = async (req, res, next) => {
         .lean();
     }
 
+    let query = {}
+    if (role === "Admin") {
+      query.role = userRole;
+    } else if (role === "Distributor") {
+      if (role === "Distributor") {
+        query = { distributorId: req.user.id };
+      } else {
+        return res.status(400).json({ status: false, message: "Invalid role" });
+      }
+    } else {
+      return res.status(403).json({ status: false, message: "Unauthorized" });
+    }
+    console.log(query);
+
+    const users = await User.find(query).select("_id name email eWallet phone");
     // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
@@ -1031,7 +1082,7 @@ const getDashboardStats = async (req, res, next) => {
         activeUsers,
         activeServices,
         activeRetailers,
-        activeDistributors,
+        activeDistributors
       ] = await Promise.all([
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
@@ -1090,7 +1141,9 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        users,
+        todayEarning,
+        todayCharges,
         totalUsers,
         totalRetailers,
         totalDistributors,
@@ -1185,7 +1238,9 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        users,
+        todayEarning,
+        todayCharges,
         totalUsers: 0, // distributors ko total users nahi dikhana
         totalRetailers: myRetailers,
         totalDistributors: 0,
@@ -1264,7 +1319,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers: 0,
         totalRetailers: 0,
         totalDistributors: 0,
