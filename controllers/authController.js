@@ -333,7 +333,7 @@ const registerUser = async (req, res) => {
       }
     }
 
-    if (userData.password) { 
+    if (userData.password) {
       const salt = await bcrypt.genSalt(10);
       userData.password = await bcrypt.hash(userData.password, salt);
     }
@@ -967,27 +967,61 @@ const getDashboardStats = async (req, res, next) => {
       createdAt: { $gte: startOfToday },
     });
 
-    // 🔹 Total earning
-    let totalEarning = 0;
+    let todayEarning = 0;
+    let todayCharges = 0;
+
     if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      const result = await CommissionTransaction.aggregate([
+      // Today’s start and end
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Today Earnings
+      const earningResult = await CommissionTransaction.aggregate([
         { $unwind: "$roles" },
         {
           $match: {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
           },
         },
         {
           $group: {
             _id: null,
-            totalEarning: { $sum: "$roles.totalEarned" },
+            todayEarning: { $sum: "$roles.totalEarned" },
           },
         },
       ]);
-      totalEarning = result[0]?.totalEarning || 0;
+
+      todayEarning = earningResult[0]?.todayEarning || 0;
+
+      // Today Charges
+      const chargeResult = await CommissionTransaction.aggregate([
+        { $unwind: "$roles" },
+        {
+          $match: {
+            "roles.role": role,
+            "roles.userId": new mongoose.Types.ObjectId(user.id),
+            status: "Success",
+            createdAt: { $gte: startOfDay, $lte: endOfDay },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            todayCharges: { $sum: "$roles.charge" }, // 👈 assuming 'charge' field exists
+          },
+        },
+      ]);
+
+      todayCharges = chargeResult[0]?.todayCharges || 0;
     }
+
+
 
     // 🔹 Last 10 transactions
     let last5Txns = [];
@@ -1090,7 +1124,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers,
         totalRetailers,
         totalDistributors,
@@ -1185,7 +1220,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers: 0, // distributors ko total users nahi dikhana
         totalRetailers: myRetailers,
         totalDistributors: 0,
@@ -1264,7 +1300,8 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        totalEarning,
+        todayEarning,
+        todayCharges,
         totalUsers: 0,
         totalRetailers: 0,
         totalDistributors: 0,
