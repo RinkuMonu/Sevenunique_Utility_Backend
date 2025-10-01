@@ -5,8 +5,8 @@ const PayIn = require("../models/payInModel");
 const Transaction = require("../models/transactionModel");
 
 exports.createPaymentRequest = async (req, res) => {
-  console.log(req.body," body in create payment request");
-     
+  console.log(req.body, " body in create payment request");
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -65,11 +65,20 @@ exports.listPaymentRequests = async (req, res) => {
       sortBy = "createdAt",
       order = "desc",
     } = req.query;
+    console.log(req.query);
 
     const filter = {};
 
-    // ✅ Role-based filter
-    if (req.user.role !== "Admin") {
+    if (req.user.role === "Admin") {
+      // admin sab dekh sakta hai → filter me kuch nahi
+    } else if (req.user.role === "Distributor") {
+      // distributor apni received aur di hui dono entry dekhe
+      filter.$or = [
+        { userId: req.user.id }, // usne jo receive kiya
+        { sender_Id: req.user.id }, // usne jo diya
+      ];
+    } else if (req.user.role === "Retailer") {
+      // retailer sirf apne khud ke receive kare huye dekh sakta hai
       filter.userId = req.user.id;
     }
 
@@ -88,26 +97,31 @@ exports.listPaymentRequests = async (req, res) => {
       const users = await User.find({ name: regex }, { _id: 1 });
       const userIds = users.map((u) => u._id);
 
-      filter.$or = [
+      const orConditions = [
         { reference: regex },
         { description: regex },
         { remark: regex },
         { requestId: regex },
-        { amount: regex },
         { userId: { $in: userIds } },
         { "bankDetails.accountName": regex },
         { "upiDetails.vpa": regex },
       ];
+
+      if (!isNaN(search)) {
+        orConditions.push({ amount: Number(search) });
+      }
+
+      filter.$or = orConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortOptions = {};
     sortOptions[sortBy] = order === "asc" ? 1 : -1;
 
-    // ✅ Fetch with populate (UI ke liye userId.name aayega)
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name") // 👈 name include hoga
+        .populate("userId", "name role email") // Recipient
+        .populate("sender_Id", "name role email") // Sender
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -224,8 +238,127 @@ exports.updatePaymentRequestStatus = async (req, res) => {
       }`,
     });
   } catch (error) {
+    console.log(error);
     await session.abortTransaction();
     session.endSession();
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.fundTransfer = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { recipientId, amount, mode, reason } = req.body;
+
+    if (!recipientId || !amount || !mode || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "recipientId, amount, mode and reason are required",
+      });
+    }
+
+    const amt = Number(amount);
+    if (isNaN(amt) || amt <= 0)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
+
+    // sender = logged in user (Admin or Distributor)
+    const sender = await User.findById(req.user.id).session(session);
+    if (!sender)
+      return res
+        .status(404)
+        .json({ success: false, message: "Sender not found" });
+
+    const recipient = await User.findById(recipientId).session(session);
+    if (!recipient)
+      return res
+        .status(404)
+        .json({ success: false, message: "Recipient not found" });
+
+    // Debit mode: sender balance must be enough
+    if (mode === "debit") {
+      if ((sender.eWallet || 0) < amt) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Insufficient balance" });
+      }
+      // sender.eWallet -= amt;
+      recipient.eWallet -= amt;
+    } else if (mode === "credit") {
+      recipient.eWallet += amt;
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid mode" });
+    }
+
+    // await sender.save({ session });
+    await recipient.save({ session });
+
+    // Ledger/Transaction entry
+    const transaction = new Transaction({
+      user_id: recipient._id,
+      sender_Id: sender._id,
+      transaction_type: mode === "debit" ? "debit" : "credit",
+      amount: amt,
+      balance_after: recipient.eWallet,
+      status: "Success",
+      payment_mode: "wallet",
+      transaction_reference_id: `FT-${Date.now()}`,
+      description: reason,
+      meta: {
+        source: "FundTransfer",
+        recipientType: recipient.role,
+      },
+    });
+    await transaction.save({ session });
+
+    // Optional PayIn for recipient if mode=credit
+    if (mode === "credit") {
+      const payIn = new PayIn({
+        userId: recipient._id,
+        fromUser: sender._id,
+        amount: amt,
+        reference: transaction.transaction_reference_id,
+        name: recipient.name,
+        mobile: recipient.mobileNumber,
+        email: recipient.email,
+        status: "Success",
+        remark: reason,
+      });
+      await payIn.save({ session });
+    }
+
+    const paymentRequest = new PaymentRequest({
+      userId: recipient._id,
+      sender_Id: sender._id,
+      reference: transaction.transaction_reference_id,
+      mode: "Wallet", // Fund Transfer
+      amount: amt,
+      transactionType: mode,
+      description: reason,
+      status: "Completed",
+      completedAt: new Date(),
+      txnDate: new Date(),
+    });
+    await paymentRequest.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      success: true,
+      message: `Fund transfer ${mode} successful`,
+      data: {
+        senderBalance: sender.eWallet,
+        recipientBalance: recipient.eWallet,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
