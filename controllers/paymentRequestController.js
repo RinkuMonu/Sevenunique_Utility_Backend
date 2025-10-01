@@ -70,15 +70,13 @@ exports.listPaymentRequests = async (req, res) => {
     const filter = {};
 
     if (req.user.role === "Admin") {
-      // admin sab dekh sakta hai → filter me kuch nahi
+      
     } else if (req.user.role === "Distributor") {
-      // distributor apni received aur di hui dono entry dekhe
       filter.$or = [
-        { userId: req.user.id }, // usne jo receive kiya
-        { sender_Id: req.user.id }, // usne jo diya
+        { userId: req.user.id }, 
+        { sender_Id: req.user.id },
       ];
     } else if (req.user.role === "Retailer") {
-      // retailer sirf apne khud ke receive kare huye dekh sakta hai
       filter.userId = req.user.id;
     }
 
@@ -91,7 +89,6 @@ exports.listPaymentRequests = async (req, res) => {
       if (toDate) filter.createdAt.$lte = new Date(toDate);
     }
 
-    // ✅ Search filter (includes user.name)
     if (search) {
       const regex = new RegExp(search, "i");
       const users = await User.find({ name: regex }, { _id: 1 });

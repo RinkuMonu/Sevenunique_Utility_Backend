@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const DeviceModal = require("../models/Device.modal");
 const DeviceRequestModal = require("../models/DeviceRequest.modal");
+const userModel = require("../models/userModel");
 
 /* --------- Devices (Admin) ---------- */
 
@@ -129,6 +130,7 @@ exports.createDeviceRequest = async (req, res) => {
       address,
       remarks,
     });
+
     res.json({ success: true, data: r });
   } catch (e) {
     console.log(e);
@@ -140,7 +142,6 @@ exports.createDeviceRequest = async (req, res) => {
 exports.listDeviceRequests = async (req, res) => {
   try {
     const { status, brand, from, to, q, page = 1, limit = 10 } = req.query;
-    console.log(req.user);
     const filter = {};
     if (status) filter.status = status;
 
@@ -179,7 +180,7 @@ exports.listDeviceRequests = async (req, res) => {
           foreignField: "_id",
           as: "retailer",
           pipeline: [
-            { $project: { _id: 0, name: 1 } }, // 👈 sirf name bhejega
+            { $project: { _id: 0, name: 1 } }, 
           ],
         },
       },
@@ -232,17 +233,59 @@ exports.listDeviceRequests = async (req, res) => {
 };
 
 // Admin update status/note
+
 exports.updateDeviceRequest = async (req, res) => {
   try {
     const { status, adminNote } = req.body;
-    const updated = await DeviceRequestModal.findByIdAndUpdate(
-      req.params.id,
-      { $set: { status, adminNote } },
-      { new: true }
+
+    // Find request
+    const request = await DeviceRequestModal.findById(req.params.id).populate(
+      "deviceId"
     );
-    res.json({ success: true, data: updated });
-  } catch {
-    res.status(400).json({ success: false, message: "Update failed" });
+    if (!request) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Request not found" });
+    }
+
+    if (status === "APPROVED") {
+      const device = request.deviceId;
+      if (!device) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Device not found" });
+      }
+
+      const totalCost = device.price * request.quantity;
+
+      const retailer = await userModel.findById(request.retailerId);
+      if (!retailer) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Retailer not found" });
+      }
+
+      if (retailer.eWallet < totalCost) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient balance. Required ₹${totalCost}, Available ₹${retailer.eWallet}`,
+        });
+      }
+
+      // Deduct money
+      retailer.eWallet -= totalCost;
+      await retailer.save();
+    }
+
+    // Update request status and note
+    request.status = status;
+    request.adminNote = adminNote || request.adminNote;
+    await request.save();
+
+    res.json({ success: true, message: "Request updated", data: request });
+  } catch (err) {
+    console.error("Error in updateDeviceRequest:", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
