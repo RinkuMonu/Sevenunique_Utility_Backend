@@ -17,5 +17,10 @@ router.put(
   authenticateToken,
   controller.updatePaymentRequestStatus
 );
+router.post(
+  "/fund/transfor",
+  authenticateToken,
+  controller.fundTransfer
+);
 
 module.exports = router;

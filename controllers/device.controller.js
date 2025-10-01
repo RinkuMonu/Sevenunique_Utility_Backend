@@ -38,6 +38,11 @@ exports.createDevice = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in createDevice:", error);
+    if (error.code === 11000) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Modal  already exists" });
+    }
     res.status(500).json({
       success: false,
       message: "Failed to create device",
@@ -101,6 +106,11 @@ exports.updateDevice = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
+    if (err.code === 11000) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Modal  already exists" });
+    }
     res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });

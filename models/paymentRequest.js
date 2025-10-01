@@ -7,6 +7,11 @@ const paymentRequestSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    sender_Id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     requestId: {
       type: String,
       unique: true,
@@ -67,6 +72,10 @@ const paymentRequestSchema = new mongoose.Schema(
       },
       default: "Pending",
       required: true,
+    },
+    transactionType: {
+      type: String,
+      enum: ["debit", "credit"],
     },
     bankDetails: {
       accountName: { type: String, trim: true },

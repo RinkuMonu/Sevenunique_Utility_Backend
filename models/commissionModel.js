@@ -1,14 +1,5 @@
 const mongoose = require("mongoose");
 
-
-
-
-
-
-
-
-
-
 const commissionSlabSchema = new mongoose.Schema(
   {
     operator: {
@@ -75,7 +66,7 @@ const commissionPackageSchema = new mongoose.Schema(
       default: false,
     },
     isActive: { type: Boolean, default: true },
-    dmtPennyDrop: { type: Number, default: 0 },
+    dmtPennyDrop: { type: Number, default: 1 },
     aepsOnboarding: { type: Number, default: 0 },
     aepsMiniStatement: { type: Number, default: 0 },
     aepsBalanceEnquiry: { type: Number, default: 0 },
