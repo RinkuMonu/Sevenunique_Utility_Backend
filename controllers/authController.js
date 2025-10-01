@@ -1056,9 +1056,7 @@ const getDashboardStats = async (req, res, next) => {
       } else {
         return res.status(400).json({ status: false, message: "Invalid role" });
       }
-    } else {
-      return res.status(403).json({ status: false, message: "Unauthorized" });
-    }
+    } 
     console.log(query);
 
     const users = await User.find(query).select("_id name email eWallet phone");
