@@ -23,7 +23,7 @@ const sendOtpController = async (req, res) => {
     if (!mobileNumber) {
       return res.status(400).json({
         success: false,
-        message: "Mobile number is required"
+        message: "Mobile number is required",
       });
     }
 
@@ -35,7 +35,7 @@ const sendOtpController = async (req, res) => {
       if (userExisting) {
         return res.status(400).json({
           success: false,
-          message: "User already registered"
+          message: "User already registered",
         });
       }
     }
@@ -45,7 +45,7 @@ const sendOtpController = async (req, res) => {
       if (!userExisting) {
         return res.status(404).json({
           success: false,
-          message: "User not found"
+          message: "User not found",
         });
       }
     }
@@ -60,21 +60,20 @@ const sendOtpController = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: "OTP sent successfully",
-        data: { mobileNumber } // optional, can remove if you want
+        data: { mobileNumber }, // optional, can remove if you want
       });
     } else {
       return res.status(400).json({
         success: false,
-        message: smsResult.message || "Failed to send OTP"
+        message: smsResult.message || "Failed to send OTP",
       });
     }
-
   } catch (error) {
     console.error("❌ Error in sendOtpController:", error);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -87,7 +86,7 @@ const verifyOTPController = async (req, res) => {
     if (!mobileNumber || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Mobile number and OTP are required"
+        message: "Mobile number and OTP are required",
       });
     }
 
@@ -97,26 +96,24 @@ const verifyOTPController = async (req, res) => {
     if (!verificationResult.success) {
       return res.status(400).json({
         success: false,
-        message: verificationResult.message || "Invalid OTP"
+        message: verificationResult.message || "Invalid OTP",
       });
     }
 
     // ✅ Success
     return res.status(200).json({
       success: true,
-      message: "OTP verified successfully"
+      message: "OTP verified successfully",
     });
-
   } catch (error) {
     console.error("❌ Error in verifyOTPController:", error);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message
+      error: error.message,
     });
   }
 };
-
 
 // const loginController = async (req, res) => {
 //   try {
@@ -522,13 +519,14 @@ const getUserController = async (req, res) => {
   try {
     let userDoc = await User.findById(
       req.user.id,
-      "-mpin -commissionPackage -meta -password"
+      "-mpin -commissionPackage -meta -password "
     )
       .populate("role")
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
-      }).populate('distributorId')
+      })
+      .populate("distributorId")
       .populate("extraPermissions");
 
     if (!userDoc) {
@@ -552,8 +550,17 @@ const getUserController = async (req, res) => {
       (await userMetaModel
         .findOne({ userId: req.user.id })
         .populate("services.serviceId")) || {};
-
-    return res.status(200).json({ user, userMeta, effectivePermissions });
+        
+    let remainingDays = null;
+    if (user.plan?.startDate && user.plan?.endDate) {
+      const today = new Date();
+      const endDate = new Date(user.plan.endDate);
+      const diffTime = endDate.getTime() - today.getTime();
+      remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
+    return res
+      .status(200)
+      .json({ user, userMeta, effectivePermissions, remainingDays });
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -561,7 +568,6 @@ const getUserController = async (req, res) => {
 };
 const getUserId = async (req, res) => {
   try {
-
     let userDoc = await User.findById(
       req.params.id,
       "-mpin -commissionPackage -meta -password"
@@ -570,9 +576,10 @@ const getUserId = async (req, res) => {
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
-      }).populate({
+      })
+      .populate({
         path: "distributorId",
-        select: "id name"
+        select: "id name",
       })
       .populate("extraPermissions");
 
@@ -1023,8 +1030,6 @@ const getDashboardStats = async (req, res, next) => {
       todayCharges = chargeResult[0]?.todayCharges || 0;
     }
 
-
-
     // 🔹 Last 10 transactions
     let last5Txns = [];
     if (role === "Admin") {
@@ -1047,7 +1052,7 @@ const getDashboardStats = async (req, res, next) => {
         .lean();
     }
 
-    let query = {}
+    let query = {};
     if (role === "Admin") {
       query.role = userRole;
     } else if (role === "Distributor") {
@@ -1056,8 +1061,6 @@ const getDashboardStats = async (req, res, next) => {
       } else {
         return res.status(400).json({ status: false, message: "Invalid role" });
       }
-    } else {
-      return res.status(403).json({ status: false, message: "Unauthorized" });
     }
     console.log(query);
 
@@ -1082,7 +1085,7 @@ const getDashboardStats = async (req, res, next) => {
         activeUsers,
         activeServices,
         activeRetailers,
-        activeDistributors
+        activeDistributors,
       ] = await Promise.all([
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
@@ -1550,5 +1553,5 @@ module.exports = {
   getUserPermissions,
   getServiceUsage,
   getPayInPayOutReport,
-  getUserId
+  getUserId,
 };

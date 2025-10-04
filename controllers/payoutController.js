@@ -16,6 +16,7 @@ exports.getPayOuts = async (req, res, next) => {
       exportCsv = "false",
       mode,
     } = req.query;
+    console.log(req.query);
 
     const match = {};
     const userId = req.user.role == "Admin" ? req.query.userId : req.user?.id;
