@@ -978,9 +978,9 @@ const updateCredential = async (req, res) => {
 
     // 3. Update credentials
     if (type === "password") {
-      user.password = await bcrypt.hash(newValue, 10);
+      user.password = newValue
     } else if (type === "mpin") {
-      user.mpin = await bcrypt.hash(newValue, 10);
+      user.mpin =newValue;
     } else {
       return res.status(400).json({ message: "Invalid type" });
     }
