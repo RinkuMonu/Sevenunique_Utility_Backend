@@ -261,10 +261,9 @@ exports.doRecharge = async (req, res, next) => {
     }], { session });
 
 
-
-    console.log("🗂️ Recharge record created:", rechargeRecord._id);
-
-
+    console.log("rechargeRecord---------", rechargeRecord);
+    console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);  
+   
     const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
     const rechargeRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", {
@@ -273,6 +272,7 @@ exports.doRecharge = async (req, res, next) => {
 
     logApiCall({ url: "dorecharge", requestData: req.body, responseData: rechargeRes.data });
     console.log("📲 Recharge API response:", rechargeRes.data);
+    console.log(rechargeRes);
 
     const { response_code, message } = rechargeRes.data;
     let status = "Failed";

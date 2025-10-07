@@ -45,9 +45,10 @@ router.post("/instantpay/outlet/login", instantpayController.outletLogin);
 router.post("/instantpay/withdrawal", instantpayController.cashWithdrawal);
 router.post("/instantpay/balance-enquiry", instantpayController.balanceEnquiry);
 router.post("/instantpay/mini-statement", instantpayController.miniStatement);
+router.post("/instantpay/deposit", instantpayController.deposite);
 
 // 🔹 Bank list
-router.get("/instantpay/bank-list", instantpayController.getBankList);
+router.get("/instantpay/bank-list", instantpayController.getBankList); 
 
 
 module.exports = router;
