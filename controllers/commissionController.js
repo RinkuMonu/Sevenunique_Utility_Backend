@@ -74,7 +74,7 @@ exports.getAllPackages = async (req, res) => {
     }
 
     if (packageName) {
-      query.packageName = { $regex: packageName, $options: "i" }; // case-insensitive
+      query.packageName = { $regex: packageName, $options: "i" }; 
     }
 
     const total = await CommissionPackage.countDocuments(query);

@@ -10,7 +10,8 @@ const router = express.Router();
 // multer config
 const storage = multer.diskStorage({
   destination: "uploads/",
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + path.extname(file.originalname)),
 });
 const upload = multer({ storage });
 
@@ -31,39 +32,46 @@ router.post("/request", async (req, res) => {
 // 2. Approve request (admin)
 
 router.patch("/approve/:id", async (req, res, next) => {
-
   const { id } = req.params;
   const { scheduledTime } = req.body;
   try {
-
-    const kyc = await KYCRequest.findOneAndUpdate({ user: id }, {
-      status: "approved",
-      scheduledTime
-    }, { new: true });
+    const kyc = await KYCRequest.findOneAndUpdate(
+      { user: id },
+      {
+        status: "approved",
+        scheduledTime,
+      },
+      { new: true }
+    );
     res.json({ message: "KYC approved", kyc });
-  }
-  catch (Error) {
-    next(Error)
+  } catch (Error) {
+    next(Error);
   }
 });
 // 2. complate request (admin)
 router.patch("/verify", async (req, res, next) => {
-  const { userId, requestId } = req.body
+  const { userId, requestId } = req.body;
 
   try {
+    const kyc = await KYCRequest.findOneAndUpdate(
+      { _id: new mongoose.Types.ObjectId(requestId) },
+      {
+        status: "completed",
+      },
+      { new: true }
+    );
 
-    const kyc = await KYCRequest.findOneAndUpdate({ _id: new mongoose.Types.ObjectId(requestId) }, {
-      status: "completed",
-    }, { new: true });
-
-    const user = await User.findOneAndUpdate({ _id: new mongoose.Types.ObjectId(userId) }, {
-      isVideoKyc: true,
-    }, { new: true });
+    const user = await User.findOneAndUpdate(
+      { _id: new mongoose.Types.ObjectId(userId) },
+      {
+        isVideoKyc: true,
+      },
+      { new: true }
+    );
 
     res.json({ message: "KYC completed", kyc });
-  }
-  catch (Error) {
-    next(Error)
+  } catch (Error) {
+    next(Error);
   }
 });
 
@@ -71,24 +79,32 @@ router.patch("/verify", async (req, res, next) => {
 router.patch("/create-room/:id", async (req, res) => {
   const { id } = req.params;
   const roomLink = `https://meet.jit.si/kyc-room-${id}`;
-  const kyc = await KYCRequest.findByIdAndUpdate(id, {
-    roomLink,
-    status: "room_created"
-  }, { new: true });
+  const kyc = await KYCRequest.findByIdAndUpdate(
+    id,
+    {
+      roomLink,
+      status: "room_created",
+    },
+    { new: true }
+  );
   res.json({ message: "Room created", kyc });
 });
 
 // 4. Upload screenshot (agent)
-router.post("/upload-screenshot", upload.single("screenshot"), async (req, res) => {
-  const { userId } = req.body;
-  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+router.post(
+  "/upload-screenshot",
+  upload.single("screenshot"),
+  async (req, res) => {
+    const { userId } = req.body;
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-  const user = await User.findById(userId);
-  user.documents.push(req.file.path);
-  await user.save();
+    const user = await User.findById(userId);
+    user.documents.push(req.file.path);
+    await user.save();
 
-  res.json({ message: "Screenshot uploaded", path: req.file.path });
-});
+    res.json({ message: "Screenshot uploaded", path: req.file.path });
+  }
+);
 
 // 5. Get all requests (admin)
 router.get("/all", async (req, res) => {
@@ -142,6 +158,8 @@ router.get("/all", async (req, res) => {
           $or: [
             { "user.name": { $regex: search, $options: "i" } },
             { "user.email": { $regex: search, $options: "i" } },
+            { "user.UserId": { $regex: search, $options: "i" } },
+            { "user.mobileNumber": { $regex: search, $options: "i" } },
           ],
         },
       });
@@ -164,7 +182,9 @@ router.get("/all", async (req, res) => {
     // Total count
     const countPipeline = [...pipeline];
     countPipeline.splice(-2); // remove skip/limit for total count
-    const total = await KYCRequest.aggregate(countPipeline).then((res) => res.length);
+    const total = await KYCRequest.aggregate(countPipeline).then(
+      (res) => res.length
+    );
 
     res.json({
       total,
@@ -179,11 +199,9 @@ router.get("/all", async (req, res) => {
   }
 });
 
-
-
 router.get("/user/:id", async (req, res) => {
   const { id } = req.params;
-  console.log(id)
+  console.log(id);
   try {
     const kyc = await KYCRequest.findOne({ user: id })
       .sort({ createdAt: -1 }) // In case there are multiple
