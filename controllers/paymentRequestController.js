@@ -70,12 +70,8 @@ exports.listPaymentRequests = async (req, res) => {
     const filter = {};
 
     if (req.user.role === "Admin") {
-      
     } else if (req.user.role === "Distributor") {
-      filter.$or = [
-        { userId: req.user.id }, 
-        { sender_Id: req.user.id },
-      ];
+      filter.$or = [{ userId: req.user.id }, { sender_Id: req.user.id }];
     } else if (req.user.role === "Retailer") {
       filter.userId = req.user.id;
     }
@@ -117,8 +113,8 @@ exports.listPaymentRequests = async (req, res) => {
 
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name role email") // Recipient
-        .populate("sender_Id", "name role email") // Sender
+        .populate("userId", "name role email")
+        .populate("sender_Id", "name role email")
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -127,10 +123,14 @@ exports.listPaymentRequests = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      total,
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / limit),
+      pagination: {
+        currentPage: parseInt(page),
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
       data,
     });
   } catch (error) {
