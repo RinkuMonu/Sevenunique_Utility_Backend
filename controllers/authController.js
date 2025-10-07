@@ -14,6 +14,7 @@ const { default: axios } = require("axios");
 const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
+const OTP = require("../models/otpModel");
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
@@ -423,6 +424,21 @@ const registerUser = async (req, res) => {
       }
       if (userData.role === "Api Partner" && req.files.boardResolution) {
         userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`;
+      }
+        if (req.files.aadhaarFront) {
+        userData.aadhaarFront = `/uploads/${req.files.aadhaarFront[0].filename}`;
+      }
+
+      if (req.files.aadhaarBack) {
+        userData.aadhaarBack = `/uploads/${req.files.aadhaarBack[0].filename}`;
+      }
+
+      if (req.files.panCard) {
+        userData.panCard = `/uploads/${req.files.panCard[0].filename}`;
+      }
+
+      if (req.files.bankDocument) {
+        userData.bankDocument = `/uploads/${req.files.bankDocument[0].filename}`;
       }
     }
 
@@ -944,6 +960,43 @@ const updateUserDetails = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+const updateCredential = async (req, res) => {
+  try {
+    const { mobileNumber, type, newValue, otp } = req.body;
+
+    // 1. Verify OTP from DB (cast to Number if stored as number)
+    const existingOtp = await OTP.findOne({ mobileNumber, otp: String(otp) });
+
+    if (!existingOtp) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // 2. Find user
+    const user = await User.findOne({ mobileNumber });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 3. Update credentials
+    if (type === "password") {
+      user.password = await bcrypt.hash(newValue, 10);
+    } else if (type === "mpin") {
+      user.mpin = await bcrypt.hash(newValue, 10);
+    } else {
+      return res.status(400).json({ message: "Invalid type" });
+    }
+
+    await user.save();
+
+    // 4. Delete OTP after success
+    await OTP.deleteMany({ mobileNumber });
+
+    res.json({ message: `${type} updated successfully` });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
 
 const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
@@ -1477,6 +1530,7 @@ const CounterModal = require("../models/Counter.modal.js");
 const CommissionTransaction = require("../models/CommissionTransaction.js");
 const payOutModel = require("../models/payOutModel.js");
 const payInModel = require("../models/payInModel.js");
+const otpModel = require("../models/otpModel.js");
 
 const updateUserPermissions = async (req, res) => {
   try {
@@ -1548,6 +1602,7 @@ module.exports = {
   getUsersWithFilters,
   updateUserStatus,
   updateUserDetails,
+  updateCredential,
   getDashboardStats,
   updateUserPermissions,
   getUserPermissions,
