@@ -11,7 +11,7 @@ const getHeaders = () => {
         "X-Ipay-Auth-Code": "1",
         "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
         "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
-        "X-Ipay-Outlet-Id": process.env.IPAY_OUTLET_ID || '562881', // ✅ add this
+        "X-Ipay-Outlet-Id": '561894', // ✅ add this
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:5938:ee58:67d7:cde7",
         // "Content-Type": "application/json",
     };
@@ -32,57 +32,44 @@ function encrypt(text, key) {
 
 
 async function parsePidXML(pidXml) {
-    return new Promise((resolve, reject) => {
-        xml2js.parseString(pidXml, { explicitArray: true }, (err, result) => {
-            if (err) return reject(err);
+    try {
+        const result = await xml2js.parseStringPromise(pidXml, { explicitArray: true });
+        const pidData = result?.PidData;
+        if (!pidData) throw new Error("Invalid PID XML");
 
-            try {
-                const resp = result.PidData.Resp[0];
-                const deviceInfo = result.PidData.DeviceInfo[0];
-                const skey = result.PidData.Skey[0];
-                const hmac = result.PidData.Hmac[0];
-                const data = result.PidData.Data[0];
+        const resp = pidData.Resp?.[0] || {};
+        const deviceInfo = pidData.DeviceInfo?.[0] || {};
+        const skey = pidData.Skey?.[0] || {};
+        const hmac = pidData.Hmac?.[0] || {};
+        const data = pidData.Data?.[0] || {};
 
-                // extract additional_info Params
-                let params = {};
-                if (deviceInfo.additional_info && deviceInfo.additional_info[0].Param) {
-                    deviceInfo.additional_info[0].Param.forEach((p) => {
-                        params[p.$.name] = p.$.value;
-                    });
+        // Extract additional_info Params safely
+        let params = {};
+        if (deviceInfo.additional_info?.[0]?.Param) {
+            deviceInfo.additional_info[0].Param.forEach((p) => {
+                if (p.$?.name && p.$?.value) {
+                    params[p.$.name] = p.$.value;
                 }
+            });
+        }
 
-                resolve({
-                    dc: deviceInfo.$.dc,
-                    dpId: deviceInfo.$.dpId,
-                    rdsId: deviceInfo.$.rdsId,
-                    Skey: skey,
-                    rdsVer: deviceInfo.$.rdsVer,
-                    mi: deviceInfo.$.mi,
-                    mc: deviceInfo.$.mc,
-                    ci: skey.$.ci,
-                    sessionKey: skey._,
-                    hmac: hmac,
-                    pidDataType: data.$.type,
-                    pidData: data._,
-                    errCode: resp.$.errCode,
-                    errInfo: resp.$.errInfo,
-                    fCount: resp.$.fCount || "0",
-                    fType: resp.$.fType || "0",
-                    iCount: resp.$.iCount || "0",
-                    pCount: resp.$.pCount || "0",
-                    qScore: resp.$.qScore || "",
-                    nmPoints: resp.$.nmPoints || "",
-                    srno: params.srno || "",
-                    sysid: params.sysid || "",
-                    ts: params.ts || "",
-                    modality_type: params.modality_type || "",
-                    device_type: params.device_type || "",
-                });
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
+        return {
+            dc: deviceInfo.$?.dc || "",
+            dpId: deviceInfo.$?.dpId || "",
+            rdsId: deviceInfo.$?.rdsId || "",
+            Skey: skey._ || "", // actual key data
+            rdsVer: deviceInfo.$?.rdsVer || "",
+            mi: deviceInfo.$?.mi || "",
+            mc: deviceInfo.$?.mc || "",
+            ci: skey.$?.ci || "", // certificate info
+            hmac: hmac || "", // actual HMAC
+            pidData: data._ || "",
+            srno: params.srno || "",
+            ts: params.ts || "",
+        };
+    } catch (err) {
+        throw new Error("Failed to parse PID XML: " + err.message);
+    }
 }
 
 // 1️⃣ Get Bank List
@@ -186,6 +173,7 @@ exports.remitterKyc = async (req, res) => {
         }
         const biometricParsed = await parsePidXML(biometricData);
 
+
         // Prepare payload
         const payload = {
             mobileNumber,
@@ -201,6 +189,7 @@ exports.remitterKyc = async (req, res) => {
             },
         };
 
+        console.log(payload);
         // Call InstantPay API
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/remitterKyc",
