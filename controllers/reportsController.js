@@ -22,7 +22,7 @@ exports.getBbpsReport = async (req, res) => {
       search,
       operator,
       customerNumber,
-      download, // flag: download=csv
+      download, 
     } = req.query;
 
     // Role-based matchStage

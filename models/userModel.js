@@ -56,10 +56,26 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopAddressProof: {
-      type: String, // URL/path of uploaded proof
+      type: String,
       trim: true,
     },
-
+    
+    aadhaarFront: {
+      type: String,
+      default:null
+    },
+    aadhaarBack: {
+      type: String,
+      default:null
+    },
+    panCard: {
+      type: String,
+     default:null
+    },
+    bankDocument: {
+      type: String,
+      default:null 
+    },
     /** ---------------- DISTRIBUTOR SPECIFIC FIELDS ---------------- **/
     officeAddressProof: {
       type: String, // electricity bill/rent agreement upload
