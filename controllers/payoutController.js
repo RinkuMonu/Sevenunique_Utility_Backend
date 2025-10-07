@@ -16,25 +16,13 @@ exports.getPayOuts = async (req, res, next) => {
       exportCsv = "false",
       mode,
     } = req.query;
-    console.log(req.query);
 
     const match = {};
     const userId = req.user.role == "Admin" ? req.query.userId : req.user?.id;
 
-    if (keyword) {
-      match.$or = [
-        { name: { $regex: keyword, $options: "i" } },
-        { email: { $regex: keyword, $options: "i" } },
-        { mobile: { $regex: keyword, $options: "i" } },
-        { amount: parseInt(keyword) || 0 },
-        { utr: { $regex: keyword, $options: "i" } },
-        { reference: { $regex: keyword, $options: "i" } },
-      ];
-    }
-    if (userId) match.user_id = new mongoose.Types.ObjectId(userId);
+    if (userId) match.userId = new mongoose.Types.ObjectId(userId);
     if (mode) match.trans_mode = mode;
     if (status) match.status = status;
-
     if (fromDate || toDate) {
       match.createdAt = {};
       if (fromDate) match.createdAt.$gte = new Date(fromDate);
@@ -52,12 +40,40 @@ exports.getPayOuts = async (req, res, next) => {
         },
       },
       { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    ];
+
+    // 👇 keyword based search (PayOut + User dono fields)
+    if (keyword) {
+      const regex = new RegExp(keyword, "i");
+      const numVal = parseInt(keyword);
+
+      pipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: regex } },
+            { email: { $regex: regex } },
+            { mobile: { $regex: regex } },
+            { utr: { $regex: regex } },
+            { reference: { $regex: regex } },
+            ...(isNaN(numVal) ? [] : [{ amount: numVal }]),
+
+            // 🔑 User model fields
+            { "user.UserId": { $regex: regex } },
+            { "user.name": { $regex: regex } },
+            { "user.email": { $regex: regex } },
+          ],
+        },
+      });
+    }
+
+    pipeline.push(
       {
         $project: {
           _id: 1,
           userId: 1,
           userName: "$user.name",
           userEmail: "$user.email",
+          UserId: "$user.UserId",
           name: 1,
           email: 1,
           mobile: 1,
@@ -74,8 +90,8 @@ exports.getPayOuts = async (req, res, next) => {
           createdAt: 1,
         },
       },
-      { $sort: { createdAt: -1 } },
-    ];
+      { $sort: { createdAt: -1 } }
+    );
 
     if (exportCsv !== "true") {
       pipeline.push(
@@ -92,6 +108,7 @@ exports.getPayOuts = async (req, res, next) => {
         "userId",
         "userName",
         "userEmail",
+        "userUniqueId",
         "name",
         "email",
         "mobile",
@@ -113,9 +130,46 @@ exports.getPayOuts = async (req, res, next) => {
       return res.send(csv);
     }
 
-    const totalPipeline = [{ $match: match }, { $count: "total" }];
+    // total count ke liye bhi same search use karna padega
+    const totalPipeline = [
+      { $match: match },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (keyword) {
+      const regex = new RegExp(keyword, "i");
+      const numVal = parseInt(keyword);
+
+      totalPipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: regex } },
+            { email: { $regex: regex } },
+            { mobile: { $regex: regex } },
+            { utr: { $regex: regex } },
+            { reference: { $regex: regex } },
+            ...(isNaN(numVal) ? [] : [{ amount: numVal }]),
+            { "user.UserId": { $regex: regex } },
+            { "user.name": { $regex: regex } },
+            { "user.email": { $regex: regex } },
+          ],
+        },
+      });
+    }
+
+    totalPipeline.push({ $count: "total" });
     const totalResult = await PayOut.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+    // status summary
     const result = await PayOut.aggregate([
       {
         $group: {
