@@ -70,12 +70,8 @@ exports.listPaymentRequests = async (req, res) => {
     const filter = {};
 
     if (req.user.role === "Admin") {
-      
     } else if (req.user.role === "Distributor") {
-      filter.$or = [
-        { userId: req.user.id }, 
-        { sender_Id: req.user.id },
-      ];
+      filter.$or = [{ userId: req.user.id }, { sender_Id: req.user.id }];
     } else if (req.user.role === "Retailer") {
       filter.userId = req.user.id;
     }
@@ -117,8 +113,8 @@ exports.listPaymentRequests = async (req, res) => {
 
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name role email") // Recipient
-        .populate("sender_Id", "name role email") // Sender
+        .populate("userId", "name role email")
+        .populate("sender_Id", "name role email")
         .sort(sortOptions)
         .skip(skip)
         .limit(parseInt(limit)),
@@ -127,10 +123,14 @@ exports.listPaymentRequests = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      total,
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / limit),
+      pagination: {
+        currentPage: parseInt(page),
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
       data,
     });
   } catch (error) {
@@ -277,14 +277,32 @@ exports.fundTransfer = async (req, res) => {
 
     // Debit mode: sender balance must be enough
     if (mode === "debit") {
-      if ((sender.eWallet || 0) < amt) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Insufficient balance" });
+      if (sender.role === "Admin") {
+        // Admin debit kar raha hai → recipient ke account se paisa cut hoga
+        if ((recipient.eWallet || 0) < amt) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Recipient has insufficient balance",
+            });
+        }
+        recipient.eWallet -= amt;
+      } else {
+        // Normal user debit kar raha hai → sender ke account se paisa cut hoga
+        if ((sender.eWallet || 0) < amt) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Sender has insufficient balance",
+            });
+        }
+        sender.eWallet -= amt;
+        recipient.eWallet += amt; // sender se nikal kar recipient me add
       }
-      // sender.eWallet -= amt;
-      recipient.eWallet -= amt;
     } else if (mode === "credit") {
+      // Credit case me hamesha recipient ko paisa milega
       recipient.eWallet += amt;
     } else {
       return res.status(400).json({ success: false, message: "Invalid mode" });

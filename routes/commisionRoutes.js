@@ -13,9 +13,9 @@ const authorizeRoles = require("../middleware/verifyRole.js");
 
 router.post("/", authenticateToken, authorizeRoles("Admin"), createPackage);
 
-router.get("/", authenticateToken, authorizeRoles("Admin"), getAllPackages);
+router.get("/", authenticateToken, getAllPackages);
 
-router.get("/:id", authenticateToken, authorizeRoles("Admin"), getPackageById);
+router.get("/:id", authenticateToken, getPackageById);
 
 router.put("/:id", authenticateToken, authorizeRoles("Admin"), updatePackage);
 
