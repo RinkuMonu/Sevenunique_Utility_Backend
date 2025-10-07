@@ -519,15 +519,15 @@ const getUserController = async (req, res) => {
   try {
     let userDoc = await User.findById(
       req.user.id,
-      "-mpin -commissionPackage -meta -password "
+      "-mpin -commissionPackage -meta -password -extraPermissions"
     )
       .populate("role")
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
       })
-      .populate("distributorId")
-      .populate("extraPermissions");
+      .populate("distributorId");
+    // .populate("extraPermissions");
 
     if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
@@ -550,7 +550,7 @@ const getUserController = async (req, res) => {
       (await userMetaModel
         .findOne({ userId: req.user.id })
         .populate("services.serviceId")) || {};
-        
+
     let remainingDays = null;
     if (user.plan?.startDate && user.plan?.endDate) {
       const today = new Date();
@@ -631,7 +631,7 @@ const getUsersWithFilters = async (req, res) => {
       district,
       distributorId,
     } = req.query;
-    console.log("query...", req.query);
+    // console.log("query...", req.query);
 
     const andConditions = [];
     if (state) {
