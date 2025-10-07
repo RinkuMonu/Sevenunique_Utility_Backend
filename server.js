@@ -66,6 +66,7 @@ app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
 app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
+app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 
 
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
