@@ -425,7 +425,7 @@ const registerUser = async (req, res) => {
       if (userData.role === "Api Partner" && req.files.boardResolution) {
         userData.boardResolution = `/uploads/${req.files.boardResolution[0].filename}`;
       }
-        if (req.files.aadhaarFront) {
+      if (req.files.aadhaarFront) {
         userData.aadhaarFront = `/uploads/${req.files.aadhaarFront[0].filename}`;
       }
 
@@ -675,6 +675,7 @@ const getUsersWithFilters = async (req, res) => {
           { name: { $regex: keyword, $options: "i" } },
           { email: { $regex: keyword, $options: "i" } },
           { mobileNumber: { $regex: keyword, $options: "i" } },
+          { UserId: { $regex: keyword, $options: "i" } },
         ],
       });
     }
@@ -963,40 +964,35 @@ const updateUserDetails = async (req, res) => {
 
 const updateCredential = async (req, res) => {
   try {
-    const { mobileNumber, type, newValue, otp } = req.body;
+    const { mobileNumber, type, newValue, otp, userId } = req.body;
+    console.log("Request Body:", req.body);
 
-    // 1. Verify OTP from DB (cast to Number if stored as number)
     const existingOtp = await OTP.findOne({ mobileNumber, otp: String(otp) });
-
     if (!existingOtp) {
       return res.status(400).json({ message: "Invalid or expired OTP" });
     }
 
-    // 2. Find user
-    const user = await User.findOne({ mobileNumber });
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 3. Update credentials
     if (type === "password") {
-      user.password = await bcrypt.hash(newValue, 10);
+      user.password = newValue;
     } else if (type === "mpin") {
-      user.mpin = await bcrypt.hash(newValue, 10);
+      user.mpin = newValue;
     } else {
       return res.status(400).json({ message: "Invalid type" });
     }
 
     await user.save();
 
-    // 4. Delete OTP after success
     await OTP.deleteMany({ mobileNumber });
 
-    res.json({ message: `${type} updated successfully` });
+    res.json({ success: true, message: `${type} updated successfully` });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("Error updating credential:", err);
+    res.status(500).json({ message: "Something went wrong" });
   }
 };
-
-
 
 const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
@@ -1008,7 +1004,7 @@ const getDashboardStats = async (req, res, next) => {
   try {
     const userRole = req.query.userRole;
     const user = req.user;
-    console.log("Dashboard user:", user);
+    // console.log("Dashboard user:", user);
     const role = user.role;
 
     let stats = {
@@ -1117,7 +1113,9 @@ const getDashboardStats = async (req, res, next) => {
     }
     console.log(query);
 
-    const users = await User.find(query).select("_id name email eWallet phone");
+    const users = await User.find(query).select(
+      "_id name email eWallet phone UserId"
+    );
     // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
