@@ -6,14 +6,14 @@ const crypto = require("crypto");
 const INSTANTPAY_BASE_URL = "https://api.instantpay.in";
 const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
 const getHeaders = () => {
-    
+
     return {
         "Content-Type": "application/json",
-    "X-Ipay-Client-Id":"YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-    "X-Ipay-Client-Secret":"82626bbdd785562e2bc2c62e02e5ea949bc8ac1711a18d4c4a6f64a7c7cd9a4c",
-    "X-Ipay-Auth-Code": "1",
-    "X-Ipay-Outlet-Id": process.env.IPAY_OUTLET_ID, // ✅ add this
-    "X-Ipay-Endpoint-Ip":"2401:4900:1c1a:3375:f50a:7af6:7ff5:16a3",
+        "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
+        "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+        "X-Ipay-Auth-Code": "1",
+        "X-Ipay-Outlet-Id": process.env.IPAY_OUTLET_ID, // ✅ add this
+        "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
         "Content-Type": "application/json",
     };
 };
