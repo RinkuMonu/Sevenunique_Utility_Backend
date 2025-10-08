@@ -7,10 +7,10 @@ const {
   getPlanById,
   updatePlan,
   deletePlan,
-  buyPlan,
   getUserBuyServices,
   buyPassPlan,
   removeBuyPassPlan,
+  buyPlan,
   getAllUsersPlanHistory,
 } = require("../controllers/servicePlanController");
 
