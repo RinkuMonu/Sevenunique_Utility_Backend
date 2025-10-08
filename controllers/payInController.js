@@ -16,25 +16,11 @@ exports.allPayin = async (req, res, next) => {
       limit = 10,
       exportCsv = "false",
     } = req.query;
-    console.log(req.query);
 
     const match = {};
-
     const userId = req.user.role == "Admin" ? req.query.userId : req.user?.id;
-    if (searchText) {
-      match.$or = [
-        { name: { $regex: searchText, $options: "i" } },
-        { email: { $regex: searchText, $options: "i" } },
-        { mobile: parseInt(searchText) || 0 },
-        { amount: parseInt(searchText) || 0 },
-        { utr: { $regex: searchText, $options: "i" } },
-        { reference: { $regex: searchText, $options: "i" } },
-      ];
-    }
     if (userId) match.userId = new mongoose.Types.ObjectId(userId);
-
     if (status) match.status = status;
-
     if (fromDate || toDate) {
       match.createdAt = {};
       if (fromDate) match.createdAt.$gte = new Date(fromDate);
@@ -52,12 +38,34 @@ exports.allPayin = async (req, res, next) => {
         },
       },
       { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (searchText) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: searchText, $options: "i" } },
+            { email: { $regex: searchText, $options: "i" } },
+            { mobile: parseInt(searchText) || -1 },
+            { amount: parseInt(searchText) || -1 },
+            { utr: { $regex: searchText, $options: "i" } },
+            { reference: { $regex: searchText, $options: "i" } },
+            { "user.UserId": { $regex: searchText, $options: "i" } },
+            { "user.name": { $regex: searchText, $options: "i" } },
+            { "user.email": { $regex: searchText, $options: "i" } },
+          ],
+        },
+      });
+    }
+
+    pipeline.push(
       {
         $project: {
           _id: 1,
           userId: 1,
           userName: "$user.name",
           userEmail: "$user.email",
+          UserId: "$user.UserId", 
           name: 1,
           email: 1,
           mobile: 1,
@@ -71,8 +79,8 @@ exports.allPayin = async (req, res, next) => {
           createdAt: 1,
         },
       },
-      { $sort: { createdAt: -1 } },
-    ];
+      { $sort: { createdAt: -1 } }
+    );
 
     if (exportCsv !== "true") {
       pipeline.push(
@@ -89,6 +97,7 @@ exports.allPayin = async (req, res, next) => {
         "userId",
         "userName",
         "userEmail",
+        "userUniqueId",
         "name",
         "email",
         "mobile",
@@ -107,7 +116,38 @@ exports.allPayin = async (req, res, next) => {
       return res.send(csv);
     }
 
-    const totalPipeline = [{ $match: match }, { $count: "total" }];
+    // total count ke liye
+    const totalPipeline = [
+      { $match: match },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    ];
+    if (searchText) {
+      totalPipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: searchText, $options: "i" } },
+            { email: { $regex: searchText, $options: "i" } },
+            { mobile: parseInt(searchText) || -1 },
+            { amount: parseInt(searchText) || -1 },
+            { utr: { $regex: searchText, $options: "i" } },
+            { reference: { $regex: searchText, $options: "i" } },
+            { "user.UserId": { $regex: searchText, $options: "i" } },
+            { "user.name": { $regex: searchText, $options: "i" } },
+            { "user.email": { $regex: searchText, $options: "i" } },
+          ],
+        },
+      });
+    }
+    totalPipeline.push({ $count: "total" });
+
     const totalResult = await PayIn.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
 

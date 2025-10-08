@@ -8,14 +8,12 @@ const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTP
 const getHeaders = () => {
     
     return {
-        "X-Ipay-Auth-Code": process.env.INSTANTPAY_AUTH_CODE || "1",
-        "X-Ipay-Client-Id":
-            process.env.INSTANTPAY_CLIENT_ID ||
-            "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-        "X-Ipay-Client-Secret":
-            process.env.INSTANTPAY_CLIENT_SECRET ||
-            "86801ccbd3f1e2b5626af1c23d0144a492201d404c83c3bff72de48f7031e7de",
-        "X-Ipay-Endpoint-Ip": '106.215.127.188' || process.env.ENDPOINT_IP || "127.0.0.1",
+        "Content-Type": "application/json",
+    "X-Ipay-Client-Id":"YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
+    "X-Ipay-Client-Secret":"82626bbdd785562e2bc2c62e02e5ea949bc8ac1711a18d4c4a6f64a7c7cd9a4c",
+    "X-Ipay-Auth-Code": "1",
+    "X-Ipay-Outlet-Id": process.env.IPAY_OUTLET_ID, // ✅ add this
+    "X-Ipay-Endpoint-Ip":"2401:4900:1c1a:3375:f50a:7af6:7ff5:16a3",
         "Content-Type": "application/json",
     };
 };

@@ -19,7 +19,7 @@ const NewsRouter = require("./routes/news.routes.js");
 const { getAllRole } = require("./controllers/permissionByRoleController.js");
 const { planCheckCronJob } = require("./services/cornjob.js");
 const loan = require("./routes/loan.routes.js");
-
+const bannerRoutes = require("./routes/bannerRoutes.js")
 const app = express();
 planCheckCronJob();
 
@@ -66,6 +66,7 @@ app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
 app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
+app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 
 
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
@@ -76,7 +77,7 @@ app.use("/api/v1/news", NewsRouter);
 app.use("/api/v1/getallrole", getAllRole);
 app.use("/api/loans", loan);
 app.use("/api/assets", require("./routes/device.routes"));
-
+app.use('/api/banners', bannerRoutes);
 app.get("/", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the API" })
 );
