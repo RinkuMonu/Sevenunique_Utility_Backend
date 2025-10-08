@@ -18,6 +18,7 @@ const {
   getPayInPayOutReport,
   getUserId,
   updateCredential,
+  updateProgress,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -33,7 +34,7 @@ router.post(
     { name: "officeAddressProof", maxCount: 1 }, // distributor ke liye
     { name: "directorKycFiles", maxCount: 4 },
     { name: "boardResolution", maxCount: 1 },
-      { name: "aadhaarFront", maxCount: 1 },
+    { name: "aadhaarFront", maxCount: 1 },
     { name: "aadhaarBack", maxCount: 1 },
     { name: "panCard", maxCount: 1 },
     { name: "bankDocument", maxCount: 1 },
@@ -51,7 +52,7 @@ router.get(
   authorizeRoles("Admin", "Distributor"),
   getUsersWithFilters
 );
-router.post("/update-credential",authenticateToken,updateCredential)
+router.post("/update-credential", authenticateToken, updateCredential);
 
 router.put(
   "/user/:id/status",
@@ -88,6 +89,12 @@ router.put(
   authenticateToken,
   authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   updateUserPermissions
+);
+router.put(
+  "/users/updateProgress",
+  // authenticateToken,
+  // authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  updateProgress
 );
 router.get(
   "/users/:id/permissions",
