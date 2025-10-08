@@ -242,6 +242,9 @@ exports.updatePaymentRequestStatus = async (req, res) => {
   }
 };
 
+
+
+
 exports.fundTransfer = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -275,10 +278,8 @@ exports.fundTransfer = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Recipient not found" });
 
-    // Debit mode: sender balance must be enough
     if (mode === "debit") {
       if (sender.role === "Admin") {
-        // Admin debit kar raha hai → recipient ke account se paisa cut hoga
         if ((recipient.eWallet || 0) < amt) {
           return res
             .status(400)
@@ -289,7 +290,6 @@ exports.fundTransfer = async (req, res) => {
         }
         recipient.eWallet -= amt;
       } else {
-        // Normal user debit kar raha hai → sender ke account se paisa cut hoga
         if ((sender.eWallet || 0) < amt) {
           return res
             .status(400)
@@ -299,10 +299,9 @@ exports.fundTransfer = async (req, res) => {
             });
         }
         sender.eWallet -= amt;
-        recipient.eWallet += amt; // sender se nikal kar recipient me add
+        recipient.eWallet += amt; 
       }
     } else if (mode === "credit") {
-      // Credit case me hamesha recipient ko paisa milega
       recipient.eWallet += amt;
     } else {
       return res.status(400).json({ success: false, message: "Invalid mode" });

@@ -1,7 +1,9 @@
+const Transaction = require("../models/transactionModel");
 const planService = require("../services/servicePlanService");
 const ServicePlan = require("../models/servicePlanmodel");
 const userModel = require("../models/userModel");
 const servicesModal = require("../models/servicesModal");
+const { default: mongoose } = require("mongoose");
 
 const createPlan = async (req, res) => {
   try {
@@ -195,31 +197,70 @@ const deletePlan = async (req, res) => {
   }
 };
 
-// controller: buyPlan
+
 const buyPlan = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { planId, planType } = req.body;
     const userId = req.user.id;
 
-    const plan = await ServicePlan.findById(planId);
+    // 1. Plan fetch karo
+    const plan = await ServicePlan.findById(planId).session(session);
     if (!plan) {
+      await session.abortTransaction();
+      session.endSession();
       return res
         .status(404)
         .json({ success: false, message: "Plan not found" });
     }
 
     const selectedAmount = plan.amount.find((a) => a.type === planType);
-    console.log(plan, selectedAmount);
-
     if (!selectedAmount) {
+      await session.abortTransaction();
+      session.endSession();
       return res
         .status(400)
         .json({ success: false, message: "Invalid plan type" });
     }
 
+    // 2. Final price calculate
+    const planPrice =
+      selectedAmount.discountedValue ??
+      (selectedAmount.discountPercent
+        ? Math.round(
+            selectedAmount.value -
+              (selectedAmount.value * selectedAmount.discountPercent) / 100
+          )
+        : selectedAmount.value);
+
+    // 3. User fetch karo
+    const userfind = await userModel.findById(userId).session(session);
+    if (!userfind) {
+      await session.abortTransaction();
+      session.endSession();
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // 4. Wallet balance check
+    if ((userfind.eWallet || 0) < planPrice) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient wallet balance",
+      });
+    }
+
+    // 5. Wallet deduction
+    userfind.eWallet -= planPrice;
+
+    // 6. Plan dates calculate
     const startDate = new Date();
     let endDate = new Date(startDate);
-
     switch (planType) {
       case "monthly":
         endDate.setMonth(endDate.getMonth() + 1);
@@ -237,32 +278,16 @@ const buyPlan = async (req, res) => {
         break;
     }
 
-    const userfind = await userModel.findById(userId);
-    if (!userfind) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+    if (userfind.plan && userfind.plan.planId) {
+      userfind.planHistory.push({
+        planId: userfind.plan.planId,
+        planType: userfind.plan.planType,
+        startDate: userfind.plan.startDate,
+        endDate: userfind.plan.endDate,
+        status: "cancelled", 
+      });
     }
-    // if (userfind.plan?.planId) {
-    //   userfind.planHistory.push({
-    //     planId: userfind.plan.planId,
-    //     planType: userfind.plan.planType,
-    //     startDate: userfind.plan.startDate,
-    //     endDate: userfind.plan.endDate,
-    //     status: new Date() > userfind.plan.endDate ? "expired" : "cancelled",
-    //   });
-    // }
 
-    // // ✅ Push new plan also in history
-    // userfind.planHistory.push({
-    //   planId: plan._id,
-    //   planType,
-    //   startDate,
-    //   endDate,
-    //   status: "Active",
-    // });
-
-    // ✅ Now set the new plan
     userfind.plan = {
       planId: plan._id,
       planType,
@@ -271,16 +296,44 @@ const buyPlan = async (req, res) => {
       status: "Active",
     };
 
-    await userfind.save();
+    await userfind.save({ session });
 
-    // ✅ Populate response
-    const updatedUser = await userModel
-      .findById(userId)
-      .populate("plan.planId", "name services amount")
-      .select("-password");
+    const transactionRef = `PLAN-${Date.now()}`;
+    const transaction = new Transaction({
+      user_id: userfind._id,
+      sender_Id: userfind._id, // khud ka wallet debit hua
+      transaction_type: "debit",
+      amount: planPrice,
+      balance_after: userfind.eWallet,
+      status: "Success",
+      payment_mode: "wallet",
+      transaction_reference_id: transactionRef,
+      description: `Plan purchase: ${plan.name} (${planType})`,
+      meta: {
+        source: "PlanPurchase",
+      },
+    });
+    await transaction.save({ session });
 
-    const planData = updatedUser.plan.planId;
-    const planAmount = planData.amount.find((a) => a.type === planType);
+    // 11. PaymentRequest report
+    // const paymentRequest = new PaymentRequest({
+    //   userId: userfind._id,
+    //   sender_Id: userfind._id,
+    //   reference: transactionRef,
+    //   mode: "Wallet",
+    //   amount: planPrice,
+    //   transactionType: "debit",
+    //   description: `Plan purchase: ${plan.name} (${planType})`,
+    //   status: "Completed",
+    //   completedAt: new Date(),
+    //   txnDate: new Date(),
+    // });
+    // await paymentRequest.save({ session });
+
+    // 12. Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
     const remainingDays = Math.floor(
       (new Date(endDate).setHours(0, 0, 0, 0) -
         new Date().setHours(0, 0, 0, 0)) /
@@ -289,20 +342,23 @@ const buyPlan = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Plan activated",
+      message: "Plan activated successfully",
       PLAN: {
-        planId: planData._id,
-        planName: planData.name,
+        planId: plan._id,
+        planName: plan.name,
         planType,
-        price: planAmount?.value || 0,
-        discountPercent: planAmount?.discountPercent || 0,
-        finalPrice: planAmount?.discountedValue || planAmount?.value || 0,
+        price: selectedAmount.value,
+        discountPercent: selectedAmount.discountPercent || 0,
+        finalPrice: planPrice,
         startDate,
         endDate,
         remainingDays,
+        walletBalance: userfind.eWallet,
       },
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     console.error(error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
@@ -473,7 +529,6 @@ const removeBuyPassPlan = async (req, res) => {
 };
 
 // Role wise plan history
-
 const getAllUsersPlanHistory = async (req, res) => {
   try {
     const currentUser = req.user;
@@ -554,7 +609,6 @@ const getAllUsersPlanHistory = async (req, res) => {
   }
 };
 
-module.exports = { getAllUsersPlanHistory };
 
 module.exports = {
   createPlan,
