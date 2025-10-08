@@ -94,3 +94,39 @@ exports.aepsCallback = async (req, res) => {
     res.status(500).json({ status: 1, statusDesc: "Internal Server Error" });
   }
 };
+// 🔹 Callback Handler
+exports.matmCallback = async (req, res) => {
+  try {
+    console.log("matm Callback Data:", req.body);
+
+    const { amount, status, txnId, retailerId } = req.body;
+
+    if (status !== "SUCCESS") {
+      return res.json({ status: 0, statusDesc: "Transaction Failed" });
+    }
+
+    // Example: Commission calculation (backend me slab ke hisaab se lagana)
+    const commissionSlab = {
+      retailer: 0.5,
+      distributor: 0.2,
+      admin: 0.3,
+      type: "percent",
+    };
+
+    let retailerComm = (amount * commissionSlab.retailer) / 100;
+    let distributorComm = (amount * commissionSlab.distributor) / 100;
+    let adminComm = (amount * commissionSlab.admin) / 100;
+
+    // TODO: DB me transaction save + wallet update logic
+    console.log("Commission:", {
+      retailerComm,
+      distributorComm,
+      adminComm,
+    });
+
+    res.json({ status: 1, statusDesc: "Success" });
+  } catch (err) {
+    console.error("Callback Error:", err);
+    res.status(500).json({ status: 1, statusDesc: "Internal Server Error" });
+  }
+};
