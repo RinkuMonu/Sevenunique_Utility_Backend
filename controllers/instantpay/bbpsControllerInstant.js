@@ -20,7 +20,9 @@ function normalizePayloadForEnquiry(body) {
       geoCode: "28.6139,77.2090",
       ...(body.deviceInfo || {}) // allow override
     },
-    remarks: body.remarks || { param1: body.inputParameters?.param1 }
+ remarks: {
+      param1: String(body.mobile || "9876543210") // ✅ mobile se lo, 10 digit string banao
+    }
   };
 }
 
@@ -31,14 +33,21 @@ function normalizePayloadForPayment(body) {
     deviceInfo: {
       ip: "103.254.205.164",
       mac: "BC-BE-33-65-E6-AC",
+      terminalId: "12813923",
+      mobile : "9876543211",
+              postalCode: "110044",
       geoCode: "28.6139,77.2090",
       ...(body.deviceInfo || {})
     },
-    paymentMode: body.paymentMode || "Cash",
-    paymentInfo: body.paymentInfo || { Remarks: "CashPayment" },
-    remarks: body.remarks || { param1: body.inputParameters?.param1 }
+    paymentMode: "Cash", // always default Cash
+    paymentInfo: { Remarks: "CashPayment" }, // default remarks
+    remarks: {
+      // ✅ yaha hamesha mobile number dalna hai, consumer number nahi
+      param1: String(body.mobile || body.inputParameters?.mobile || "9876543210")
+    }
   };
 }
+
 
 
 // Common headers builder
@@ -185,6 +194,8 @@ exports.makePayment = async (req, res, next) => {
       enquiryReferenceId: Joi.string().required(),
       inputParameters: Joi.object().unknown(true).required(),
       transactionAmount: Joi.number().required(),
+        paymentMode: Joi.string().default("Cash"),  // ✅ default Cash
+  paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
     });
     const body = await schema.validateAsync(req.body);
 
