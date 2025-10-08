@@ -1,6 +1,7 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
+const { logApiCall } = require("../utils/chargeCaluate");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
@@ -65,7 +66,7 @@ async function parsePidXML(pidXml) {
             hmac: hmac || "", // actual HMAC
             pidData: data._ || "",
             srno: params.srno || "",
-            ts: params.ts || "",
+            ts: "",
         };
     } catch (err) {
         throw new Error("Failed to parse PID XML: " + err.message);
@@ -109,6 +110,8 @@ exports.registerRemitter = async (req, res) => {
         if (!mobileNumber || !encryptedAadhaar || !referenceKey) {
             return res.status(400).json({ message: "mobileNumber, encryptedAadhaar, and referenceKey are required" });
         }
+        console.log("Aadhar data encrypt----", encrypt(encryptedAadhaar, encryptionKey));
+        // return
 
         const response = await axios.post(
             `${BASE_URL}/fi/remit/out/domestic/v2/remitterRegistration`,
@@ -190,6 +193,11 @@ exports.remitterKyc = async (req, res) => {
         };
 
         console.log(payload);
+        logApiCall({
+            tag: "Instantpay DMT",
+            responseData: payload
+        });
+        // return;
         // Call InstantPay API
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/remitterKyc",
@@ -225,6 +233,7 @@ exports.beneficiaryRegistration = async (req, res) => {
             bankId,
             name,
         } = req.body;
+
 
         // Validate required parameters
         if (
