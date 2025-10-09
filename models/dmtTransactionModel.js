@@ -16,6 +16,11 @@ const dmtReportSchema = new mongoose.Schema(
     remarks: { type: String },
     message: { type: String },
     remitter: { type: String, required: true },
+    type: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
+      required: true,
+    },
     account_number: { type: String, required: true },
     gatewayCharges: {
       bc_share: { type: Number, required: true },

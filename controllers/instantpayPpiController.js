@@ -102,6 +102,7 @@ export const remitterProfile = async (req, res) => {
         const result = await instantpayService("remitterProfile", "POST", req.body);
         res.json(result);
     } catch (err) {
+        console.log(err)
         res.status(500).json({ error: err.message });
     }
 };
@@ -133,7 +134,7 @@ export const remitterRegistrationVerify = async (req, res) => {
 // 5️⃣ Remitter KYC
 export const remitterKyc = async (req, res) => {
     try {
-        const { pidXml, mobileNumber, latitude, longitude, externalRef, consentTaken, captureType, referenceKey } = req.body;
+        const { pidXml, mobileNumber, latitude, longitude, externalRef, consentTaken = "Y", captureType = "FINGER", referenceKey } = req.body;
 
         if (!pidXml) {
             return res.status(400).json({ error: "PID XML is required" });
