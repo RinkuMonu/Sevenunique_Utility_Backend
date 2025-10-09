@@ -332,10 +332,10 @@ const registerUser = async (req, res) => {
       }
     }
 
-    if (userData.password) {
-      const salt = await bcrypt.genSalt(10);
-      userData.password = await bcrypt.hash(userData.password, salt);
-    }
+    // if (userData.password) {
+    //   const salt = await bcrypt.genSalt(10);
+    //   userData.password = await bcrypt.hash(userData.password, salt);
+    // }
     //questions
     if (userData.questions && typeof userData.questions === "string") {
       try {
@@ -495,12 +495,29 @@ const registerUser = async (req, res) => {
 
 const updateProfileController = async (req, res) => {
   try {
-    const { name, email, mpin, bankDetails, address, pinCode } = req.body;
+    const {
+      name,
+      email,
+      mpin,
+      bankDetails,
+      address,
+      pinCode,
+      role,
+      agreement,
+      isKycVerified,
+      isVideoKyc,
+      isSpecial,
+      shopType,
+      shopName,
+      userId,
+    } = req.body;
+    console.log(req.body);
 
-    let user = await User.findById(req.user.id);
+    let user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
     if (name) user.name = name;
     if (email) user.email = email;
     if (mpin) user.mpin = mpin;
@@ -508,22 +525,26 @@ const updateProfileController = async (req, res) => {
     if (address) {
       user.address = {
         fullAddress: address.fullAddress,
+        block: address.block,
         city: address.city,
         state: address.state,
         country: address.country || "India",
       };
     }
     if (pinCode) user.pinCode = pinCode;
+    if (role) user.role = role;
+    if (agreement !== undefined) user.agreement = agreement;
+    if (isKycVerified !== undefined) user.isKycVerified = isKycVerified;
+    if (isVideoKyc !== undefined) user.isVideoKyc = isVideoKyc;
+    if (isSpecial !== undefined) user.isSpecial = isSpecial;
+    if (shopType) user.shopType = shopType;
+    if (shopName) user.shopName = shopName;
 
     await user.save();
 
     return res.status(200).json({
       message: "Profile updated successfully",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-      },
+      user,
     });
   } catch (error) {
     console.error("Error in updateProfileController:", error);
@@ -582,6 +603,7 @@ const getUserController = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
 const getUserId = async (req, res) => {
   try {
     let userDoc = await User.findById(
@@ -635,8 +657,8 @@ const getUsersWithFilters = async (req, res) => {
       role,
       from,
       to,
-      sortBy = "name",
-      order = "asc",
+      sortBy = "createdAt",
+      order = "desc",
       page = 1,
       limit = 10,
       exportType = "false",
@@ -754,6 +776,7 @@ const getUsersWithFilters = async (req, res) => {
         "mobileNumber",
         "status",
         "isKycVerified",
+        "registrationProgress",
       ];
     } else {
       fields = [
@@ -814,6 +837,7 @@ const getUsersWithFilters = async (req, res) => {
           "Mobile Number",
           "Status",
           "KYC Status",
+          "registrationProgress",
           "Created At",
         ];
         rows = users.map((u, i) => [
@@ -824,6 +848,10 @@ const getUsersWithFilters = async (req, res) => {
           u.mobileNumber,
           u.status,
           u.isKycVerified ? "Verified" : "Not Verified",
+          u.registrationProgress
+            ? `Step ${u.registrationProgress.currentStep}`
+            : "N/A",
+
           u.createdAt ? new Date(u.createdAt).toLocaleString() : "-",
         ]);
       } else {
@@ -1415,7 +1443,6 @@ const getServiceUsage = async (req, res) => {
       // ✅ pura system
       matchQuery = { status: "Success" };
     } else if (user.role === "Distributor") {
-      // ✅ distributor ke niche ke saare retailers ke userId nikal lo
       const retailers = await User.find(
         { distributorId: user.id, role: "Retailer" },
         "_id"
@@ -1470,14 +1497,13 @@ const getServiceUsage = async (req, res) => {
 
 const getPayInPayOutReport = async (req, res) => {
   try {
-    const user = req.user; // ✅ token se aa raha hai
+    const user = req.user;
     let matchQuery = {};
 
     // 🔹 Role check
     if (user.role === "Admin") {
       matchQuery = {}; // pura system
     } else if (user.role === "Distributor") {
-      // apne niche ke saare retailers ke ID nikal lo
       const retailers = await User.find(
         { distributorId: user.id, role: "Retailer" },
         "_id"
@@ -1590,6 +1616,41 @@ const getUserPermissions = async (req, res) => {
   }
 };
 
+// update proge
+const updateProgress = async (req, res) => {
+  try {
+    const { userId, step, stepTitle } = req.body;
+
+    if (userId) {
+      const user = await User.findById(userId);
+
+      if (user) {
+        user.registrationProgress = {
+          currentStep: step,
+          currentStepTitle: stepTitle,
+          status: step === 7 ? "completed" : "incomplete",
+          lastUpdated: new Date(),
+        };
+        await user.save();
+      } else {
+        console.log("User not found, skipping progress update");
+      }
+    } else {
+      console.log("No userId provided, skipping progress update");
+    }
+    return res.json({
+      success: true,
+      message: "Progress update flow executed (safe mode)",
+    });
+  } catch (err) {
+    console.error("updateProgress error:", err);
+    return res.json({
+      success: true,
+      message: "Progress update skipped due to error",
+    });
+  }
+};
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
@@ -1607,4 +1668,5 @@ module.exports = {
   getServiceUsage,
   getPayInPayOutReport,
   getUserId,
+  updateProgress,
 };
