@@ -1,7 +1,7 @@
 const User = require("../models/userModel");
 const UserMeta = require("../models/userMetaModel");
 const Service = require("../models/servicesModal");
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 const logger = require("./logger");
 const commissionModel = require("../models/commissionModel");
 

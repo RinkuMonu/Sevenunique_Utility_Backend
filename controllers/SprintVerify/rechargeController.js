@@ -202,6 +202,7 @@ exports.doRecharge = async (req, res, next) => {
       user_id: userId,
       transaction_type: "debit",
       amount: Number(amount),
+      type: service._id,
       gst: Number(commission.gst),
       tds: Number(commission.tds),
       charge: Number(commission.charge),
@@ -262,8 +263,8 @@ exports.doRecharge = async (req, res, next) => {
 
 
     console.log("rechargeRecord---------", rechargeRecord);
-    console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);  
-   
+    console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);
+
     const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
     const rechargeRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", {
@@ -298,6 +299,7 @@ exports.doRecharge = async (req, res, next) => {
         user_id: userId,
         transaction_type: "credit",
         amount: amount,
+        type: service._id,
         charges: commission.charge || 0,
         commission: commission.totalCommission || 0,
         gst: commission.gst || 0,
@@ -321,6 +323,7 @@ exports.doRecharge = async (req, res, next) => {
         userId,
         amount: Number(amount),
         reference: referenceid,
+        type: service._id,
         account: null,
         trans_mode: "WALLET",
         ifsc: null,
@@ -364,7 +367,7 @@ exports.doRecharge = async (req, res, next) => {
       await distributeCommission({
         user: userId,
         distributer: user.distributorId,
-        service: service._id,
+        service: service,
         amount,
         commission,
         reference: referenceid,
