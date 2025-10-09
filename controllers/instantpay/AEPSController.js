@@ -11,9 +11,9 @@ const instantpay = axios.create({
   headers: {
     "Content-Type": "application/json",
     "X-Ipay-Client-Id":"YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-    "X-Ipay-Client-Secret":"82626bbdd785562e2bc2c62e02e5ea949bc8ac1711a18d4c4a6f64a7c7cd9a4c",
+    "X-Ipay-Client-Secret":"9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
     "X-Ipay-Auth-Code": "1",
-    "X-Ipay-Outlet-Id":"562881", // ✅ add this
+    "X-Ipay-Outlet-Id":"562881", 
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
