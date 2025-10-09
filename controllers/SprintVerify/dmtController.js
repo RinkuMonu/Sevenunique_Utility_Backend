@@ -322,6 +322,7 @@ exports.PennyDrop = async (req, res, next) => {
         const [debitTxn] = await Transaction.create([{
             user_id: userId,
             transaction_type: "debit",
+            type: commissionPackage.service,
             amount,
             balance_after: user.eWallet,
             totalDebit: amount,
@@ -334,6 +335,7 @@ exports.PennyDrop = async (req, res, next) => {
         await PayOut.create([{
             userId,
             amount,
+            type: commissionPackage.service,
             reference: referenceid,
             trans_mode: "IMPS",
             name: benename,
@@ -376,6 +378,7 @@ exports.PennyDrop = async (req, res, next) => {
             await DmtReport.create([{
                 user_id: userId,
                 status: result.status,
+                type: commissionPackage.service,
                 ackno: result.ackno || "",
                 referenceid: result.referenceid || referenceid,
                 utr: result.utr || "",
@@ -556,6 +559,7 @@ exports.performTransaction = async (req, res, next) => {
         const [debitTxn] = await Transaction.create([{
             user_id: userId,
             transaction_type: "debit",
+            type: service._id,
             amount: Number(amount),
             gst: Number(commission.gst),
             tds: Number(commission.tds),
@@ -572,6 +576,7 @@ exports.performTransaction = async (req, res, next) => {
         await new PayOut({
             userId,
             amount: Number(amount),
+            type: service._id,
             reference: referenceid,
             trans_mode: txntype,
             name: user.name,
@@ -609,6 +614,7 @@ exports.performTransaction = async (req, res, next) => {
         if (result.status === true && result.txn_status === 1) {
             await DmtReport.create([{
                 user_id: userId,
+                type: service._id,
                 status: result.status,
                 ackno: result.ackno,
                 referenceid: result.referenceid,

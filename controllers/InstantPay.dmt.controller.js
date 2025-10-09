@@ -1,7 +1,14 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
-const { logApiCall } = require("../utils/chargeCaluate");
+const mongoose = require('mongoose');
+const { logApiCall, getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../utils/chargeCaluate");
+const userModel = require("../models/userModel");
+const Transaction = require("../models/transactionModel");
+const payOutModel = require("../models/payOutModel");
+const DmtReport = require('../models/dmtTransactionModel');
+const { distributeCommission } = require("../utils/distributerCommission");
+const CommissionTransaction = require("../models/CommissionTransaction");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
@@ -441,71 +448,166 @@ exports.generateTransactionOtp = async (req, res) => {
 
 
 exports.makeTransaction = async (req, res) => {
-    try {
-        const {
-            remitterMobileNumber,
-            accountNumber,
-            ifsc,
-            transferMode,
-            transferAmount,
-            latitude,
-            longitude,
-            referenceKey,
-            otp,
-            externalRef,
-        } = req.body;
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-        // Basic validation
-        if (
-            !remitterMobileNumber ||
-            !accountNumber ||
-            !ifsc ||
-            !transferMode ||
-            !transferAmount ||
-            !latitude ||
-            !longitude ||
-            !referenceKey ||
-            !otp ||
-            !externalRef
-        ) {
+    try {
+        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id } = req.body;
+
+        // 1️⃣ Validate fields
+        if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid || !bene_id) {
+            return res.status(400).json({ status: false, message: "Missing required fields." });
+        }
+
+        const { commissions, service } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
+        const userId = req.user.id;
+        const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
+        const user = await userModel.findById(userId).session(session);
+        if (!user) throw new Error("User not found");
+
+        const usableBalance = user.eWallet - (user.cappingMoney || 0);
+        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2));
+        console.log(required);
+        if (usableBalance < required) {
             return res.status(400).json({
-                status: false,
-                message: "Missing required fields.",
+                error: true, message: `Insufficient wallet balance.You must maintain ₹${user.cappingMoney} in your wallet.Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
             });
         }
-        const body = {
-            remitterMobileNumber,
-            accountNumber,
-            ifsc,
-            transferMode,
-            transferAmount,
-            latitude,
-            longitude,
-            referenceKey,
-            otp,
-            externalRef,
-        };
 
+        user.eWallet -= required;
+        await user.save({ session });
+
+        // 2️⃣ Create debit transaction
+        const [debitTxn] = await Transaction.create([{
+            user_id: userId,
+            transaction_type: "debit",
+            type: service._id,
+            amount: transferAmount,
+            gst: commission.gst,
+            tds: commission.tds,
+            charge: commission.charge,
+            totalDebit: required,
+            balance_after: user.eWallet,
+            payment_mode: "wallet",
+            transaction_reference_id: referenceid,
+            description: "DMT Transfer",
+            status: "Pending"
+        }], { session });
+
+        // 3️⃣ Create payout record
+        await new payOutModel({
+            userId,
+            amount: transferAmount,
+            reference: referenceid,
+            trans_mode: transferMode,
+            type: service._id,
+            name: user.name,
+            mobile: user.mobileNumber,
+            email: user.email,
+            status: "Pending",
+            charges: commission.charge || 0,
+            gst: commission.gst,
+            tds: commission.tds,
+            totalDebit: required,
+            remark: `Money Transfer for beneficiary ID ${bene_id}`
+        }).save({ session });
+
+        // 4️⃣ Call API
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/transaction",
-            body,
+            {
+                remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef
+            },
             { headers: getHeaders() }
-
         );
 
-        res.status(200).json({
-            status: true,
-            message: "Transaction successful.",
-            data: response.data,
-        });
-    } catch (error) {
-        console.error("Transaction Error:", error.response ? error.response.data : error.message);
+        const result = response.data;
 
-        res.status(500).json({
-            status: false,
-            message: "Transaction failed.",
-            error: error.response?.data || error.message,
-        });
-    }
+        // 5️⃣ Handle API response
+        if (result.statuscode === "TXN") {
+            // Create DMT report
+            await DmtReport.create([{
+                user_id: userId,
+                status: true,
+                type: service._id,
+                ackno: result.data.externalRef, // you may use poolReferenceId if needed
+                referenceid: result.data.poolReferenceId,
+                utr: result.data.txnReferenceId,
+                txn_status: "1",
+                benename: result.data.beneficiaryName,
+                remarks: result.status,
+                message: result.status,
+                remitter: result.data.remitterMobile,
+                account_number: result.data.beneficiaryAccount,
+                gatewayCharges: {
+                    bc_share: parseFloat(result.bc_share || 0),
+                    txn_amount: parseFloat(result.data.txnValue || transferAmount),
+                    customercharge: parseFloat(commission.charge || 0),
+                    gst: parseFloat(commission.gst || 0),
+                    tds: parseFloat(commission.tds || 0),
+                    netcommission: parseFloat(commission.distributor + commission.admin || 0),
+                },
+                charges: commission.charge,
+                commission: { distributor: commission.distributor, admin: commission.admin },
+                gst: commission.gst,
+                tds: commission.tds,
+                amount: transferAmount,
+                totalDebit: required,
+            }], { session });
+
+            // Sequential updates instead of Promise.all
+            await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Success" } }, { session });
+            await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }, { session });
+
+            // Ensure distributeCommission uses session
+            await distributeCommission({
+                distributer: user.distributorId,
+                service,
+                transferAmount,
+                commission,
+                reference: referenceid,
+                description: "Commission for DMT Transaction",
+                session
+            });
+
+            debitTxn.status = "Success";
+            await debitTxn.save({ session });
+
+            await CommissionTransaction.create([{
+                referenceId: referenceid,
+                service: commissions.service,
+                baseAmount: transferAmount,
+                charge: commission.charge + commission.gst,
+                netAmount: required,
+                roles: [
+                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                    { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+                    { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+                ],
+                type: "credit",
+                status: "Success",
+                sourceRetailerId: userId
+            }], { session });
+
+        } else {
+            // Failed transaction: rollback
+            user.eWallet += required;
+            await user.save({ session });
+            await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }, { session });
+            await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }, { session });
+            throw new Error(result.status || "Transaction failed at provider");
+        }
+
+        await session.commitTransaction();
+        res.status(200).json({ status: true, message: "Transaction successful.", data: response.data });
+
+    } catch (err) {
+        await session.abortTransaction();
+        console.error("💥 Transaction Error:", err);
+        res.status(500).json({ status: false, message: err.message || "Transaction failed", error: err.response?.data || err.message });
+    } finally {
+        session.endSession();
+    } 
 };
+
 
