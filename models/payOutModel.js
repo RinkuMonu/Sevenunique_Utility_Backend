@@ -26,6 +26,11 @@ const payOutSchema = new mongoose.Schema(
     account: {
       type: String
     },
+    type: {
+      type: Schema.Types.ObjectId,
+      ref: "Service",
+      required: true,
+    },
     ifsc: {
       type: String,
       required: false,

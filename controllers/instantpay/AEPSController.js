@@ -10,10 +10,10 @@ const instantpay = axios.create({
   timeout: 20000,
   headers: {
     "Content-Type": "application/json",
-    "X-Ipay-Client-Id":"YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-    "X-Ipay-Client-Secret":"9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+    "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
+    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
     "X-Ipay-Auth-Code": "1",
-    "X-Ipay-Outlet-Id":"562881", 
+    "X-Ipay-Outlet-Id": "562881", // ✅ add this
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
@@ -109,16 +109,16 @@ async function parsePidXML(pidXml) {
 
 
 function encrypt(text, key) {
-    const encryptionKey = Buffer.from(key); // 32 bytes
-    const algorithm = "aes-256-cbc";
-    const iv = crypto.randomBytes(16); // 16 bytes IV
-    const cipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
-    let encrypted = cipher.update(text, "utf8", "base64");
-    encrypted += cipher.final("base64");
+  const encryptionKey = Buffer.from(key); // 32 bytes
+  const algorithm = "aes-256-cbc";
+  const iv = crypto.randomBytes(16); // 16 bytes IV
+  const cipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+  let encrypted = cipher.update(text, "utf8", "base64");
+  encrypted += cipher.final("base64");
 
-    // IV ko bhi attach kar dete hain (Base64 me safe transfer ke liye)
-    const encryptedData = Buffer.concat([iv, Buffer.from(encrypted, "base64")]).toString("base64");
-    return encryptedData;
+  // IV ko bhi attach kar dete hain (Base64 me safe transfer ke liye)
+  const encryptedData = Buffer.concat([iv, Buffer.from(encrypted, "base64")]).toString("base64");
+  return encryptedData;
 }
 
 exports.outletRegister = async (req, res, next) => {
@@ -177,7 +177,7 @@ exports.outletLogin = async (req, res, next) => {
       biometricData: {
         encryptedAadhaar,
         ...biometricParsed,
-        
+
       },
     };
 
@@ -210,13 +210,13 @@ exports.cashWithdrawal = async (req, res) => {
     } = req.body;
 
     // Aadhaar encrypt
-    const encryptedAadhaar = encrypt(aadhaar,"efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
     // PID XML parse (maan lo tumhare pass parsePidXML() hai)
     const biometricParsed = await parsePidXML(pidData);
 
     const payload = {
-     type: "DAILY_LOGIN",
+      type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
@@ -233,8 +233,8 @@ exports.cashWithdrawal = async (req, res) => {
     };
 
 
- const response = await instantpay.post("/fi/aeps/cashWithdrawal", payload);
-    
+    const response = await instantpay.post("/fi/aeps/cashWithdrawal", payload);
+
 
     res.json(response.data);
   } catch (err) {
@@ -248,14 +248,14 @@ exports.balanceEnquiry = async (req, res, next) => {
     const { aadhaar, bankiin, mobile, pidData } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
-     const encryptedAadhaar = encrypt(aadhaar,"efb0a1c3666c5fb0efb0a1c3666c5fb0");
-  const payload = {
-     type: "DAILY_LOGIN",
+    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const payload = {
+      type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
       mobile,
-     
+
       externalRef: "REF" + Date.now(),
       captureType: "FINGER",
       biometricData: {
@@ -278,14 +278,14 @@ exports.miniStatement = async (req, res, next) => {
     const { aadhaar, bankiin, mobile, pidData } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
-     const encryptedAadhaar = encrypt(aadhaar,"efb0a1c3666c5fb0efb0a1c3666c5fb0");
-   const payload = {
-     type: "DAILY_LOGIN",
+    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const payload = {
+      type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
       mobile,
-     
+
       externalRef: "REF" + Date.now(),
       captureType: "FINGER",
       biometricData: {
@@ -305,17 +305,17 @@ exports.miniStatement = async (req, res, next) => {
 };
 exports.deposite = async (req, res, next) => {
   try {
-    const { aadhaar, bankiin, mobile,amount, pidData } = req.body;
+    const { aadhaar, bankiin, mobile, amount, pidData } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
-     const encryptedAadhaar = encrypt(aadhaar,"efb0a1c3666c5fb0efb0a1c3666c5fb0");
-   const payload = {
-     type: "DAILY_LOGIN",
+    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const payload = {
+      type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
       mobile,
-     amount,
+      amount,
       externalRef: "REF" + Date.now(),
       captureType: "FINGER",
       biometricData: {
