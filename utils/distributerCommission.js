@@ -181,7 +181,7 @@ async function distributeCommission({
                 fromUser: user,
                 service: service._id,
                 charges: Number((gst + tds).toFixed(2)),
-                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
+                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})` 
               }], { session });
             }
           }
