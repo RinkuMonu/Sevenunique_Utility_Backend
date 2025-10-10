@@ -17,7 +17,7 @@ router.post("/circle", bbpsController.circleLookup);
 
 // Plans
 router.get("/plans", bbpsController.getPlans);
-
+ 
 // Categories
 router.get("/categories", bbpsController.getCategories);
 
