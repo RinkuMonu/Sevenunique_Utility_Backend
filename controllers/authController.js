@@ -15,6 +15,7 @@ const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
+
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
