@@ -264,7 +264,7 @@ const loginController = async (req, res) => {
       return res.status(400).json({ message: "Mobile number is required" });
     }
 
-    const user = await User.findOne({ mobileNumber }).select("-password");
+    const user = await User.findOne({ mobileNumber });
     if (!user) {
       return res.status(404).json({ message: "No user found" });
     }
@@ -304,8 +304,11 @@ const loginController = async (req, res) => {
         mobileNumber: user.mobileNumber,
         role: user.role,
         token,
+        ownerPhoto: user.ownerPhoto,
+        isKycVerified: user.isKycVerified,
+        isVideoKyc: user.isVideoKyc,
+        address: user.address,
       },
-      userDetails: user,
     });
   } catch (error) {
     console.error("Error in loginController:", error);
