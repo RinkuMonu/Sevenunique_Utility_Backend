@@ -650,6 +650,7 @@ exports.performTransaction = async (req, res, next) => {
                 PayOut.updateOne({ reference: referenceid }, { $set: { status: "Success" } }).session(session),
                 Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }).session(session),
                 distributeCommission({
+                    user: userId,
                     distributer: user.distributorId,
                     service: service,
                     amount,
