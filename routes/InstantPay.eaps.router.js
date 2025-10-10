@@ -3,6 +3,7 @@ const { signupInitiate, signupValidate, mobileChangeInitiate, mobileChangeValida
 const router = express.Router();
 const bbpsController = require("../controllers/instantpay/bbpsControllerInstant");
 const instantpayController = require("../controllers/instantpay/AEPSController");
+const authenticateToken = require("../middleware/verifyToken");
 
 
 // Existing routes
@@ -42,13 +43,13 @@ router.post("/instantpay/outlet/login-status", instantpayController.outletLoginS
 router.post("/instantpay/outlet/login", instantpayController.outletLogin);
 
 // 🔹 AEPS transactions
-router.post("/instantpay/withdrawal", instantpayController.cashWithdrawal);
+router.post("/instantpay/withdrawal", authenticateToken, instantpayController.cashWithdrawal);
 router.post("/instantpay/balance-enquiry", instantpayController.balanceEnquiry);
-router.post("/instantpay/mini-statement", instantpayController.miniStatement);
+router.post("/instantpay/mini-statement", authenticateToken, instantpayController.miniStatement);
 router.post("/instantpay/deposit", instantpayController.deposite);
 
 // 🔹 Bank list
-router.get("/instantpay/bank-list", instantpayController.getBankList); 
+router.get("/instantpay/bank-list", instantpayController.getBankList);
 
 
 module.exports = router;

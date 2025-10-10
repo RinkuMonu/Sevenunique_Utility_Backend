@@ -1,6 +1,14 @@
 import axios from "axios";
 import crypto from "crypto";
 import xml2js from "xml2js";
+import mongoose from "mongoose";
+import userModel from "../models/userModel.js";
+import { calculateCommissionFromSlabs, getApplicableServiceCharge } from "../utils/chargeCaluate.js";
+import Transaction from "../models/transactionModel.js";
+import payOutModel from "../models/payOutModel.js";
+import { distributeCommission } from "../utils/distributerCommission.js";
+import CommissionTransaction from "../models/CommissionTransaction.js";
+import DmtReport from "../models/dmtTransactionModel.js";
 const BASE_URL = "https://api.instantpay.in/fi/remit/out/domesticPpi";
 
 const getHeaders = () => {
@@ -10,7 +18,7 @@ const getHeaders = () => {
         "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
         "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
         "X-Ipay-Outlet-Id": '561907 ', // ✅ add this 
-        "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
+        "X-Ipay-Endpoint-Ip": "223.226.127.0",
         "Content-Type": "application/json",
     };
 };
@@ -99,6 +107,7 @@ export const getBankList = async (req, res) => {
 // 2️⃣ Remitter Profile
 export const remitterProfile = async (req, res) => {
     try {
+
         const result = await instantpayService("remitterProfile", "POST", req.body);
         res.json(result);
     } catch (err) {
@@ -110,11 +119,11 @@ export const remitterProfile = async (req, res) => {
 // 3️⃣ Remitter Registration
 export const remitterRegistration = async (req, res) => {
     try {
-        const { mobileNumber, encryptedAadhaar, referenceKey, pan } = req.body;
-        if (!mobileNumber || !encryptedAadhaar || !referenceKey || !pan) {
+        const { mobileNumber, encryptedAadhaar, referenceKey, pan, authType = "otp" } = req.body;
+        if (!mobileNumber || !encryptedAadhaar || !referenceKey || !pan || !authType) {
             return res.status(400).json({ message: "mobileNumber, encryptedAadhaar, and referenceKey are required" });
         }
-        const result = await instantpayService("remitterRegistration", "POST", { mobileNumber, pan, encryptedAadhaar: encrypt(encryptedAadhaar, encryptionKey), referenceKey });
+        const result = await instantpayService("remitterRegistration", "POST", { mobileNumber, pan, encryptedAadhaar: encrypt(encryptedAadhaar, encryptionKey), referenceKey, authType });
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -124,7 +133,27 @@ export const remitterRegistration = async (req, res) => {
 // 4️⃣ Remitter Registration Verify
 export const remitterRegistrationVerify = async (req, res) => {
     try {
-        const result = await instantpayService("remitterRegistrationVerify", "POST", req.body);
+        const {
+            mobileNumber,
+            referenceKey,
+            latitude,
+            longitude,
+            externalRef,
+            otp
+        } = req.body
+
+        if (!mobileNumber || !latitude || !longitude || !referenceKey || !externalRef || !otp) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        const result = await instantpayService("remitterRegistrationVerify", "POST", {
+            mobileNumber,
+            referenceKey,
+            latitude,
+            longitude,
+            externalRef,
+            otp
+        });
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -136,6 +165,9 @@ export const remitterKyc = async (req, res) => {
     try {
         const { pidXml, mobileNumber, latitude, longitude, externalRef, consentTaken = "Y", captureType = "FINGER", referenceKey } = req.body;
 
+        if (!mobileNumber || !referenceKey || !latitude || !longitude || !externalRef || !consentTaken || !captureType || !biometricData) {
+            return res.status(400).json({ message: "All fields including biometricData are required" });
+        }
         if (!pidXml) {
             return res.status(400).json({ error: "PID XML is required" });
         }
@@ -154,7 +186,7 @@ export const remitterKyc = async (req, res) => {
             biometricData,
             referenceKey
         };
-        console.log(payload);
+
 
         // 3️⃣ Call InstantPay API
         const result = await instantpayService("remitterKyc", "POST", payload);
@@ -173,6 +205,10 @@ export const beneficiaryList = async (req, res) => {
             remitterMobileNumber, referenceKey
         } = req.query
 
+        if (!remitterMobileNumber || !referenceKey) {
+            return res.status(400).json({ message: "remitterMobileNumber and referenceKey are required" });
+        }
+
         const result = await instantpayService("beneficiaryList", "GET", { remitterMobileNumber, referenceKey, isSyncMode: true });
         res.json(result);
     } catch (err) {
@@ -183,7 +219,14 @@ export const beneficiaryList = async (req, res) => {
 // 7️⃣ Beneficiary Registration
 export const beneficiaryRegistration = async (req, res) => {
     try {
-        const result = await instantpayService("beneficiaryRegistration", "POST", req.body);
+        const { remitterMobileNumber, referenceKey, accountNumber, ifsc, bankId, name } = req.body;
+
+        if (!remitterMobileNumber || !referenceKey || !accountNumber || !ifsc || !bankId || !name) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        const payload = { remitterMobileNumber, referenceKey, accountNumber, ifsc, bankId, name };
+        const result = await instantpayService("beneficiaryRegistration", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -193,7 +236,14 @@ export const beneficiaryRegistration = async (req, res) => {
 // 8️⃣ Beneficiary Delete
 export const beneficiaryDelete = async (req, res) => {
     try {
-        const result = await instantpayService("beneficiaryDelete", "POST", req.body);
+        const { remitterMobileNumber, referenceKey, beneficiaryId } = req.body;
+
+        if (!remitterMobileNumber || !referenceKey || !beneficiaryId) {
+            return res.status(400).json({ message: "remitterMobileNumber, referenceKey, beneficiaryId are required" });
+        }
+
+        const payload = { remitterMobileNumber, referenceKey, beneficiaryId };
+        const result = await instantpayService("beneficiaryDelete", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -203,7 +253,14 @@ export const beneficiaryDelete = async (req, res) => {
 // 9️⃣ Beneficiary Delete Verify
 export const beneficiaryDeleteVerify = async (req, res) => {
     try {
-        const result = await instantpayService("beneficiaryDeleteVerify", "POST", req.body);
+        const { remitterMobileNumber, referenceKey, otp } = req.body;
+
+        if (!remitterMobileNumber || !referenceKey || !otp) {
+            return res.status(400).json({ message: "remitterMobileNumber, referenceKey, otp are required" });
+        }
+
+        const payload = { remitterMobileNumber, referenceKey, otp };
+        const result = await instantpayService("beneficiaryDeleteVerify", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -213,7 +270,15 @@ export const beneficiaryDeleteVerify = async (req, res) => {
 // 🔟 Generate Transaction OTP
 export const generateTransactionOtp = async (req, res) => {
     try {
-        const result = await instantpayService("generateTransactionOtp", "POST", req.body);
+        const { remitterMobileNumber, referenceKey, beneficiaryId, amount } = req.body;
+
+        if (!remitterMobileNumber || !referenceKey || !beneficiaryId || !amount) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        const payload = { remitterMobileNumber, referenceKey, beneficiaryId, amount };
+        console.log(payload);
+        const result = await instantpayService("generateTransactionOtp", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -222,18 +287,251 @@ export const generateTransactionOtp = async (req, res) => {
 
 // 11️⃣ Transaction
 export const makeTransaction = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    console.log(getHeaders());
+    console.log(req.body);
+    // return;
     try {
-        const result = await instantpayService("transaction", "POST", req.body);
-        res.json(result);
+        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, beneficiaryId } = req.body;
+
+        // 1️⃣ Validate required fields
+        if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid) {
+            return res.status(400).json({ status: false, message: "All fields are required." });
+        }
+
+        const userId = req.user.id;
+        const user = await userModel.findById(userId).session(session);
+        if (!user) throw new Error("User not found");
+
+        // 2️⃣ Calculate commission & check wallet balance
+        const { commissions, service } = await getApplicableServiceCharge(userId, "DMT Money Transfer");
+        const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
+        const usableBalance = user.eWallet - (user.cappingMoney || 0);
+        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2));
+
+        if (usableBalance < required) {
+            return res.status(400).json({
+                status: false,
+                message: `Insufficient wallet balance. Available: ₹${user.eWallet}, Required: ₹${required + (user.cappingMoney || 0)}`
+            });
+        }
+
+        // Deduct wallet
+        user.eWallet -= required;
+        await user.save({ session });
+
+        // 3️⃣ Create debit transaction
+        const [debitTxn] = await Transaction.create([{
+            user_id: userId,
+            transaction_type: "debit",
+            type: service._id,
+            amount: transferAmount,
+            gst: commission.gst,
+            tds: commission.tds,
+            charge: commission.charge,
+            totalDebit: required,
+            balance_after: user.eWallet,
+            payment_mode: "wallet",
+            transaction_reference_id: referenceid,
+            description: "DMT PPI Transfer",
+            status: "Pending"
+        }], { session });
+
+        // 4️⃣ Create payout record
+        await new payOutModel({
+            userId,
+            amount: transferAmount,
+            reference: referenceid,
+            trans_mode: transferMode,
+            type: service._id,
+            name: user.name,
+            mobile: user.mobileNumber,
+            email: user.email,
+            status: "Pending",
+            charges: commission.charge || 0,
+            gst: commission.gst,
+            tds: commission.tds,
+            totalDebit: required,
+            remark: `Money Transfer for beneficiary ID ${beneficiaryId}`
+        }).save({ session });
+
+
+        // 5️⃣ Call InstantPay API
+        const payload = { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef };
+
+        const response = await axios.post("https://api.instantpay.in/fi/remit/out/domesticPpi/transaction", payload, { headers: getHeaders() });
+        const result = response.data;
+        console.log(response.data);
+        // console.log(response.data.data.beneficiaryName);
+
+        // 6️⃣ Handle API response
+        if (result.statuscode === "TXN") {
+            // Success: create DMT report
+            await DmtReport.create([{
+                user_id: userId,
+                status: true,
+                type: service._id,
+                ackno: result.data.externalRef,
+                referenceid: result.data.poolReferenceId,
+                utr: result.data.txnReferenceId,
+                txn_status: "1",
+                benename: result.data.beneficiaryName,
+                remarks: result.status,
+                message: result.status,
+                remitter: result.data.remitterMobile,
+                account_number: result.data.beneficiaryAccount,
+                gatewayCharges: {
+                    bc_share: parseFloat(result.bc_share || 0),
+                    txn_amount: parseFloat(result.data.txnValue || transferAmount),
+                    customercharge: parseFloat(commission.charge || 0),
+                    gst: parseFloat(commission.gst),
+                    tds: parseFloat(commission.tds),
+                    netcommission: parseFloat(commission.distributor + commission.admin || 0),
+                },
+                charges: commission.charge,
+                commission: { distributor: commission.distributor, admin: commission.admin },
+                gst: commission.gst,
+                tds: commission.tds,
+                amount: transferAmount,
+                totalDebit: required,
+            }], { session });
+
+            // Update payout & transaction status
+            await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Success" } }, { session });
+            await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }, { session });
+
+            // Distribute commission
+            await distributeCommission({
+                user: userId,
+                distributer: user.distributorId,
+                service,
+                transferAmount,
+                commission,
+                reference: referenceid,
+                description: "Commission for DMT PPI Transaction",
+                session
+            });
+
+            debitTxn.status = "Success";
+            await debitTxn.save({ session });
+
+            // Commission transaction record
+            await CommissionTransaction.create([{
+                referenceId: referenceid,
+                service: commissions.service,
+                baseAmount: transferAmount,
+                charge: commission.charge + commission.gst,
+                netAmount: required,
+                roles: [
+                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                    { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+                    { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+                ],
+                type: "credit",
+                status: "Success",
+                sourceRetailerId: userId
+            }], { session });
+
+            await session.commitTransaction();
+            return res.status(200).json({ status: true, message: "Transaction successful.", data: result });
+        } else if (result.statuscode === "TUP") {
+            // Success: create DMT report
+            await DmtReport.create([{
+                user_id: userId,
+                status: true,
+                type: service._id,
+                ackno: result.data.externalRef,
+                referenceid: result.data.poolReferenceId,
+                utr: result.data.txnReferenceId,
+                txn_status: "Pending",
+                benename: result.data.beneficiaryName,
+                remarks: result.status,
+                message: result.status,
+                remitter: result.data.remitterMobile,
+                account_number: result.data.beneficiaryAccount,
+                gatewayCharges: {
+                    bc_share: parseFloat(result.bc_share || 0),
+                    txn_amount: parseFloat(result.data.txnValue || transferAmount),
+                    customercharge: parseFloat(commission.charge || 0),
+                    gst: parseFloat(commission.gst),
+                    tds: parseFloat(commission.tds),
+                    netcommission: parseFloat(commission.distributor + commission.admin || 0),
+                },
+                charges: commission.charge,
+                commission: { distributor: commission.distributor, admin: commission.admin },
+                gst: commission.gst,
+                tds: commission.tds,
+                amount: transferAmount,
+                totalDebit: required,
+            }], { session });
+
+            // Update payout & transaction status
+            await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Pending" } }, { session });
+            await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Pending" } }, { session });
+
+            // Distribute commission
+            // await distributeCommission({
+            //     user: userId,
+            //     distributer: user.distributorId,
+            //     service,
+            //     transferAmount,
+            //     commission,
+            //     reference: referenceid,
+            //     description: "Commission for DMT PPI Transaction",
+            //     session
+            // });
+
+            debitTxn.status = "Pending";
+            await debitTxn.save({ session });
+
+            // Commission transaction record
+            await CommissionTransaction.create([{
+                referenceId: referenceid,
+                service: commissions.service,
+                baseAmount: transferAmount,
+                charge: commission.charge + commission.gst,
+                netAmount: required,
+                roles: [
+                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                    { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+                    { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+                ],
+                type: "credit",
+                status: "Pending",
+                sourceRetailerId: userId
+            }], { session });
+
+            await session.commitTransaction();
+            return res.status(200).json({ status: true, message: "Transaction successful.", data: result });
+        }
+        else {
+            // Failure: rollback
+            user.eWallet += required;
+            await user.save({ session });
+            await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }, { session });
+            await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }, { session });
+            console.log(result);
+            throw new Error(result.status || "Transaction failed at provider");
+        }
     } catch (err) {
-        res.status(500).json({ error: err.message });
+
+        await session.abortTransaction();
+        console.error("💥 Transaction Error:", err);
+        res.status(500).json({ status: false, message: err.message || "Transaction failed", error: err.response?.data || err.message });
+    } finally {
+        session.endSession();
     }
 };
 
 // 12️⃣ Transaction Refund OTP
 export const transactionRefundOtp = async (req, res) => {
     try {
-        const result = await instantpayService("transactionRefundOtp", "POST", req.body);
+        const { ipayId } = req.body;
+        if (!ipayId) return res.status(400).json({ message: "ipayId is required" });
+
+        const payload = { ipayId };
+        const result = await instantpayService("transactionRefundOtp", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -243,7 +541,14 @@ export const transactionRefundOtp = async (req, res) => {
 // 13️⃣ Transaction Refund
 export const transactionRefund = async (req, res) => {
     try {
-        const result = await instantpayService("transactionRefund", "POST", req.body);
+        const { ipayId, referenceKey, otp } = req.body;
+
+        if (!ipayId || !referenceKey || !otp) {
+            return res.status(400).json({ message: "ipayId, referenceKey, otp are required" });
+        }
+
+        const payload = { ipayId, referenceKey, otp };
+        const result = await instantpayService("transactionRefund", "POST", payload);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
