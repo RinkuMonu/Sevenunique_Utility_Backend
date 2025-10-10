@@ -39,6 +39,15 @@ const commissionSlabSchema = new mongoose.Schema(
       enum: ["fixed", "percentage", "slab"],
       default: "fixed",
     },
+    aepsType: {
+      type: String,
+      enum: [
+        "mini statement",
+        "cash withdrawal",
+        "cash deposit",
+        "balance enquiry",
+      ],
+    },
     retailer: { type: Number, required: true },
     // type: {
     //   type: String,

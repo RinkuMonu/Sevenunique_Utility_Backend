@@ -3,16 +3,18 @@ const News = require("../models/news.model");
 // ✅ Create News
 exports.createNews = async (req, res) => {
   try {
-    const { title, type } = req.body;
+    const { title, type, target } = req.body;
     if (!title || !type) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Title and Type are required" });
+      return res.status(400).json({
+        success: false,
+        message: "Title, target and Type are required",
+      });
     }
 
     const news = await News.create({
       title,
       type,
+      target,
     });
 
     return res.status(201).json({ success: true, data: news });
@@ -27,7 +29,15 @@ exports.createNews = async (req, res) => {
 // ✅ Get All News
 exports.getAllNews = async (req, res) => {
   try {
-    const newsList = await News.find().sort({ createdAt: -1 });
+    const { target } = req.query;
+    const filter = {};
+
+    if (target) {
+      filter.target = target;
+    }
+
+    const newsList = await News.find(filter).sort({ createdAt: -1 });
+
     return res.status(200).json({ success: true, data: newsList });
   } catch (err) {
     console.error("getAllNews error:", err);

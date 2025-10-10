@@ -11,6 +11,11 @@ const newsSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    target: {
+      type: String,
+      enum: ["header", "notification", "both"],
+      required: true,
+    },
   },
   { timestamps: true }
 );
