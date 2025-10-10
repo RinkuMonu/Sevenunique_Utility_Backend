@@ -15,6 +15,7 @@ const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
+
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
@@ -301,9 +302,15 @@ const loginController = async (req, res) => {
       message: "Login successful",
       user: {
         id: user._id,
+        name:user.name,
+        email:user.email,
         mobileNumber: user.mobileNumber,
         role: user.role,
         token,
+        ownerPhoto: user.ownerPhoto,
+        isKycVerified: user.isKycVerified,
+        isVideoKyc: user.isVideoKyc,
+        address: user.address,
       },
     });
   } catch (error) {
