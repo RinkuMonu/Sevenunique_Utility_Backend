@@ -561,6 +561,7 @@ exports.makeTransaction = async (req, res) => {
 
             // Ensure distributeCommission uses session
             await distributeCommission({
+                user: userId,
                 distributer: user.distributorId,
                 service,
                 transferAmount,
@@ -607,7 +608,7 @@ exports.makeTransaction = async (req, res) => {
         res.status(500).json({ status: false, message: err.message || "Transaction failed", error: err.response?.data || err.message });
     } finally {
         session.endSession();
-    } 
+    }
 };
 
 

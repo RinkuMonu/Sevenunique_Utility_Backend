@@ -3,17 +3,26 @@ const axios = require("axios");
 const createError = require("http-errors");
 const Joi = require("joi");
 const xml2js = require("xml2js");
+const { v4: uuidv4 } = require("uuid");
 const crypto = require("crypto");
+const mongoose = require("mongoose");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate");
+const userModel = require("../../models/userModel");
+const Transaction = require("../../models/transactionModel");
+const payOutModel = require("../../models/payOutModel");
+const { distributeCommission } = require("../../utils/distributerCommission");
+const CommissionTransaction = require("../../models/CommissionTransaction");
+const payInModel = require("../../models/payInModel");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
-  timeout: 20000,
+  // timeout: 20000,
   headers: {
     "Content-Type": "application/json",
     "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
     "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
     "X-Ipay-Auth-Code": "1",
-    "X-Ipay-Outlet-Id": "562881", // ✅ add this
+    "X-Ipay-Outlet-Id": "561894", // ✅ add this
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
@@ -49,7 +58,7 @@ function normalizePayloadForPayment(body) {
   };
 }
 
-
+const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
 // Helper function (normal bana do)
 async function parsePidXML(pidXml) {
   return new Promise((resolve, reject) => {
@@ -148,7 +157,7 @@ exports.outletLoginStatus = async (req, res, next) => {
     const { outletId } = req.body;
     if (!outletId) throw createError(400, "OutletId required");
 
-    const response = await instantpay.post("/fi/outlet/login/status", { outletId });
+    const response = await instantpay.post("/fi/aeps/outletLoginStatus", { outletId });
     return res.json(response.data);
   } catch (err) {
     console.error("Outlet Login Status Error:", err.response?.data || err.message);
@@ -163,7 +172,7 @@ exports.outletLogin = async (req, res, next) => {
     if (!outletId || !aadhaar || !pidData) throw createError(400, "Missing parameters");
 
     // Aadhaar encrypt
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    // const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
     // Parse PID XML to biometricData object
     const biometricParsed = await parsePidXML(pidData);
@@ -175,7 +184,7 @@ exports.outletLogin = async (req, res, next) => {
       externalRef: "REF" + Date.now(),
       captureType: "FINGER",
       biometricData: {
-        encryptedAadhaar,
+        encryptedAadhaar: encrypt(aadhaar, encryptionKey),
         ...biometricParsed,
 
       },
@@ -195,34 +204,89 @@ exports.outletLogin = async (req, res, next) => {
 
 
 
-
-
 exports.cashWithdrawal = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const {
       aadhaar,
       bankiin,
-      latitude,
-      longitude,
+      latitude = "26.79900",
+      longitude = "75.86500",
       mobile,
       amount,
       pidData,
     } = req.body;
 
-    // Aadhaar encrypt
+    if (!aadhaar || !bankiin || !mobile || !amount || !pidData) {
+      return res.status(400).json({ status: false, message: "Missing required fields" });
+    }
+
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).session(session);
+    if (!user) throw new Error("User not found");
+
+    // Get commission details
+    const { commissions, service } = await getApplicableServiceCharge(userId, "AEPS");
+
+    const commission = commissions ? calculateCommissionFromSlabs(amount, commissions) : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0 };
+
+
+
+    // Create debit transaction
+    const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
+
+    const [debitTxn] = await Transaction.create([{
+      user_id: userId,
+      transaction_type: "credit",
+      type: service._id,
+      amount,
+      gst: commission.gst,
+      tds: commission.tds,
+      charge: commission.charge,
+      totalCredit: amount,
+      balance_after: user.eWallet,
+      payment_mode: "bank_transfer",
+      transaction_reference_id: externalRef,
+      description: "AEPS Cash Withdrawal",
+      status: "Pending"
+    }], { session });
+
+    // Parse PID XML
+    const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
-    // PID XML parse (maan lo tumhare pass parsePidXML() hai)
-    const biometricParsed = await parsePidXML(pidData);
+    // Create payout record
+    await new payInModel({
+      userId,
+      amount,
+      reference: externalRef,
+      trans_mode: "AEPS",
+      type: service._id,
+      name: user.name,
+      mobile: user.mobileNumber,
+      email: user.email,
+      status: "Pending",
+      source: "PayIn",
+      charges: commission.charge || 0,
+      gst: commission.gst,
+      tds: commission.tds,
+      // totalDebit: required,
+      remark: `AEPS Cash Withdrawal for mobile ${mobile}`
+    }).save({ session });
 
-    const payload = {
-      type: "DAILY_LOGIN",
+
+
+    // Call InstantPay API
+    const response = await instantpay.post("/fi/aeps/cashWithdrawal", {
+      // type: "DAILY_LOGIN",
       bankiin,
-      latitude: "26.79900",
-      longitude: "75.86500",
+      latitude,
+      longitude,
       mobile,
       amount: String(amount),
-      externalRef: "REF" + Date.now(),
+      externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -230,18 +294,67 @@ exports.cashWithdrawal = async (req, res) => {
         iCount: biometricParsed.iCount || "0",
         pCount: biometricParsed.pCount || "0",
       },
-    };
+    });
+    const result = response.data;
+    // Handle API response
+    if (result.statuscode === "TXN") {
+      user.eWallet = (user.eWallet || 0) + Number(amount);
+      await user.save({ session });
+      // Update transactions and payout as success
+      debitTxn.status = "Success";
+      await debitTxn.save({ session });
+      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
 
+      // Distribute commission
+      await distributeCommission({
+        user: userId,
+        distributer: user.distributorId,
+        service,
+        transferAmount: amount,
+        commission,
+        reference: externalRef,
+        description: "Commission for AEPS Cash Withdrawal",
+        session
+      });
 
-    const response = await instantpay.post("/fi/aeps/cashWithdrawal", payload);
+      // Record commission transaction
+      await CommissionTransaction.create([{
+        referenceId: externalRef,
+        service: service._id,
+        baseAmount: amount,
+        charge: commission.charge + commission.gst,
+        netAmount: amount,
+        roles: [
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+        ],
+        type: "credit",
+        status: "Success",
+        sourceRetailerId: userId
+      }], { session });
 
+      await session.commitTransaction();
+      res.status(200).json({ status: true, message: "Cash Withdrawal successful", data: result });
 
-    res.json(response.data);
+    } else {
+      // Rollback for failed transaction
+      user.eWallet -= required;
+      await user.save({ session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
+      throw new Error(result.status || "Cash Withdrawal failed at provider");
+    }
+
   } catch (err) {
-    console.error("Cash Withdrawal Error:", err.response?.data || err.message);
-    res.status(500).json({ error: "Cash Withdrawal failed", details: err.response?.data || err.message });
+    await session.abortTransaction();
+    console.error("💥 Cash Withdrawal Error:", err.response?.data || err.message);
+    res.status(500).json({ status: false, message: err.message || "Cash Withdrawal failed", error: err.response?.data || err.message });
+  } finally {
+    session.endSession();
   }
 };
+
 
 exports.balanceEnquiry = async (req, res, next) => {
   try {
@@ -310,7 +423,7 @@ exports.deposite = async (req, res, next) => {
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const payload = {
-      type: "DAILY_LOGIN",
+      // type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
