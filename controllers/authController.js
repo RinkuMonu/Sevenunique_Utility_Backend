@@ -301,6 +301,8 @@ const loginController = async (req, res) => {
       message: "Login successful",
       user: {
         id: user._id,
+        name:user.name,
+        email:user.email,
         mobileNumber: user.mobileNumber,
         role: user.role,
         token,
