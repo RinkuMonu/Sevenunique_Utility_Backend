@@ -197,13 +197,12 @@ const deletePlan = async (req, res) => {
   }
 };
 
-
 const buyPlan = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { planId, planType } = req.body;
+    const { planId, planType, force = false } = req.body;
     const userId = req.user.id;
 
     // 1. Plan fetch karo
@@ -226,15 +225,14 @@ const buyPlan = async (req, res) => {
     }
 
     // 2. Final price calculate
+    const discountPercent =
+      selectedAmount.discountPercent ?? plan.discountPercent ?? 0;
+
     const planPrice =
       selectedAmount.discountedValue ??
-      (selectedAmount.discountPercent
-        ? Math.round(
-            selectedAmount.value -
-              (selectedAmount.value * selectedAmount.discountPercent) / 100
-          )
-        : selectedAmount.value);
-
+      Math.round(
+        selectedAmount.value - (selectedAmount.value * discountPercent) / 100
+      );
     // 3. User fetch karo
     const userfind = await userModel.findById(userId).session(session);
     if (!userfind) {
@@ -244,20 +242,50 @@ const buyPlan = async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
 
-    // 4. Wallet balance check
-    if ((userfind.eWallet || 0) < planPrice) {
+    const hasPlanId = !!userfind?.plan?.planId;
+    const end0 = userfind?.plan?.endDate
+      ? new Date(userfind.plan.endDate)
+      : null;
+    if (end0) end0.setHours(0, 0, 0, 0);
+
+    const hasActivePlan = hasPlanId && end0 && end0 >= today0;
+
+    const remainingDaysCurrent = hasActivePlan
+      ? Math.max(0, Math.floor((end0 - today0) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    if (hasActivePlan && !force) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: "Insufficient wallet balance",
+        requiresConfirmation: true,
+        message: `Aapka current plan abhi active hai . Kya aap ise cancel karke naya plan lena chahte hain?`,
+        currentPlan: {
+          planId: userfind.plan.planId,
+          planType: userfind.plan.planType,
+          startDate: userfind.plan.startDate,
+          endDate: userfind.plan.endDate,
+          remainingDays: remainingDaysCurrent,
+        },
       });
     }
+    const updatedUser = await userModel.findOneAndUpdate(
+      { _id: userId, eWallet: { $gte: planPrice } },
+      { $inc: { eWallet: -planPrice } },
+      { new: true, session }
+    );
 
-    // 5. Wallet deduction
-    userfind.eWallet -= planPrice;
-
+    if (!updatedUser) {
+      await session.abortTransaction();
+      session.endSession();
+      return res
+        .status(400)
+        .json({ success: false, message: "Insufficient wallet balance" });
+    }
     // 6. Plan dates calculate
     const startDate = new Date();
     let endDate = new Date(startDate);
@@ -278,33 +306,40 @@ const buyPlan = async (req, res) => {
         break;
     }
 
-    if (userfind.plan && userfind.plan.planId) {
-      userfind.planHistory.push({
-        planId: userfind.plan.planId,
-        planType: userfind.plan.planType,
-        startDate: userfind.plan.startDate,
-        endDate: userfind.plan.endDate,
-        status: "cancelled", 
-      });
-    }
+    // ... endDate calculate ho chuka
 
-    userfind.plan = {
-      planId: plan._id,
-      planType,
-      startDate,
-      endDate,
-      status: "Active",
+    const updates = {
+      $set: {
+        plan: {
+          planId: plan._id,
+          planType,
+          startDate,
+          endDate,
+        },
+      },
     };
 
-    await userfind.save({ session });
+    if (userfind.plan && userfind.plan.planId) {
+      updates.$push = {
+        planHistory: {
+          planId: userfind.plan.planId,
+          planType: userfind.plan.planType,
+          startDate: userfind.plan.startDate,
+          endDate: userfind.plan.endDate,
+          status: "cancelled",
+        },
+      };
+    }
+
+    await userModel.updateOne({ _id: userId }, updates, { session });
 
     const transactionRef = `PLAN-${Date.now()}`;
     const transaction = new Transaction({
-      user_id: userfind._id,
-      sender_Id: userfind._id, // khud ka wallet debit hua
+      user_id: updatedUser._id,
+      sender_Id: updatedUser._id, // khud ka wallet debit hua
       transaction_type: "debit",
       amount: planPrice,
-      balance_after: userfind.eWallet,
+      balance_after: updatedUser.eWallet,
       status: "Success",
       payment_mode: "wallet",
       transaction_reference_id: transactionRef,
@@ -314,21 +349,6 @@ const buyPlan = async (req, res) => {
       },
     });
     await transaction.save({ session });
-
-    // 11. PaymentRequest report
-    // const paymentRequest = new PaymentRequest({
-    //   userId: userfind._id,
-    //   sender_Id: userfind._id,
-    //   reference: transactionRef,
-    //   mode: "Wallet",
-    //   amount: planPrice,
-    //   transactionType: "debit",
-    //   description: `Plan purchase: ${plan.name} (${planType})`,
-    //   status: "Completed",
-    //   completedAt: new Date(),
-    //   txnDate: new Date(),
-    // });
-    // await paymentRequest.save({ session });
 
     // 12. Commit transaction
     await session.commitTransaction();
@@ -348,12 +368,12 @@ const buyPlan = async (req, res) => {
         planName: plan.name,
         planType,
         price: selectedAmount.value,
-        discountPercent: selectedAmount.discountPercent || 0,
+        discountPercent,
         finalPrice: planPrice,
         startDate,
         endDate,
         remainingDays,
-        walletBalance: userfind.eWallet,
+        walletBalance: updatedUser.eWallet,
       },
     });
   } catch (error) {
@@ -608,7 +628,6 @@ const getAllUsersPlanHistory = async (req, res) => {
       .json({ success: false, message: "Internal server error" });
   }
 };
-
 
 module.exports = {
   createPlan,
