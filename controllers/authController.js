@@ -311,6 +311,7 @@ const loginController = async (req, res) => {
         isKycVerified: user.isKycVerified,
         isVideoKyc: user.isVideoKyc,
         address: user.address,
+        status:user.status
       },
     });
   } catch (error) {
