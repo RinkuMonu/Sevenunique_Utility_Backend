@@ -10,7 +10,7 @@ const paymentRequestSchema = new mongoose.Schema(
     sender_Id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      // required: true,
     },
     requestId: {
       type: String,
