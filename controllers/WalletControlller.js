@@ -266,7 +266,9 @@ exports.getAdminSummary = async (req, res) => {
       admin: {
         id: admin._id,
         name: admin.name,
+        role: admin.role,
         email: admin.email,
+        UserId: admin.UserId,
       },
       total: { totalPayIn, totalPayOut, currentBalance },
     });
@@ -281,31 +283,32 @@ exports.getAdminSummary = async (req, res) => {
 // 2️⃣ Get All Users under Admin (Distributors / Retailers)
 exports.getUsersUnderAdmin = async (req, res) => {
   try {
-    const users = await User.find({ role: { $in: ["Distributor", "Retailer"] } })
-      .select("name role eWallet");
+    let query = {};
+
+    if (req.user.role === "Admin") {
+      query = { role: { $in: ["Distributor", "Retailer"] } };
+    } else if (req.user.role === "Distributor") {
+      query = { role: "Retailer", distributorId: req.user.id };
+    } else {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+   
+    const users = await User.find(query).select("name role UserId eWallet");
+   
+
 
     const userData = await Promise.all(
       users.map(async (user) => {
-
+        // Total PayIn
         const payInAgg = await payInModel.aggregate([
           { $match: { userId: user._id, status: "Success" } },
-          {
-            $group: {
-              _id: null,
-              totalPayIn: { $sum: "$amount" },
-            },
-          },
+          { $group: { _id: null, totalPayIn: { $sum: "$amount" } } },
         ]);
 
-        // ===== PayOut total (Success only) =====
+        // Total PayOut
         const payOutAgg = await payOutModel.aggregate([
           { $match: { userId: user._id, status: "Success" } },
-          {
-            $group: {
-              _id: null,
-              totalPayOut: { $sum: "$amount" },
-            },
-          },
+          { $group: { _id: null, totalPayOut: { $sum: "$amount" } } },
         ]);
 
         const totalCredit = payInAgg[0]?.totalPayIn || 0;
@@ -313,6 +316,7 @@ exports.getUsersUnderAdmin = async (req, res) => {
 
         return {
           _id: user._id,
+          UserId: user.UserId,
           name: user.name,
           role: user.role,
           totalCredit,
@@ -328,6 +332,7 @@ exports.getUsersUnderAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
 
 // 3️⃣ Get Transactions for a User (with filters, pagination, search, CSV export)
 exports.getUserTransactions = async (req, res) => {
@@ -370,6 +375,30 @@ exports.getUserTransactions = async (req, res) => {
       { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
     ];
 
+    pipeline.push(
+      // Lookup service
+      {
+        $lookup: {
+          from: "services",
+          localField: "type",
+          foreignField: "_id",
+          as: "service",
+        },
+      },
+      { $unwind: { path: "$service", preserveNullAndEmptyArrays: true } },
+
+      // Lookup plan
+      {
+        $lookup: {
+          from: "plans",
+          localField: "type",
+          foreignField: "_id",
+          as: "plan",
+        },
+      },
+      { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } },
+    )
+
     if (keyword) {
       const regex = new RegExp(keyword, "i");
       const numVal = parseFloat(keyword);
@@ -396,8 +425,14 @@ exports.getUserTransactions = async (req, res) => {
           userName: "$user.name",
           userEmail: "$user.email",
           UserId: "$user.UserId",
+          serviceName: { $ifNull: ["$service.name", "$plan.name"] },
           transaction_type: 1,
           amount: 1,
+          gst: 1,
+          tds: 1,
+          charge: 1,
+          totalDebit: 1,
+          totalCredit: 1,
           balance_after: 1,
           status: 1,
           payment_mode: 1,
