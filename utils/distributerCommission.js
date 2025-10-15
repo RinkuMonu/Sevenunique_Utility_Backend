@@ -56,6 +56,7 @@ async function distributeCommission({
             user_id: retailerUser._id,
             transaction_type: "credit",
             amount: commission.retailer,
+            type: service._id,
             gst,
             tds,
             charge: 0,
@@ -72,6 +73,7 @@ async function distributeCommission({
 
           await PayInModel.create([{
             userId: retailerUser._id,
+            type: service._id,
             amount: net,
             reference: reference + "_RETAILER_COM",
             name: retailerUser.name || "Retailer",
@@ -101,6 +103,7 @@ async function distributeCommission({
 
           await transactionModel.create([{
             user_id: distributorUser._id,
+           type: service._id,
             transaction_type: "credit",
             amount: commission.distributor,
             gst,
@@ -119,6 +122,7 @@ async function distributeCommission({
 
           await PayInModel.create([{
             userId: distributorUser._id,
+           type: service._id,
             amount: net,
             reference: reference + "_DIST_COM",
             name: distributorUser.name || "Distributor",
@@ -148,6 +152,7 @@ async function distributeCommission({
               await transactionModel.create([{
                 user_id: adminUser._id,
                 transaction_type: "credit",
+                 type: service._id,
                 amount: commission.admin,
                 gst,
                 tds,
@@ -166,6 +171,7 @@ async function distributeCommission({
               await PayInModel.create([{
                 userId: adminUser._id,
                 amount: net,
+                 type: service._id,
                 reference: reference + "_ADMIN_COM",
                 name: adminUser.name || "Admin",
                 mobile: adminUser.mobileNumber || 0,
@@ -175,7 +181,7 @@ async function distributeCommission({
                 fromUser: user,
                 service: service._id,
                 charges: Number((gst + tds).toFixed(2)),
-                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
+                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})` 
               }], { session });
             }
           }

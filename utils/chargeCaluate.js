@@ -1,7 +1,7 @@
 const User = require("../models/userModel");
 const UserMeta = require("../models/userMetaModel");
 const Service = require("../models/servicesModal");
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 const logger = require("./logger");
 const commissionModel = require("../models/commissionModel");
 
@@ -124,7 +124,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
   return {
     amount,
     slabRange:
-      matchedSlab.commissionMethod === 'slabs' ? `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]` : '',
+      matchedSlab.commissionMethod === 'slab' ? `[${matchedSlab.minAmount} - ${matchedSlab.maxAmount}]` : '',
     // type: matchedSlab.type, // charges / commission
     commissionMethod: matchedSlab.commissionMethod,
     commissionType: matchedSlab.commissionType,

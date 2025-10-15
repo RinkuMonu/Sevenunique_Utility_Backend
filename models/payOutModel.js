@@ -21,10 +21,15 @@ const payOutSchema = new mongoose.Schema(
     trans_mode: {
       type: String,
       required: false,
-      enum: ["Bank Transfer", "UPI", "Cash", "Cheque", 'IMPS', 'NEFT', 'WALLET'], // Adding some common payment modes
+      enum: ["Bank Transfer", "UPI", "Cash", "Cheque", 'IMPS', 'NEFT', 'WALLET',"AEPS"], // Adding some common payment modes
     },
     account: {
       type: String
+    },
+    type: {
+      type: Schema.Types.ObjectId,
+      ref: "Service",
+      required: true,
     },
     ifsc: {
       type: String,
