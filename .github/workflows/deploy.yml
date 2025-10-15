@@ -29,7 +29,7 @@ jobs:
           password: ${{ secrets.BACKEND_SSH_PASSWORD }}
           port: ${{ secrets.BACKEND_SSH_PORT }}
           source: "backend.tar.gz"
-          target: "/home/serverfi/"
+          target: "/home/servefi/"
 
       - name: 🔐 SSH Deploy with .env Safety
         uses: appleboy/ssh-action@master
@@ -40,30 +40,31 @@ jobs:
           port: ${{ secrets.BACKEND_SSH_PORT }}
           script: |
             echo "🔐 Backing up .env (if exists)"
-            cd /home/serverfi/public_html/Bbbps_Backend
+            cd /home/servefi/public_html/Bbbps_Backend
             if [ -f .env ]; then
-              cp .env /home/serverfi/.env_backup
+              cp .env /home/servefi/.env_backup
             fi
 
             echo "🛡️ Full code backup"
             timestamp=$(date +%Y%m%d_%H%M%S)
-            mkdir -p /home/serverfi/backup_backend
-            cp -r . /home/serverfi/backup_backend/backup_$timestamp
+            mkdir -p /home/servefi/backup_backend
+            cp -r . /home/servefi/backup_backend/backup_$timestamp
 
             echo "📦 Extracting new backend.tar.gz"
-            tar -xzvf /home/serverfi/backend.tar.gz -C .
-            rm /home/serverfi/backend.tar.gz
+            tar -xzvf /home/servefi/backend.tar.gz -C .
+            rm /home/servefi/backend.tar.gz
 
             echo "♻️ Restoring .env (if backup exists)"
-            if [ -f /home/serverfi/.env_backup ]; then
-              cp /home/serverfi/.env_backup .env
-              rm /home/serverfi/.env_backup
+            if [ -f /home/servefi/.env_backup ]; then
+              cp /home/servefi/.env_backup .env
+              rm /home/servefi/.env_backup
             fi
 
             echo "📦 Installing packages"
             npm install --legacy-peer-deps --production
 
             echo "🚀 Restarting Node app using PM2"
-            
+            pm2 start server.js --name "Bbbps_Backend" || pm2 restart Bbbps_Backend
+
 
             echo "✅ Deployment finished!"
