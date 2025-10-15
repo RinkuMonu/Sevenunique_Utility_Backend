@@ -18,8 +18,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 📦 Compress Backend Code (exclude storage, node_modules)
-        run: tar --exclude='./storage' --exclude='./node_modules' --exclude='.DS_Store' --exclude='./.git' -czvf backend.tar.gz . || true
+      - name: 📦 Compress Backend Code (exclude unnecessary files)
+        run: |
+          tar --exclude='./storage' \
+              --exclude='./node_modules' \
+              --exclude='.DS_Store' \
+              --exclude='.git' \
+              -czvf backend.tar.gz .
 
       - name: 🚀 Upload to Server via SCP
         uses: appleboy/scp-action@master
@@ -31,7 +36,7 @@ jobs:
           source: "backend.tar.gz"
           target: "/home/servefi/"
 
-      - name: 🔐 SSH Deploy with .env Safety
+      - name: 🔐 SSH Deploy and Restart with PM2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.BACKEND_SSH_HOST }}
@@ -39,32 +44,36 @@ jobs:
           password: ${{ secrets.BACKEND_SSH_PASSWORD }}
           port: ${{ secrets.BACKEND_SSH_PORT }}
           script: |
+            echo "📁 Creating target folder (if missing)"
+            mkdir -p /home/servefi/public_html/Bbbps_Backend
+
             echo "🔐 Backing up .env (if exists)"
-            cd /home/servefi/public_html/Bbbps_Backend
-            if [ -f .env ]; then
-              cp .env /home/servefi/.env_backup
+            if [ -f /home/servefi/public_html/Bbbps_Backend/.env ]; then
+              cp /home/servefi/public_html/Bbbps_Backend/.env /home/servefi/.env_backup
             fi
 
-            echo "🛡️ Full code backup"
+            echo "🛡️ Taking full backup"
             timestamp=$(date +%Y%m%d_%H%M%S)
             mkdir -p /home/servefi/backup_backend
-            cp -r . /home/servefi/backup_backend/backup_$timestamp
+            cp -r /home/servefi/public_html/Bbbps_Backend /home/servefi/backup_backend/backup_$timestamp
 
-            echo "📦 Extracting new backend.tar.gz"
-            tar -xzvf /home/servefi/backend.tar.gz -C .
+            echo "📦 Extracting new code to /home/servefi/public_html/Bbbps_Backend"
+            rm -rf /home/servefi/public_html/Bbbps_Backend/*
+            tar -xzvf /home/servefi/backend.tar.gz -C /home/servefi/public_html/Bbbps_Backend
             rm /home/servefi/backend.tar.gz
 
-            echo "♻️ Restoring .env (if backup exists)"
+            echo "♻️ Restoring .env"
             if [ -f /home/servefi/.env_backup ]; then
-              cp /home/servefi/.env_backup .env
-              rm /home/servefi/.env_backup
+              mv /home/servefi/.env_backup /home/servefi/public_html/Bbbps_Backend/.env
             fi
 
-            echo "📦 Installing packages"
+            echo "📦 Installing dependencies"
+            cd /home/servefi/public_html/Bbbps_Backend
             npm install --legacy-peer-deps --production
 
-            echo "🚀 Restarting Node app using PM2"
-            pm2 start server.js --name "Bbbps_Backend" || pm2 restart Bbbps_Backend
+            echo "🚀 Restarting app using PM2"
+            pm2 delete Bbbps_Backend || true
+            pm2 start server.js --name "Bbbps_Backend"
+            pm2 save
 
-
-            echo "✅ Deployment finished!"
+            echo "✅ Deployment successful!"
