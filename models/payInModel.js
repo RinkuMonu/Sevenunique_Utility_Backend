@@ -26,7 +26,6 @@ const payInSchema = new mongoose.Schema(
     type: {
       type: Schema.Types.ObjectId,
       ref: "Service",
-      required: true,
     },
     mobile: {
       type: Number,

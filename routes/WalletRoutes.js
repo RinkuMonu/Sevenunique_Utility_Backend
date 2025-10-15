@@ -4,7 +4,7 @@ const router = express.Router();
 const controller = require('../controllers/WalletControlller.js');
 const authenticateToken = require('../middleware/verifyToken.js');
 
- 
+
 const validation = {
   [Segments.QUERY]: Joi.object().keys({
     userId: Joi.string().hex().length(24).optional().allow(null, ""),
@@ -26,5 +26,14 @@ router.get(
 );
 
 router.post('/', authenticateToken, controller.createWalletTransaction);
+
+
+router.get("/admin-summary", authenticateToken, controller.getAdminSummary);
+
+// Users under admin (Distributors / Retailers)
+router.get("/users", authenticateToken, controller.getUsersUnderAdmin);
+
+// Transactions for specific user
+router.get("/user/:id", authenticateToken, controller.getUserTransactions);
 
 module.exports = router;
