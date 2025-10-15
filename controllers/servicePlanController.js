@@ -338,7 +338,9 @@ const buyPlan = async (req, res) => {
       user_id: updatedUser._id,
       sender_Id: updatedUser._id, // khud ka wallet debit hua
       transaction_type: "debit",
+      type: planId,
       amount: planPrice,
+      totalDebit: planPrice,
       balance_after: updatedUser.eWallet,
       status: "Success",
       payment_mode: "wallet",
@@ -357,7 +359,7 @@ const buyPlan = async (req, res) => {
     const remainingDays = Math.floor(
       (new Date(endDate).setHours(0, 0, 0, 0) -
         new Date().setHours(0, 0, 0, 0)) /
-        (1000 * 60 * 60 * 24)
+      (1000 * 60 * 60 * 24)
     );
 
     return res.status(200).json({
@@ -499,9 +501,8 @@ const buyPassPlan = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Plan '${plan.name}' assigned to ${
-        applyToAll ? "all users" : users.length + " user(s)"
-      }`,
+      message: `Plan '${plan.name}' assigned to ${applyToAll ? "all users" : users.length + " user(s)"
+        }`,
     });
   } catch (error) {
     console.error("Buy Pass Error:", error);
