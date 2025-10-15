@@ -8,7 +8,6 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit"); // Make sure PDF is also imported
 const userModel = require("../models/userModel.js");
 
-
 exports.getBbpsReport = async (req, res) => {
   try {
     const {
@@ -22,20 +21,22 @@ exports.getBbpsReport = async (req, res) => {
       search,
       operator,
       customerNumber,
-      download, 
+      download,
     } = req.query;
-
     // Role-based matchStage
     const matchStage = {};
-
-    if (rechargeType) matchStage.rechargeType = rechargeType;
+    
+    if (rechargeType) matchStage.rechargeType = { $regex: rechargeType, $options: "i" };
     if (status) matchStage.status = status;
+    console.log(matchStage);
 
     if (req.user.role === "Admin") {
       if (userId) matchStage.userId = new mongoose.Types.ObjectId(userId);
     } else if (req.user.role === "Distributor") {
       // Find all retailers under this distributor
-      const users = await userModel.find({ distributorId: req.user.id }).select("_id");
+      const users = await userModel
+        .find({ distributorId: req.user.id })
+        .select("_id");
       const userIds = users.map((u) => u._id);
       matchStage.userId = { $in: userIds };
     } else {
@@ -44,7 +45,8 @@ exports.getBbpsReport = async (req, res) => {
     }
 
     if (operator) matchStage.operator = new RegExp(operator, "i");
-    if (customerNumber) matchStage.customerNumber = new RegExp(customerNumber, "i");
+    if (customerNumber)
+      matchStage.customerNumber = new RegExp(customerNumber, "i");
     if (startDate || endDate) {
       matchStage.createdAt = {};
       if (startDate) matchStage.createdAt.$gte = new Date(startDate);
@@ -77,7 +79,9 @@ exports.getBbpsReport = async (req, res) => {
       { $unwind: { path: "$distributor", preserveNullAndEmptyArrays: true } },
 
       // Search by user name
-      ...(search ? [{ $match: { "user.name": { $regex: search, $options: "i" } } }] : []),
+      ...(search
+        ? [{ $match: { "user.name": { $regex: search, $options: "i" } } }]
+        : []),
 
       {
         $project: {
@@ -180,7 +184,9 @@ exports.getAllDmtReports = async (req, res, next) => {
       if (user_id) filter.user_id = new mongoose.Types.ObjectId(user_id);
     } else if (req.user.role === "Distributor") {
       // Find all retailers under this distributor
-      const users = await userModel.find({ distributorId: req.user.id }).select("_id");
+      const users = await userModel
+        .find({ distributorId: req.user.id })
+        .select("_id");
       const userIds = users.map((u) => u._id);
       filter.user_id = { $in: userIds };
     } else {
@@ -203,7 +209,6 @@ exports.getAllDmtReports = async (req, res, next) => {
         { referenceid: { $regex: remitter, $options: "i" } },
       ];
     }
-
 
     if (startDate && endDate) {
       filter.createdAt = {
@@ -377,8 +382,10 @@ exports.getAllDmtReports = async (req, res, next) => {
             doc
               .fontSize(10)
               .text(
-                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${report.benename
-                } (${report.account_number}) - ₹${report.gatewayCharges?.txn_amount || 0
+                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${
+                  report.benename
+                } (${report.account_number}) - ₹${
+                  report.gatewayCharges?.txn_amount || 0
                 } - ${report.status ? "Success" : "Failed"}`,
                 50,
                 yPosition
@@ -530,8 +537,8 @@ exports.aepsTransactions = async (req, res, next) => {
         status === "true" || status === true
           ? true
           : status === "false" || status === false
-            ? false
-            : undefined;
+          ? false
+          : undefined;
 
       if (parsedStatus !== undefined) {
         matchStage.status = parsedStatus;
