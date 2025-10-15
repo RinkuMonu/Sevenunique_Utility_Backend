@@ -16,8 +16,8 @@ router.post("/list", getMerchantList);
 router.post("/circle", bbpsController.circleLookup);
 
 // Plans
-router.get("/plans", bbpsController.getPlans);
- 
+router.post("/plans", bbpsController.getPlans);
+
 // Categories
 router.get("/categories", bbpsController.getCategories);
 
@@ -31,7 +31,7 @@ router.post("/biller-details", bbpsController.getBillerDetails);
 router.post("/pre-enquiry", bbpsController.prePaymentEnquiry);
 
 // Payment
-router.post("/payment", bbpsController.makePayment);
+router.post("/payment", authenticateToken, bbpsController.makePayment);
 
 
 
@@ -44,9 +44,9 @@ router.post("/instantpay/outlet/login", instantpayController.outletLogin);
 
 // 🔹 AEPS transactions
 router.post("/instantpay/withdrawal", authenticateToken, instantpayController.cashWithdrawal);
-router.post("/instantpay/balance-enquiry", instantpayController.balanceEnquiry);
+router.post("/instantpay/balance-enquiry", authenticateToken, instantpayController.balanceEnquiry);
 router.post("/instantpay/mini-statement", authenticateToken, instantpayController.miniStatement);
-router.post("/instantpay/deposit", instantpayController.deposite);
+router.post("/instantpay/deposit", authenticateToken, instantpayController.deposite);
 
 // 🔹 Bank list
 router.get("/instantpay/bank-list", instantpayController.getBankList);
