@@ -18,7 +18,6 @@ const TransactionSchema = new mongoose.Schema({
   type: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Service",
-    required: true,
   },
   amount: {
     type: Number,

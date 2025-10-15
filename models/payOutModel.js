@@ -29,7 +29,7 @@ const payOutSchema = new mongoose.Schema(
     type: {
       type: Schema.Types.ObjectId,
       ref: "Service",
-      required: true,
+    
     },
     ifsc: {
       type: String,
