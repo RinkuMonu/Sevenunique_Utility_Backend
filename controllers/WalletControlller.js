@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/transactionModel.js");
 const User = require("../models/userModel.js");
 const { parse } = require("json2csv");
+const payInModel = require("../models/payInModel.js");
+const payOutModel = require("../models/payOutModel.js");
 
 exports.getWalletTransactions = async (req, res) => {
   try {
@@ -225,6 +227,243 @@ exports.createWalletTransaction = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+
+exports.getAdminSummary = async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+
+    // Total PayIn across all users
+    const totalPayInAgg = await payInModel.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalPayIn: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    // Total PayOut across all users
+    const totalPayOutAgg = await payOutModel.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalPayOut: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    const totalPayIn = totalPayInAgg[0]?.totalPayIn || 0;
+    const totalPayOut = totalPayOutAgg[0]?.totalPayOut || 0;
+
+    const currentBalance = admin.eWallet || 0; // Admin’s own balance
+
+    res.json({
+      success: true,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+      },
+      total: { totalPayIn, totalPayOut, currentBalance },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+
+
+// 2️⃣ Get All Users under Admin (Distributors / Retailers)
+exports.getUsersUnderAdmin = async (req, res) => {
+  try {
+    const users = await User.find({ role: { $in: ["Distributor", "Retailer"] } })
+      .select("name role eWallet");
+
+    const userData = await Promise.all(
+      users.map(async (user) => {
+
+        const payInAgg = await payInModel.aggregate([
+          { $match: { userId: user._id, status: "Success" } },
+          {
+            $group: {
+              _id: null,
+              totalPayIn: { $sum: "$amount" },
+            },
+          },
+        ]);
+
+        // ===== PayOut total (Success only) =====
+        const payOutAgg = await payOutModel.aggregate([
+          { $match: { userId: user._id, status: "Success" } },
+          {
+            $group: {
+              _id: null,
+              totalPayOut: { $sum: "$amount" },
+            },
+          },
+        ]);
+
+        const totalCredit = payInAgg[0]?.totalPayIn || 0;
+        const totalDebit = payOutAgg[0]?.totalPayOut || 0;
+
+        return {
+          _id: user._id,
+          name: user.name,
+          role: user.role,
+          totalCredit,
+          totalDebit,
+          currentBalance: user.eWallet || 0,
+        };
+      })
+    );
+
+    res.json({ success: true, users: userData });
+  } catch (err) {
+    console.error("Error fetching user wallet report:", err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+// 3️⃣ Get Transactions for a User (with filters, pagination, search, CSV export)
+exports.getUserTransactions = async (req, res) => {
+  try {
+    const {
+      keyword,
+      transaction_type,
+      status,
+      payment_mode,
+      fromDate,
+      toDate,
+      page = 1,
+      limit = 10,
+      exportCsv = "false",
+    } = req.query;
+
+    const { id } = req.params;
+
+    const match = { user_id: new mongoose.Types.ObjectId(id) };
+
+    if (transaction_type) match.transaction_type = transaction_type;
+    if (status) match.status = status;
+    if (payment_mode) match.payment_mode = payment_mode;
+    if (fromDate || toDate) {
+      match.createdAt = {};
+      if (fromDate) match.createdAt.$gte = new Date(fromDate);
+      if (toDate) match.createdAt.$lte = new Date(toDate);
+    }
+
+    const pipeline = [
+      { $match: match },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (keyword) {
+      const regex = new RegExp(keyword, "i");
+      const numVal = parseFloat(keyword);
+
+      pipeline.push({
+        $match: {
+          $or: [
+            { description: { $regex: regex } },
+            { transaction_reference_id: { $regex: regex } },
+            ...(isNaN(numVal) ? [] : [{ amount: numVal }]),
+            { "user.UserId": { $regex: regex } },
+            { "user.name": { $regex: regex } },
+            { "user.email": { $regex: regex } },
+          ],
+        },
+      });
+    }
+
+    pipeline.push(
+      {
+        $project: {
+          _id: 1,
+          user_id: 1,
+          userName: "$user.name",
+          userEmail: "$user.email",
+          UserId: "$user.UserId",
+          transaction_type: 1,
+          amount: 1,
+          balance_after: 1,
+          status: 1,
+          payment_mode: 1,
+          transaction_reference_id: 1,
+          description: 1,
+          createdAt: 1,
+        },
+      },
+      { $sort: { createdAt: -1 } }
+    );
+
+    if (exportCsv !== "true") {
+      pipeline.push(
+        { $skip: (page - 1) * parseInt(limit) },
+        { $limit: parseInt(limit) }
+      );
+    }
+
+    const transactions = await Transaction.aggregate(pipeline);
+
+    if (exportCsv === "true") {
+      const fields = [
+        "_id",
+        "user_id",
+        "userName",
+        "userEmail",
+        "UserId",
+        "transaction_type",
+        "amount",
+        "balance_after",
+        "status",
+        "payment_mode",
+        "transaction_reference_id",
+        "description",
+        "createdAt",
+      ];
+      const csv = parse(transactions, { fields });
+      res.header("Content-Type", "text/csv");
+      res.header(
+        "Content-Disposition",
+        "attachment; filename=transactions.csv"
+      );
+      return res.send(csv);
+    }
+
+    // total count
+    const totalPipeline = [...pipeline.filter((p) => !p.$skip && !p.$limit)];
+    totalPipeline.push({ $count: "total" });
+    const totalResult = await Transaction.aggregate(totalPipeline);
+    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+    res.json({
+      success: true,
+      data: transactions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ success: false, message: "Server Error", error: err.message });
   }
 };
 

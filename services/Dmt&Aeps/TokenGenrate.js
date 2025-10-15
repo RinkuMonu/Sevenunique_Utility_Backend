@@ -4,8 +4,8 @@ function generatePaysprintJWT() {
     const timestamp = Math.floor(Date.now() / 1000 + 5);
     const requestId = `REQ_${Date.now()}_${Math.floor(Math.random() * 1000 - 5)}`;
 
-    const jwtKey="UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA=="
-    // const jwtKey = "UFMwMDYyMjY0ZmJmYjIzYmNiMTliMDJjMmJjZWIxYjA5ZGUzNmJjYjE3NTEwMjI2Mzg="
+    // const jwtKey="UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA=="
+    const jwtKey = "UFMwMDYyMjY0ZmJmYjIzYmNiMTliMDJjMmJjZWIxYjA5ZGUzNmJjYjE3NTEwMjI2Mzg="
     const payload = {
         timestamp: timestamp,
         // partnerId: 'PS0016226',
