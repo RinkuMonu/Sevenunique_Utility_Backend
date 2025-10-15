@@ -384,7 +384,7 @@ const registerUser = async (req, res) => {
   try {
     let userData = { ...req.body };
 
-    console.log("body...............", userData);
+    // console.log("body...............", userData);
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     });
@@ -463,39 +463,39 @@ const registerUser = async (req, res) => {
       }
     }
     // ✅ Email verify karne ka step
-    if (userData.email) {
-      try {
-        const verifyEmailRes = await axios.post(
-          "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-          { email: userData.email },
-          {
-            headers: {
-              Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
-              "x-env": "production",
-              "client-id": "Seven012",
-              "Content-Type": "application/json",
-            },
-          }
-        );
+    // if (userData.email) {
+    //   try {
+    //     const verifyEmailRes = await axios.post(
+    //       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+    //       { email: userData.email },
+    //       {
+    //         headers: {
+    //           Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
+    //           "x-env": "production",
+    //           "client-id": "Seven012",
+    //           "Content-Type": "application/json",
+    //         },
+    //       }
+    //     );
 
-        const result = verifyEmailRes.data;
-        console.log("📧 Email verify response:", result);
+    //     const result = verifyEmailRes.data;
+    //     console.log("📧 Email verify response:", result);
 
-        if (result?.status && result.status.toLowerCase() !== "valid") {
-          return res
-            .status(400)
-            .json({ message: "Invalid or undeliverable email address." });
-        }
-      } catch (err) {
-        console.error(
-          "❌ Email verify API fail hui:",
-          err.response?.data || err.message
-        );
-        return res.status(400).json({
-          message: "Email verify karne me problem aayi, dubara try karo.",
-        });
-      }
-    }
+    //     if (result?.status && result.status.toLowerCase() !== "valid") {
+    //       return res
+    //         .status(400)
+    //         .json({ message: "Invalid or undeliverable email address." });
+    //     }
+    //   } catch (err) {
+    //     console.error(
+    //       "❌ Email verify API fail hui:",
+    //       err.response?.data || err.message
+    //     );
+    //     return res.status(400).json({
+    //       message: "Email verify karne me problem aayi, dubara try karo.",
+    //     });
+    //   }
+    // }
 
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
