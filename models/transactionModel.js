@@ -15,6 +15,11 @@ const TransactionSchema = new mongoose.Schema({
     enum: ['credit', 'debit'],
     required: true,
   },
+  type: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Service",
+    required: true,
+  },
   amount: {
     type: Number,
     required: true,
