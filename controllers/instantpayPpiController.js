@@ -289,8 +289,7 @@ export const generateTransactionOtp = async (req, res) => {
 export const makeTransaction = async (req, res) => {
     const session = await mongoose.startSession();
     session.startTransaction();
-    console.log(getHeaders());
-    console.log(req.body);
+
     // return;
     try {
         const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, beneficiaryId } = req.body;
