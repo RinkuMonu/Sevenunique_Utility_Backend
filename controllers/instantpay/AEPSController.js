@@ -13,6 +13,7 @@ const payOutModel = require("../../models/payOutModel");
 const { distributeCommission } = require("../../utils/distributerCommission");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const payInModel = require("../../models/payInModel");
+const AEPSTransaction = require("../../models/aepsModels/withdrawalEntry");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -229,14 +230,43 @@ exports.cashWithdrawal = async (req, res) => {
 
     // Get commission details
     const { commissions, service } = await getApplicableServiceCharge(userId, "AEPS");
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amount, commissions)
+      : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
 
-    const commission = commissions ? calculateCommissionFromSlabs(amount, commissions) : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0 };
+    const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
+    const biometricParsed = await parsePidXML(pidData);
+    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
-
+    // Create AEPS Report (Pending)
+    const aepsReport = await AEPSTransaction.create([{
+      userId,
+      type: "Withdrawal",
+      adhaarnumber: aadhaar,
+      mobilenumber: mobile,
+      bankiin,
+      submerchantid: "",
+      amount,
+      clientrefno: externalRef,
+      charges: commission.charge || 0,
+      gst: commission.gst || 0,
+      tds: commission.tds || 0,
+      retailerCommission: Number(
+        (commission.retailer || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      distributorCommission: Number(
+        (commission.distributor || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      adminCommission: Number(
+        (commission.admin || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      status: "Pending"
+    }], { session });
 
     // Create debit transaction
-    const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
-
     const [debitTxn] = await Transaction.create([{
       user_id: userId,
       transaction_type: "credit",
@@ -253,10 +283,6 @@ exports.cashWithdrawal = async (req, res) => {
       status: "Pending"
     }], { session });
 
-    // Parse PID XML
-    const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
-
     // Create payout record
     await new payInModel({
       userId,
@@ -272,15 +298,11 @@ exports.cashWithdrawal = async (req, res) => {
       charges: commission.charge || 0,
       gst: commission.gst,
       tds: commission.tds,
-      // totalDebit: required,
       remark: `AEPS Cash Withdrawal for mobile ${mobile}`
     }).save({ session });
 
-
-
     // Call InstantPay API
     const response = await instantpay.post("/fi/aeps/cashWithdrawal", {
-      // type: "DAILY_LOGIN",
       bankiin,
       latitude,
       longitude,
@@ -295,17 +317,23 @@ exports.cashWithdrawal = async (req, res) => {
         pCount: biometricParsed.pCount || "0",
       },
     });
+
     const result = response.data;
-    // Handle API response
+
+    // ✅ API Success
     if (result.statuscode === "TXN") {
       user.eWallet = (user.eWallet || 0) + Number(amount);
       await user.save({ session });
-      // Update transactions and payout as success
-      debitTxn.status = "Success";
-      await debitTxn.save({ session });
-      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
 
-      // Distribute commission
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Success", apiResponse: result },
+        { session }
+      );
+
+      // Distribute commissions
       await distributeCommission({
         user: userId,
         distributer: user.distributorId,
@@ -317,7 +345,7 @@ exports.cashWithdrawal = async (req, res) => {
         session
       });
 
-      // Record commission transaction
+      // Create commission transaction
       await CommissionTransaction.create([{
         referenceId: externalRef,
         service: service._id,
@@ -338,38 +366,52 @@ exports.cashWithdrawal = async (req, res) => {
       res.status(200).json({ status: true, message: "Cash Withdrawal successful", data: result });
 
     } else {
-      // Rollback for failed transaction
-      user.eWallet -= required;
-      await user.save({ session });
+      // ❌ API Failed
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Failed", apiResponse: result },
+        { session }
+      );
+
       await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
       await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
+
       throw new Error(result.status || "Cash Withdrawal failed at provider");
     }
 
   } catch (err) {
     await session.abortTransaction();
     console.error("💥 Cash Withdrawal Error:", err.response?.data || err.message);
-    res.status(500).json({ status: false, message: err.message || "Cash Withdrawal failed", error: err.response?.data || err.message });
+    res.status(500).json({
+      status: false,
+      message: err.message || "Cash Withdrawal failed",
+      error: err.response?.data || err.message
+    });
   } finally {
     session.endSession();
   }
 };
 
-
 exports.balanceEnquiry = async (req, res, next) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
+
     const { aadhaar, bankiin, mobile, pidData } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
+    if (!aadhaar || !bankiin || !mobile || !pidData)
+      throw createError(400, "Missing required fields");
+
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const externalRef = "REF" + Date.now();
+
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
       latitude: "26.79900",
       longitude: "75.86500",
       mobile,
-
-      externalRef: "REF" + Date.now(),
+      externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -379,19 +421,121 @@ exports.balanceEnquiry = async (req, res, next) => {
       },
     };
 
+    const user = await userModel.findById(req.user.id).session(session);
+    if (!user) throw new Error("User not found");
+
+    const { commissions } = await getApplicableServiceCharge(req.user.id, "AEPS");
+    const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const required = Number(commissions.aepsBalanceEnquiry);
+
+    if (usableBalance < required) {
+      return res.status(400).json({
+        status: false,
+        message: `Insufficient wallet balance. Available: ₹${user.eWallet}, Required: ₹${required}`,
+      });
+    }
+
+    // 🔹 Deduct wallet first
+    if (required > 0) {
+      user.eWallet -= required;
+      await user.save({ session });
+    }
+
+    // 🔹 Create AEPS transaction entry
+    const txn = await AEPSTransaction.create([{
+      userId: req.user.id,
+      type: "BalanceEnquiry",
+      adhaarnumber: aadhaar,
+      mobilenumber: mobile,
+      bankiin,
+      submerchantid: "",
+      amount: 0,
+      clientrefno: externalRef,
+      charges: required,
+      gst: 0,
+      tds: 0,
+      status: "Pending"
+    }], { session });
+
+    const [debitTxn] = await Transaction.create([{
+      user_id: req.user.id,
+      transaction_type: "debit",
+      type: commissions.service,
+      amount: 0,
+      charge: required,
+      totalDebit: required,
+      balance_after: user.eWallet,
+      payment_mode: "bank_transfer",
+      transaction_reference_id: externalRef,
+      description: "AEPS BalanceEnquiry",
+      status: "Pending"
+    }], { session });
+
+    // 🔹 Create payout log
+    await payOutModel.create([{
+      userId: req.user.id,
+      amount: required,
+      reference: externalRef,
+      trans_mode: "AEPS",
+      type: commissions.service,
+      name: user.name,
+      mobile: user.mobileNumber,
+      email: user.email,
+      status: "Pending",
+      charges: 0,
+      gst: 0,
+      tds: 0,
+      totalDebit: required,
+      remark: `Balance Enquiry (AePS)`
+    }], { session });
+
+    // 🔹 Call API
     const response = await instantpay.post("/fi/aeps/balanceInquiry", payload);
-    return res.json(response.data);
+    const apiRes = response.data;
+
+    if (apiRes.statuscode === "TXN") {
+      await AEPSTransaction.updateOne(
+        { clientrefno: externalRef },
+        { $set: { status: "Success", apiResponse: apiRes } },
+        { session }
+      );
+      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+    } else {
+      // Refund
+      if (required > 0) {
+        user.eWallet += required;
+        await user.save({ session });
+      }
+      await AEPSTransaction.updateOne(
+        { clientrefno: externalRef },
+        { $set: { status: "Failed", apiResponse: apiRes } },
+        { session }
+      );
+      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+    }
+
+    await session.commitTransaction();
+    return res.json(apiRes);
   } catch (err) {
+    await session.abortTransaction();
     console.error("Balance Enquiry Error:", err.response?.data || err.message);
     next(err);
+  } finally {
+    session.endSession();
   }
 };
+
 exports.miniStatement = async (req, res, next) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
     const { aadhaar, bankiin, mobile, pidData } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const externalRef = "REF" + Date.now();
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
@@ -399,7 +543,7 @@ exports.miniStatement = async (req, res, next) => {
       longitude: "75.86500",
       mobile,
 
-      externalRef: "REF" + Date.now(),
+      externalRef: externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -408,16 +552,109 @@ exports.miniStatement = async (req, res, next) => {
         pCount: biometricParsed.pCount || "0",
       },
     };
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).session(session);
+    if (!user) throw new Error("User not found");
+    const { commissions } = await getApplicableServiceCharge(userId, "AEPS");
 
+    const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const required = Number(commissions.aepsMiniStatement);
+    if (required === 0) {
+      const { data } = await instantpay.post("/fi/aeps/balanceInquiry", payload);
+      await session.commitTransaction();
+      return res.json(data);
+    }
+    if (usableBalance < required) {
+      return res.status(400).json({
+        status: false,
+        message: `Insufficient wallet balance. Available: ₹${user.eWallet}, Required: ₹${required + (user.cappingMoney || 0)}`
+      });
+    }
+
+    // Deduct wallet
+    user.eWallet -= required;
+    await user.save({ session });
+
+    const aepsReport = await AEPSTransaction.create([{
+      userId,
+      type: "MiniStatement",
+      adhaarnumber: aadhaar,
+      mobilenumber: mobile,
+      bankiin,
+      submerchantid: "",
+      amount: 0,
+      clientrefno: externalRef,
+      charges: required || 0,
+      gst: 0,
+      tds: 0,
+      status: "Pending"
+    }], { session });
+
+    const [debitTxn] = await Transaction.create([{
+      user_id: userId,
+      transaction_type: "debit",
+      type: commissions.service,
+      amount: 0,
+      charge: required,
+      totalDebit: required,
+      balance_after: user.eWallet,
+      payment_mode: "bank_transfer",
+      transaction_reference_id: externalRef,
+      description: "AEPS MiniStatement",
+      status: "Pending"
+    }], { session });
+
+    await new payOutModel({
+      userId,
+      amount: required,
+      reference: externalRef,
+      trans_mode: "AEPS",
+      type: commissions.service,
+      name: user.name,
+      mobile: user.mobileNumber,
+      email: user.email,
+      status: "Pending",
+      charges: 0,
+      gst: 0,
+      tds: 0,
+      totalDebit: required,
+      remark: `Mini Statement (AePS)`
+    }).save({ session });
     const response = await instantpay.post("/fi/aeps/miniStatement", payload);
+    if (response.data.statuscode === "TXN") {
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Success", apiResponse: response.data },
+        { session }
+      );
+      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+    } else {
+      user.eWallet += required;
+      await user.save({ session });
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Failed", apiResponse: response.data },
+        { session }
+      );
+      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+    }
+    await session.commitTransaction();
     return res.json(response.data);
   } catch (err) {
+    await session.abortTransaction();
     console.error("Mini Statement Error:", err.response?.data || err.message);
     next(err);
   }
+  finally {
+    session.endSession();
+  }
 };
 exports.deposite = async (req, res, next) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
     const { aadhaar, bankiin, mobile, amount, pidData } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
@@ -439,11 +676,168 @@ exports.deposite = async (req, res, next) => {
       },
     };
 
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).session(session);
+    if (!user) throw new Error("User not found");
+
+
+
+    // Get commission details
+    const { commissions, service } = await getApplicableServiceCharge(userId, "AEPS");
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amount, commissions)
+      : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
+
+    const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const required = Number(amount) + Number(commission.charge || 0) + Number(commission.tds || 0) + Number(commission.gst || 0);
+
+    // ✅ Balance check
+    if (usableBalance < required) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        error: true,
+        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${required}`,
+      });
+    }
+
+    const externalRef = `ACD-${new mongoose.Types.ObjectId()}`;
+    // Create AEPS Report (Pending)
+    const aepsReport = await AEPSTransaction.create([{
+      userId,
+      type: "Deposit",
+      adhaarnumber: aadhaar,
+      mobilenumber: mobile,
+      bankiin,
+      submerchantid: "",
+      amount,
+      clientrefno: externalRef,
+      charges: commission.charge || 0,
+      gst: commission.gst || 0,
+      tds: commission.tds || 0,
+      retailerCommission: Number(
+        (commission.retailer || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      distributorCommission: Number(
+        (commission.distributor || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      adminCommission: Number(
+        (commission.admin || 0) *
+        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      ).toFixed(2),
+      status: "Pending"
+    }], { session });
+
+    // Create debit transaction
+    const [debitTxn] = await Transaction.create([{
+      user_id: userId,
+      transaction_type: "debit",
+      type: service._id,
+      amount,
+      gst: commission.gst,
+      tds: commission.tds,
+      charge: commission.charge,
+      totalDebit: required,
+      balance_after: user.eWallet,
+      payment_mode: "bank_transfer",
+      transaction_reference_id: externalRef,
+      description: "AEPS Cash Deposit",
+      status: "Pending"
+    }], { session });
+
+    // Create payout record
+    await new payOutModel({
+      userId,
+      amount,
+      reference: externalRef,
+      trans_mode: "AEPS",
+      type: service._id,
+      name: user.name,
+      mobile: user.mobileNumber,
+      email: user.email,
+      status: "Pending",
+      source: "PayOut",
+      charges: commission.charge || 0,
+      gst: commission.gst,
+      tds: commission.tds,
+      totalDebit: required,
+      remark: `AEPS Cash Deposit for mobile ${mobile}`
+    }).save({ session });
+
+
     const response = await instantpay.post("/fi/aeps/cashDeposit", payload);
+    const result = response.data;
+    if (result.statuscode === "TXN") {
+      user.eWallet = (user.eWallet || 0) - Number(required);
+      await user.save({ session });
+
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Success", apiResponse: result },
+        { session }
+      );
+
+      // Distribute commissions
+      await distributeCommission({
+        user: userId,
+        distributer: user.distributorId,
+        service,
+        transferAmount: amount,
+        commission,
+        reference: externalRef,
+        description: "Commission for AEPS Cash Deposit",
+        session
+      });
+
+      // Create commission transaction
+      await CommissionTransaction.create([{
+        referenceId: externalRef,
+        service: service._id,
+        baseAmount: amount,
+        charge: commission.charge + commission.gst,
+        netAmount: required,
+        roles: [
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+        ],
+        type: "credit",
+        status: "Success",
+        sourceRetailerId: userId
+      }], { session });
+
+      await session.commitTransaction();
+      res.status(200).json({ status: true, message: "Cash Deposit successful", data: result });
+
+    } else {
+      // ❌ API Failed
+      await AEPSTransaction.findOneAndUpdate(
+        { clientrefno: externalRef },
+        { status: "Failed", apiResponse: result },
+        { session }
+      );
+
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
+
+      throw new Error(result.status || "Cash Deposit failed at provider");
+    }
+
     return res.json(response.data);
   } catch (err) {
-    console.error("Mini Statement Error:", err.response?.data || err.message);
-    next(err);
+    await session.abortTransaction();
+
+    console.error("Error:", err.response?.data || err.message);
+    res.status(500).json({
+      status: false,
+      message: err.message || "Cash Deposit failed",
+      error: err.response?.data || err.message
+    });
+  } finally {
+    session.endSession();
   }
 };
 exports.getBankList = async (req, res, next) => {

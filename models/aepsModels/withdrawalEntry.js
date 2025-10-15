@@ -1,56 +1,55 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const aepsWithdrawalSchema = new mongoose.Schema(
+const aepsTransactionSchema = new mongoose.Schema(
     {
-        status: {
-            type: Boolean,
-            required: true,
-        },
-        ackno: {
-            type: Number,
-            required: true,
-        },
-        amount: {
-            type: String, // or use Number if consistent
-            required: true,
-        },
-        balanceamount: {
-            type: String, // or use Number
-        },
-        bankrrn: {
-            type: String, // stored as string to avoid precision issues
-            required: true,
-        },
-        bankiin: {
-            type: String,
-        },
-        mobilenumber: {
-            type: String,
-            required: true,
-        },
-        clientrefno: {
-            type: String,
-            required: true,
-        },
-        adhaarnumber: {
-            type: String,
-            required: true,
-        },
-        submerchantid: {
-            type: String,
-            required: true,
-        },
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
             required: true,
         },
-        charges: {
-            type: Number, // or use Number if consistent
+
+        // 👇 Transaction type (Withdrawal or Deposit)
+        type: {
+            type: String,
+            enum: ["Withdrawal", "Deposit", "BalanceEnquiry", "MiniStatement"],
             required: true,
+        },
+
+        // ✅ AEPS/Bank Details
+        adhaarnumber: { type: String, required: true },
+        mobilenumber: { type: String, required: true },
+        bankiin: { type: String },
+        submerchantid: { type: String },
+
+        // ✅ Transaction Details
+        amount: { type: Number },
+        balanceamount: { type: Number },
+        bankrrn: { type: String },
+        clientrefno: { type: String, required: true },
+        ackno: { type: String },
+
+        // ✅ Charges & Commission Info
+        charges: { type: Number, default: 0 },
+        gst: { type: Number, default: 0 },
+        tds: { type: Number, default: 0 },
+        retailerCommission: { type: Number, default: 0 },
+        distributorCommission: { type: Number, default: 0 },
+        adminCommission: { type: Number, default: 0 },
+
+        // ✅ Unified Status
+        status: {
+            type: String,
+            enum: ["Pending", "Success", "Failed"],
+            default: "Pending",
+        },
+
+        // ✅ Raw API Response (from InstantPay)
+        apiResponse: {
+            type: Object,
+            default: {},
         },
     },
     { timestamps: true }
 );
 
-module.exports = mongoose.model("AEPSWithdrawalTransaction", aepsWithdrawalSchema);
+module.exports = mongoose.model("AEPSTransaction", aepsTransactionSchema);

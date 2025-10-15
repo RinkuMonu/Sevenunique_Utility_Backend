@@ -209,7 +209,17 @@ const verifyPAN = async (req, res) => {
 };
 
 const normalizeName = (name) => {
-  const prefixList = ["Mr.", "Ms.", "Ms", "Mrs", "Mrs.", "Dr", "Dr.", "Mr", "Miss"];
+  const prefixList = [
+    "Mr.",
+    "Ms.",
+    "Ms",
+    "Mrs",
+    "Mrs.",
+    "Dr",
+    "Dr.",
+    "Mr",
+    "Miss",
+  ];
   prefixList.forEach((prefix) => {
     if (name.startsWith(prefix)) {
       name = name.replace(prefix, "").trim();
@@ -219,42 +229,120 @@ const normalizeName = (name) => {
   return name;
 };
 
+// const userVerify = async (req, res) => {
+//   const { userId } = req.body;
+//   const user = await User.findById(userId);
+//   console.log(user);
+//   if (!user) return res.status(404).send("User not found!");
+
+//   const normalizedAadharName = normalizeName(
+//     user?.aadharDetails?.data?.full_name || ""
+//   );
+//   const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
+//   const normalizedBankName = normalizeName(user?.bankDetails?.account_name || "");
+
+//   console.log("🧾 Normalized Names:", {
+//     Aadhaar: normalizedAadharName,
+//     PAN: normalizedPanName,
+//     Bank: normalizedBankName,
+//   });
+
+//   if (
+//     normalizedAadharName === normalizedPanName &&
+//     normalizedPanName === normalizedBankName
+//   ) {
+//     user.isKycVerified = true;
+//     await user.save();
+//     return res.status(200).send("User verified successfully");
+
+//   }
+
+//   // user.aadharDetails = {};
+//   // user.panDetails = {};
+//   // user.bankDetails = {};
+//   user.isKycVerified = false;
+//   await user.save();
+
+//   return res
+//     .status(400)
+//     .send("Dismatched User details. Please correct the information.");
+// };
+
 const userVerify = async (req, res) => {
-  const { userId } = req.body;
-  const user = await User.findById(userId);
-  console.log(user);
-  if (!user) return res.status(404).send("User not found!");
+  try {
+    const { userId, fromApp } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).send("User not found!");
 
-  const normalizedAadharName = normalizeName(
-    user.aadharDetails.data.full_name || ""
-  );
-  const normalizedPanName = normalizeName(user.panDetails.full_name || "");
-  const normalizedBankName = normalizeName(user.bankDetails.account_name || "");
+    const normalizedAadharName = normalizeName(
+      user?.aadharDetails?.data?.full_name || ""
+    );
+    const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
+    const normalizedBankName = normalizeName(
+      user?.bankDetails?.account_name || ""
+    );
 
-  console.log("🧾 Normalized Names:", {
-    Aadhaar: normalizedAadharName,
-    PAN: normalizedPanName,
-    Bank: normalizedBankName,
-  });
+    if (
+      normalizedAadharName === normalizedPanName &&
+      normalizedPanName === normalizedBankName
+    ) {
+      user.isKycVerified = true;
+      await user.save();
 
-  if (
-    normalizedAadharName === normalizedPanName &&
-    normalizedPanName === normalizedBankName
-  ) {
-    user.isKycVerified = true;
+      const responseUser = {
+        id: user._id,
+        name: user.name,
+        mobile: user.mobile,
+        email: user.email,
+        isKycVerified: user.isKycVerified,
+        kycStatus: "Verified",
+        bankName: user?.bankDetails?.account_name,
+        panName: user?.panDetails?.full_name,
+        aadharName: user?.aadharDetails?.data?.full_name,
+      };
+
+      if (fromApp) {
+        return res.status(200).json({
+          success: true,
+          message: "User verified successfully",
+          user: responseUser,
+        });
+      } else {
+        return res.status(200).send("User verified successfully");
+      }
+    }
+
+    user.isKycVerified = false;
     await user.save();
-    return res.status(200).send("User verified successfully");
+
+    const responseUser = {
+      id: user._id,
+      name: user.name,
+      mobile: user.mobile,
+      isKycVerified: user.isKycVerified,
+      kycStatus: "Mismatch in details",
+      bankName: user?.bankDetails?.account_name,
+      panName: user?.panDetails?.full_name,
+      aadharName: user?.aadharDetails?.data?.full_name,
+    };
+
+    if (fromApp) {
+      return res.status(400).json({
+        success: false,
+        message: "Dismatched User details. Please correct the information.",
+        user: responseUser,
+      });
+    } else {
+      return res
+        .status(400)
+        .send("Dismatched User details. Please correct the information.");
+    }
+  } catch (err) {
+    console.error("Error in userVerify:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
   }
-
-  // user.aadharDetails = {};
-  // user.panDetails = {}; 
-  // user.bankDetails = {};
-  user.isKycVerified = false;
-  await user.save();
-
-  return res
-    .status(400)
-    .send("Dismatched User details. Please correct the information.");
 };
 
 const updateBankAccount = async (req, res) => {

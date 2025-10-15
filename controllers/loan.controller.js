@@ -194,7 +194,6 @@ exports.updateLead = async (req, res) => {
     };
 
     const currentStatus = lead.status;
-    // only check if status is being changed
     if (status && invalidTransitions[currentStatus]?.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -202,7 +201,6 @@ exports.updateLead = async (req, res) => {
       });
     }
 
-    // ✅ Apply updates (only if allowed)
     if (status) lead.status = status;
     if (adminNote !== undefined) lead.adminNote = adminNote;
     if (remark) {
