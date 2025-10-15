@@ -186,13 +186,33 @@ exports.updateLead = async (req, res) => {
     if (!lead)
       return res.status(404).json({ success: false, message: "Not found" });
 
-    if (status) lead.status = status; // ensure FE sends allowed enum only
+    // ✅ Define invalid transitions
+    const invalidTransitions = {
+      REJECTED: ["PENDING", "UNDER_REVIEW", "APPROVED", "DISBURSED"],
+      APPROVED: ["PENDING", "UNDER_REVIEW", "REJECTED"],
+      DISBURSED: ["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED"],
+    };
+
+    const currentStatus = lead.status;
+    if (status && invalidTransitions[currentStatus]?.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status change: cannot move from ${currentStatus} → ${status}`,
+      });
+    }
+
+    if (status) lead.status = status;
     if (adminNote !== undefined) lead.adminNote = adminNote;
     if (remark) {
-      lead.remarks.push({ by: req.user.id, note: remark });
+      lead.remarks.push({
+        by: req.user?.id || "System",
+        note: remark,
+        at: new Date(),
+      });
     }
 
     await lead.save();
+
     return res.json({ success: true, data: lead });
   } catch (e) {
     console.error(e);
