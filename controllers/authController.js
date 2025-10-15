@@ -16,6 +16,64 @@ const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
 
+const sendLoginEmail = async (user) => {
+  try {
+    const loginTime = new Date().toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    const payload = {
+      recipients: [
+        {
+          to: [
+            {
+              name: user?.name || "User",
+              email: user?.email,
+            },
+          ],
+          variables: {
+            company_name: "SevenUnique Tech Solutions Pvt Ltd",
+            name: user?.name || "User",
+            login_time: loginTime,
+          },
+        },
+      ],
+      from: {
+        name: "SevenUnique",
+        email: "info@sevenunique.com",
+      },
+      domain: "mail.sevenunique.com",
+      template_id: "global_otp",
+    };
+
+    try {
+      const res = await axios.post(
+        "https://control.msg91.com/api/v5/email/send",
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            accept: "application/json",
+            authkey: "415386Amp14kbEfs65c49c94P1",
+          },
+        }
+      );
+      console.log("✅ Login email sent", res.data);
+    } catch (error) {
+      console.error("❌ Error sending login email:", error.message);
+    }
+
+    console.log("✅ Login email sent to:", user.email);
+  } catch (error) {
+    console.error("❌ Error sending login email:", error.message);
+  }
+};
+
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin } = req.body;
@@ -298,12 +356,14 @@ const loginController = async (req, res) => {
     // ✅ Generate JWT
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
 
+    sendLoginEmail(user);
+
     return res.status(200).json({
       message: "Login successful",
       user: {
         id: user._id,
-        name:user.name,
-        email:user.email,
+        name: user.name,
+        email: user.email,
         mobileNumber: user.mobileNumber,
         role: user.role,
         token,
@@ -311,7 +371,7 @@ const loginController = async (req, res) => {
         isKycVerified: user.isKycVerified,
         isVideoKyc: user.isVideoKyc,
         address: user.address,
-        status:user.status
+        status: user.status,
       },
     });
   } catch (error) {
@@ -340,10 +400,6 @@ const registerUser = async (req, res) => {
       }
     }
 
-    // if (userData.password) {
-    //   const salt = await bcrypt.genSalt(10);
-    //   userData.password = await bcrypt.hash(userData.password, salt);
-    // }
     //questions
     if (userData.questions && typeof userData.questions === "string") {
       try {
@@ -404,6 +460,40 @@ const registerUser = async (req, res) => {
       const adminUser = await User.findOne({ role: "Admin" });
       if (adminUser) {
         userData.distributorId = adminUser._id;
+      }
+    }
+    // ✅ Email verify karne ka step
+    if (userData.email) {
+      try {
+        const verifyEmailRes = await axios.post(
+          "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+          { email: userData.email },
+          {
+            headers: {
+              Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
+              "x-env": "production",
+              "client-id": "Seven012",
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        const result = verifyEmailRes.data;
+        console.log("📧 Email verify response:", result);
+
+        if (result?.status && result.status.toLowerCase() !== "valid") {
+          return res
+            .status(400)
+            .json({ message: "Invalid or undeliverable email address." });
+        }
+      } catch (err) {
+        console.error(
+          "❌ Email verify API fail hui:",
+          err.response?.data || err.message
+        );
+        return res.status(400).json({
+          message: "Email verify karne me problem aayi, dubara try karo.",
+        });
       }
     }
 
