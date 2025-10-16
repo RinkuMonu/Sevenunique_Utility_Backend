@@ -113,7 +113,7 @@ exports.listPaymentRequests = async (req, res) => {
 
     const [data, total] = await Promise.all([
       PaymentRequest.find(filter)
-        .populate("userId", "name role email")
+        .populate("userId", "name role email UserId")
         .populate("sender_Id", "name role email")
         .sort(sortOptions)
         .skip(skip)
