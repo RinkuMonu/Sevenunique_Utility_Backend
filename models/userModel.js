@@ -248,6 +248,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    registrationProgress: {
+      currentStep: { type: Number, default: 1 },
+      currentStepTitle: { type: String, default: "Start" }, 
+      status: {
+        type: String,
+        enum: ["completed", "incomplete"],
+        default: "incomplete",
+      }, 
+    },
+
     documents: [String],
     mpin: {
       type: Number,
