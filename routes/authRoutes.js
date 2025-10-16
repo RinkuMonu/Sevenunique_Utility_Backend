@@ -63,7 +63,7 @@ router.put(
 router.put(
   "/user/:id",
   authenticateToken,
-  authorizeRoles("Admin"),
+  authorizeRoles("Admin", "Retailer"),
   updateUserDetails
 );
 router.get(
