@@ -207,7 +207,7 @@ exports.makePayment = async (req, res, next) => {
   try {
     // ✅ Validate incoming request
     const schema = Joi.object({
-      billerId: Joi.object().required(), // Must be an object (not string)
+      billerId: Joi.object().required(),
       externalRef: Joi.string().required(),
       enquiryReferenceId: Joi.string().required(),
       inputParameters: Joi.object().unknown(true).required(),
@@ -215,11 +215,12 @@ exports.makePayment = async (req, res, next) => {
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       user_id: Joi.string().required(),
-      // mpin: Joi.string().required(),
+      mpin: Joi.string().required(),
     });
 
     const body = await schema.validateAsync(req.body);
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, externalRef } = body;
+
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}`;
@@ -227,7 +228,7 @@ exports.makePayment = async (req, res, next) => {
     if (!user) throw new Error("User not found");
 
     // ✅ MPIN check
-    // if (user.mpin !== mpin) throw new Error("Invalid MPIN! Please enter a valid MPIN");
+    if (user.mpin != mpin) throw new Error("Invalid MPIN! Please enter a valid MPIN");
 
     // ✅ Fetch commission and service
     // const { commissions, service } = await getApplicableServiceCharge(
@@ -278,7 +279,7 @@ exports.makePayment = async (req, res, next) => {
       user_id: userId,
       transaction_type: "debit",
       amount: Number(transactionAmount),
-      type: "BBPS",
+      // type: "BBPS",
       gst: 0,
       tds: 0,
       charge: 0,
@@ -347,7 +348,7 @@ exports.makePayment = async (req, res, next) => {
     }], { session });
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment(body);
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef });
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
       payload,
@@ -384,7 +385,7 @@ exports.makePayment = async (req, res, next) => {
         userId,
         amount: Number(transactionAmount),
         reference: referenceid,
-        type:"BBPS",
+        type: "BBPS",
         trans_mode: "WALLET",
         name: user.name,
         mobile: user.mobileNumber,
@@ -439,7 +440,8 @@ exports.makePayment = async (req, res, next) => {
     forward(res, data);
 
   } catch (err) {
-    console.error("❌ makePayment Error:", err.response?.data || err.message);
+
+    console.error("❌ makePayment Error:", err || err.message);
     await session.abortTransaction();
     next(err);
   } finally {
