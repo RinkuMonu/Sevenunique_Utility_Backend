@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    outletId: {
+      type: String
+    },
 
     email: {
       type: String,
@@ -62,19 +65,19 @@ const userSchema = new mongoose.Schema(
 
     aadhaarFront: {
       type: String,
-      default: null,
+      default: null
     },
     aadhaarBack: {
       type: String,
-      default: null,
+      default: null
     },
     panCard: {
       type: String,
-      default: null,
+      default: null
     },
     bankDocument: {
       type: String,
-      default: null,
+      default: null
     },
     /** ---------------- DISTRIBUTOR SPECIFIC FIELDS ---------------- **/
     officeAddressProof: {
