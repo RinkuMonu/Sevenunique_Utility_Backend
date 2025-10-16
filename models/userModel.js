@@ -59,22 +59,22 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    
+
     aadhaarFront: {
       type: String,
-      default:null
+      default: null,
     },
     aadhaarBack: {
       type: String,
-      default:null
+      default: null,
     },
     panCard: {
       type: String,
-     default:null
+      default: null,
     },
     bankDocument: {
       type: String,
-      default:null 
+      default: null,
     },
     /** ---------------- DISTRIBUTOR SPECIFIC FIELDS ---------------- **/
     officeAddressProof: {
@@ -245,6 +245,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    registrationProgress: {
+      currentStep: { type: Number, default: 1 },
+      currentStepTitle: { type: String, default: "Start" }, 
+      status: {
+        type: String,
+        enum: ["completed", "incomplete"],
+        default: "incomplete",
+      }, 
+    },
+
     documents: [String],
     mpin: {
       type: Number,
@@ -332,7 +342,7 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next(); 
+  if (!this.isModified("password")) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
