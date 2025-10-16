@@ -868,6 +868,7 @@ const getUsersWithFilters = async (req, res) => {
 
     if (inactiveOrUnverified) {
       fields = [
+        "UserId",
         "name",
         "email",
         "role",
@@ -878,6 +879,7 @@ const getUsersWithFilters = async (req, res) => {
       ];
     } else {
       fields = [
+        "UserId",
         "name",
         "email",
         "role",
@@ -929,6 +931,7 @@ const getUsersWithFilters = async (req, res) => {
       if (inactiveOrUnverified === true || inactiveOrUnverified === "true") {
         headers = [
           "#",
+          "UserId",
           "Name",
           "Email",
           "Role",
@@ -940,6 +943,7 @@ const getUsersWithFilters = async (req, res) => {
         ];
         rows = users.map((u, i) => [
           i + 1,
+          u.UserId,
           u.name,
           u.email,
           u.role,
@@ -956,6 +960,7 @@ const getUsersWithFilters = async (req, res) => {
         // 🔹 Normal export with more fields
         headers = [
           "#",
+          "UserId",
           "Name",
           "Email",
           "Role",
@@ -969,6 +974,7 @@ const getUsersWithFilters = async (req, res) => {
         ];
         rows = users.map((u, i) => [
           i + 1,
+          u.UserId,
           u.name,
           u.email,
           u.role,
