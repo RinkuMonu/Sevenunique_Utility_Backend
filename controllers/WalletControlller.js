@@ -230,8 +230,6 @@ exports.createWalletTransaction = async (req, res) => {
   }
 };
 
-
-
 exports.getAdminSummary = async (req, res) => {
   try {
     const admin = await User.findById(req.user.id);
@@ -278,11 +276,10 @@ exports.getAdminSummary = async (req, res) => {
   }
 };
 
-
-
 // 2️⃣ Get All Users under Admin (Distributors / Retailers)
 exports.getUsersUnderAdmin = async (req, res) => {
   try {
+    const { name, role, page = 1, limit = 10 } = req.query;
     let query = {};
 
     if (req.user.role === "Admin") {
@@ -292,14 +289,26 @@ exports.getUsersUnderAdmin = async (req, res) => {
     } else {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
-   
-    const users = await User.find(query).select("name role UserId eWallet");
-   
 
+    if (name) {
+      query.$or = [
+        { name: { $regex: name, $options: "i" } },
+        { UserId: { $regex: name, $options: "i" } },
+      ];
+    }
+    if (role) query.role = role;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const totalCount = await User.countDocuments(query);
+
+    const users = await User.find(query)
+      .select("name role UserId eWallet distributorId")
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ createdAt: -1 });
 
     const userData = await Promise.all(
       users.map(async (user) => {
-        // Total PayIn
         const payInAgg = await payInModel.aggregate([
           { $match: { userId: user._id, status: "Success" } },
           { $group: { _id: null, totalPayIn: { $sum: "$amount" } } },
@@ -316,6 +325,7 @@ exports.getUsersUnderAdmin = async (req, res) => {
 
         return {
           _id: user._id,
+          distributorId: user.distributorId,
           UserId: user.UserId,
           name: user.name,
           role: user.role,
@@ -326,13 +336,21 @@ exports.getUsersUnderAdmin = async (req, res) => {
       })
     );
 
-    res.json({ success: true, users: userData });
+    res.json({
+      success: true,
+      users: userData,
+      pagination: {
+        total: totalCount,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(totalCount / limit),
+      },
+    });
   } catch (err) {
     console.error("Error fetching user wallet report:", err);
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
-
 
 // 3️⃣ Get Transactions for a User (with filters, pagination, search, CSV export)
 exports.getUserTransactions = async (req, res) => {
@@ -345,7 +363,7 @@ exports.getUserTransactions = async (req, res) => {
       fromDate,
       toDate,
       page = 1,
-      limit = 10,
+      limit = 2,
       exportCsv = "false",
     } = req.query;
 
@@ -396,14 +414,15 @@ exports.getUserTransactions = async (req, res) => {
           as: "plan",
         },
       },
-      { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } },
-    )
+      { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } }
+    );
+
+    const totalCountPipeline = [{ $match: match }];
 
     if (keyword) {
       const regex = new RegExp(keyword, "i");
       const numVal = parseFloat(keyword);
-
-      pipeline.push({
+      totalCountPipeline.push({
         $match: {
           $or: [
             { description: { $regex: regex } },
@@ -481,8 +500,9 @@ exports.getUserTransactions = async (req, res) => {
     // total count
     const totalPipeline = [...pipeline.filter((p) => !p.$skip && !p.$limit)];
     totalPipeline.push({ $count: "total" });
-    const totalResult = await Transaction.aggregate(totalPipeline);
-    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    totalCountPipeline.push({ $count: "total" });
+    const totalResult = await Transaction.aggregate(totalCountPipeline);
+    const total = totalResult[0]?.total || 0;
 
     res.json({
       success: true,
