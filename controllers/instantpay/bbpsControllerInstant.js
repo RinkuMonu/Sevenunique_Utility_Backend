@@ -215,7 +215,7 @@ exports.makePayment = async (req, res, next) => {
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       user_id: Joi.string().required(),
-      mpin: Joi.string().required(),
+      // mpin: Joi.string().required(),
     });
 
     const body = await schema.validateAsync(req.body);
@@ -227,22 +227,23 @@ exports.makePayment = async (req, res, next) => {
     if (!user) throw new Error("User not found");
 
     // ✅ MPIN check
-    if (user.mpin !== mpin) throw new Error("Invalid MPIN! Please enter a valid MPIN");
+    // if (user.mpin !== mpin) throw new Error("Invalid MPIN! Please enter a valid MPIN");
 
     // ✅ Fetch commission and service
-    const { commissions, service } = await getApplicableServiceCharge(
-      userId,
-      billerId.categoryName,
-      billerId.billerName
-    );
+    // const { commissions, service } = await getApplicableServiceCharge(
+    //   userId,
+    //   billerId.categoryName,
+    //   billerId.billerName
+    // );
 
-    let commission;
-    if (commissions?.slabs?.length > 0) {
-      commission = calculateCommissionFromSlabs(transactionAmount, commissions, billerId.billerName);
-    }
+    // let commission;
+    // if (commissions?.slabs?.length > 0) {
+    //   commission = calculateCommissionFromSlabs(transactionAmount, commissions, billerId.billerName);
+    // }
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number(transactionAmount) + Number(commission.charge || 0);
+    // const required = Number(transactionAmount) + Number(commission.charge || 0);
+    const required = Number(transactionAmount);
 
     // ✅ Balance check
     if (usableBalance < required) {
@@ -258,14 +259,29 @@ exports.makePayment = async (req, res, next) => {
     await user.save({ session });
 
     // ✅ Create debit transaction
+    // const [debitTxn] = await Transaction.create([{
+    //   user_id: userId,
+    //   transaction_type: "debit",
+    //   amount: Number(transactionAmount),
+    //   type: service?._id || "BBPS",
+    //   gst: Number(commission.gst || 0),
+    //   tds: Number(commission.tds || 0),
+    //   charge: Number(commission.charge || 0),
+    //   totalDebit: Number(required),
+    //   balance_after: user.eWallet,
+    //   payment_mode: "wallet",
+    //   transaction_reference_id: referenceid,
+    //   description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
+    //   status: "Pending",
+    // }], { session });
     const [debitTxn] = await Transaction.create([{
       user_id: userId,
       transaction_type: "debit",
       amount: Number(transactionAmount),
-      type: service?._id || "BBPS",
-      gst: Number(commission.gst || 0),
-      tds: Number(commission.tds || 0),
-      charge: Number(commission.charge || 0),
+      type: "BBPS",
+      gst: 0,
+      tds: 0,
+      charge: 0,
       totalDebit: Number(required),
       balance_after: user.eWallet,
       payment_mode: "wallet",
@@ -275,28 +291,55 @@ exports.makePayment = async (req, res, next) => {
     }], { session });
 
     // ✅ Create BBPS record
+    // const [rechargeRecord] = await BbpsHistory.create([{
+    //   userId,
+    //   rechargeType: billerId.categoryName,
+    //   operator: billerId.billerName,
+    //   customerNumber: inputParameters.param1,
+    //   amount: Number(transactionAmount),
+    //   retailerCommission: Number(
+    //     (commission.retailer || 0) *
+    //     (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+    //   ).toFixed(2),
+    //   distributorCommission: Number(
+    //     (commission.distributor || 0) *
+    //     (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+    //   ).toFixed(2),
+    //   adminCommission: Number(
+    //     (commission.admin || 0) *
+    //     (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+    //   ).toFixed(2),
+    //   gst: commission.gst,
+    //   tds: commission.tds,
+    //   charges: commission.charge,
+    //   totalCommission: Number(commission.totalCommission || 0),
+    //   totalDebit: Number(required),
+    //   transactionId: referenceid,
+    //   extraDetails: { mobileNumber: inputParameters.param1 },
+    //   status: "Pending",
+    // }], { session });
     const [rechargeRecord] = await BbpsHistory.create([{
       userId,
       rechargeType: billerId.categoryName,
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
-      retailerCommission: Number(
-        (commission.retailer || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
-      distributorCommission: Number(
-        (commission.distributor || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
-      adminCommission: Number(
-        (commission.admin || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
-      gst: commission.gst,
-      tds: commission.tds,
-      charges: commission.charge,
-      totalCommission: Number(commission.totalCommission || 0),
+      // retailerCommission: Number(
+      //   (commission.retailer || 0) *
+      //   (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      // ).toFixed(2),
+      // distributorCommission: Number(
+      //   (commission.distributor || 0) *
+      //   (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      // ).toFixed(2),
+      // adminCommission: Number(
+      //   (commission.admin || 0) *
+      //   (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
+      // ).toFixed(2),
+      gst: 0,
+      tds: 0,
+      charges: 0,
+      totalCommission: 0,
       totalDebit: Number(required),
       transactionId: referenceid,
       extraDetails: { mobileNumber: inputParameters.param1 },
@@ -321,49 +364,65 @@ exports.makePayment = async (req, res, next) => {
 
     // ✅ On success → payout & commission credit
     if (statusUpdate === "Success") {
+      // await new payOutModel({
+      //   userId,
+      //   amount: Number(transactionAmount),
+      //   reference: referenceid,
+      //   type: service?._id || "BBPS",
+      //   trans_mode: "WALLET",
+      //   name: user.name,
+      //   mobile: user.mobileNumber,
+      //   email: user.email,
+      //   status: "Success",
+      //   charges: commission.charge || 0,
+      //   gst: commission.gst || 0,
+      //   tds: commission.tds || 0,
+      //   totalDebit: required,
+      //   remark: `Bill Payment for ${inputParameters.param1}`,
+      // }).save({ session });
       await new payOutModel({
         userId,
         amount: Number(transactionAmount),
         reference: referenceid,
-        type: service?._id || "BBPS",
+        type:"BBPS",
         trans_mode: "WALLET",
         name: user.name,
         mobile: user.mobileNumber,
         email: user.email,
         status: "Success",
-        charges: commission.charge || 0,
-        gst: commission.gst || 0,
-        tds: commission.tds || 0,
+        charges: 0,
+        gst: 0,
+        tds: 0,
         totalDebit: required,
         remark: `Bill Payment for ${inputParameters.param1}`,
       }).save({ session });
 
-      await CommissionTransaction.create([{
-        referenceId: referenceid,
-        service: service?._id || "BBPS",
-        baseAmount: Number(transactionAmount),
-        charge: Number(commission.charge || 0),
-        netAmount: Number(required),
-        roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
-          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
-          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
-        ],
-        type: "credit",
-        status: "Success",
-        sourceRetailerId: userId,
-      }], { session });
+      // await CommissionTransaction.create([{
+      //   referenceId: referenceid,
+      //   service: service?._id || "BBPS",
+      //   baseAmount: Number(transactionAmount),
+      //   charge: Number(commission.charge || 0),
+      //   netAmount: Number(required),
+      //   roles: [
+      //     { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+      //     { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+      //     { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+      //   ],
+      //   type: "credit",
+      //   status: "Success",
+      //   sourceRetailerId: userId,
+      // }], { session });
 
-      await distributeCommission({
-        user: userId,
-        distributer: user.distributorId,
-        service,
-        amount: transactionAmount,
-        commission,
-        reference: referenceid,
-        description: `Commission for ${billerId.billerName}`,
-        session,
-      });
+      // await distributeCommission({
+      //   user: userId,
+      //   distributer: user.distributorId,
+      //   service,
+      //   amount: transactionAmount,
+      //   commission,
+      //   reference: referenceid,
+      //   description: `Commission for ${billerId.billerName}`,
+      //   session,
+      // });
     } else {
       // ✅ Refund wallet if failed
       user.eWallet += required;
