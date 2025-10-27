@@ -1063,7 +1063,7 @@ const updateUserDetails = async (req, res) => {
       meta,
       password,
       mpin,
-      outletId
+      outletId,
     } = req.body;
 
     if (!userId) {
@@ -1106,7 +1106,13 @@ const updateCredential = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired OTP" });
     }
 
-    const user = await User.findById(userId);
+    let user = null;
+    if (userId) {
+      user = await User.findById(userId);
+    }
+    if (!user) {
+      user = await User.findOne({ mobileNumber });
+    }
     if (!user) return res.status(404).json({ message: "User not found" });
 
     if (type === "password") {
