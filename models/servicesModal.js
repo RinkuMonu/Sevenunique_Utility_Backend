@@ -12,18 +12,21 @@ const serviceSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    category: { 
+      type: String,
+      default: '',
+    },
     icon: {
       type: String,
       required: true,
     },
     defaultSwitch: {
       type: String,
-      enum: ['billAvenue', 'spritVerify', 'Mobikwik',"instantPay"],
+      enum: ['billAvenue', 'spritVerify', 'Mobikwik', "instantPay"],
       // required: true,
       default: 'spritVerify',
     },
     providers: [],
- 
     isActive: {
       type: Boolean,
       default: true,

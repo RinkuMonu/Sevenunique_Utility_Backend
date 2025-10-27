@@ -14,17 +14,7 @@ async function distributeCommission({
   session = null,
 }) {
 
-  const computeGross = (raw) => {
 
-    if (raw === undefined || raw === null) return 0;
-    const rawNum = Number(raw) || 0;
-    if (commission && commission.commissionMethod === "percentage") {
-
-      return (rawNum / 100) * Number(amount);
-    }
-
-    return rawNum;
-  };
 
   const computeDeductions = (gross) => {
     const gstPercent = Number(commission?.gst || 0);
@@ -44,7 +34,7 @@ async function distributeCommission({
     if (user) {
       const retailerUser = await userModel.findById(user).session(session);
       if (retailerUser) {
-        const grossRetailer = +computeGross(commission.retailer || 0).toFixed(2);
+        const grossRetailer = (commission.retailer).toFixed(2);
         if (grossRetailer > 0) {
           const { gst, tds, net } = computeDeductions(grossRetailer);
 
@@ -94,7 +84,7 @@ async function distributeCommission({
     if (distributer) {
       const distributorUser = await userModel.findById(distributer).session(session);
       if (distributorUser) {
-        const grossDistributor = +computeGross(commission.distributor || 0).toFixed(2);
+        const grossDistributor = (commission.distributor || 0).toFixed(2);
         if (grossDistributor > 0) {
           const { gst, tds, net } = computeDeductions(grossDistributor);
 
@@ -103,7 +93,7 @@ async function distributeCommission({
 
           await transactionModel.create([{
             user_id: distributorUser._id,
-           type: service._id,
+            type: service._id,
             transaction_type: "credit",
             amount: commission.distributor,
             gst,
@@ -122,7 +112,7 @@ async function distributeCommission({
 
           await PayInModel.create([{
             userId: distributorUser._id,
-           type: service._id,
+            type: service._id,
             amount: net,
             reference: reference + "_DIST_COM",
             name: distributorUser.name || "Distributor",
@@ -142,7 +132,7 @@ async function distributeCommission({
         if (distributorUser.distributorId) {
           const adminUser = await userModel.findById(distributorUser.distributorId).session(session);
           if (adminUser) {
-            const grossAdmin = +computeGross(commission.admin || 0).toFixed(2);
+            const grossAdmin = (commission.admin || 0).toFixed(2);
             if (grossAdmin > 0) {
               const { gst, tds, net } = computeDeductions(grossAdmin);
 
@@ -152,7 +142,7 @@ async function distributeCommission({
               await transactionModel.create([{
                 user_id: adminUser._id,
                 transaction_type: "credit",
-                 type: service._id,
+                type: service._id,
                 amount: commission.admin,
                 gst,
                 tds,
@@ -171,7 +161,7 @@ async function distributeCommission({
               await PayInModel.create([{
                 userId: adminUser._id,
                 amount: net,
-                 type: service._id,
+                type: service._id,
                 reference: reference + "_ADMIN_COM",
                 name: adminUser.name || "Admin",
                 mobile: adminUser.mobileNumber || 0,
@@ -181,7 +171,7 @@ async function distributeCommission({
                 fromUser: user,
                 service: service._id,
                 charges: Number((gst + tds).toFixed(2)),
-                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})` 
+                remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
               }], { session });
             }
           }

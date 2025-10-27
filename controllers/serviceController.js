@@ -61,6 +61,7 @@ exports.upsertService = async (req, res) => {
       serviceFor,
       defaultSwitch,
       isActive,
+      category,
       providers, // this can be an array of provider names from your form
     } = req.body;
 
@@ -68,8 +69,8 @@ exports.upsertService = async (req, res) => {
     const providerList = Array.isArray(providers)
       ? providers
       : providers
-      ? [providers]
-      : [];
+        ? [providers]
+        : [];
     let service;
     if (req.query.id) {
       service = await Service.findOne({
@@ -84,6 +85,7 @@ exports.upsertService = async (req, res) => {
         // service.serviceFor = serviceFor || service.serviceFor;
         service.defaultSwitch = defaultSwitch || service.defaultSwitch;
         service.isActive = isActive || service.isActive;
+        service.category = category || service.category;
 
         // Replace providers fully from form input
         service.providers = providerList;
@@ -99,6 +101,7 @@ exports.upsertService = async (req, res) => {
         // serviceFor,
         defaultSwitch,
         isActive,
+        category,
         providers: providerList,
       });
     }
