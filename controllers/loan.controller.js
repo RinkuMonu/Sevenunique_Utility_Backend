@@ -143,7 +143,7 @@ exports.listLeads = async (req, res) => {
     const [items, total] = await Promise.all([
       LoanLeadModal.find(filter)
         .populate("retailerId", "name mobileNumber email")
-        .populate("loanTypeId", "name")
+        .populate("loanTypeId", "name svgicon")
         .sort({ [sortBy]: sortOrder })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -234,17 +234,19 @@ exports.getCategories = async (req, res) => {
 
 exports.createCategory = async (req, res) => {
   try {
-    const { name, requiredDocs } = req.body;
+    const { name, requiredDocs, svgicon } = req.body;
+    console.log(req.body);
 
-    if (!name) {
+    if (!name || name.trim() === "" || svgicon.trim() === "") {
       return res
         .status(400)
-        .json({ success: false, message: "Category name is required" });
+        .json({ success: false, message: "Category name & icon is required" });
     }
 
     const cat = await LoanCategoryModal.create({
       name: name.trim(),
       requiredDocs: requiredDocs || [],
+      svgicon: svgicon || "",
     });
 
     return res.json({ success: true, data: cat });
