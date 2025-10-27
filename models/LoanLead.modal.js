@@ -11,8 +11,8 @@ const RemarkSchema = new mongoose.Schema(
 
 const DocSchema = new mongoose.Schema(
   {
-    name: String, 
-    url: String, 
+    name: String,
+    url: String,
     type: String,
   },
   { _id: false }
