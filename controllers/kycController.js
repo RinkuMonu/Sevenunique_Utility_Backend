@@ -85,7 +85,7 @@ const submitAadharOTP = async (req, res) => {
 
       const newData = await User.findByIdAndUpdate(
         userId,
-        { aadharDetails: nameFromAadhar, isKycVerified: true },
+        { aadharDetails: nameFromAadhar},
         { new: true }
       );
       console.log(newData);
