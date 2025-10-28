@@ -52,7 +52,7 @@ router.get(
   authorizeRoles("Admin", "Distributor"),
   getUsersWithFilters
 );
-router.post("/update-credential", authenticateToken, updateCredential);
+router.post("/update-credential", updateCredential);
 
 router.put(
   "/user/:id/status",
