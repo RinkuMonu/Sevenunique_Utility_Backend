@@ -34,7 +34,7 @@ async function distributeCommission({
     if (user) {
       const retailerUser = await userModel.findById(user).session(session);
       if (retailerUser) {
-        const grossRetailer = (commission.retailer).toFixed(2);
+        const grossRetailer = commission.retailer;
         if (grossRetailer > 0) {
           const { gst, tds, net } = computeDeductions(grossRetailer);
 
@@ -50,7 +50,7 @@ async function distributeCommission({
             gst,
             tds,
             charge: 0,
-            totalDebit: Number((gst + tds).toFixed(2)),
+            totalDebit: Number(gst + tds),
             totalCredit: net,
             // netAmount: net,
             balance_after: retailerUser.eWallet,
@@ -73,7 +73,7 @@ async function distributeCommission({
             fromUser: retailerUser._id,
             service: service._id,
             status: "Success",
-            charges: Number((gst + tds).toFixed(2)),
+            charges: Number(gst + tds),
             remark: `Commission credited for ${service.name} (gross ₹${grossRetailer}, gst ₹${gst}, tds ₹${tds})`
           }], { session });
         }
@@ -84,7 +84,7 @@ async function distributeCommission({
     if (distributer) {
       const distributorUser = await userModel.findById(distributer).session(session);
       if (distributorUser) {
-        const grossDistributor = (commission.distributor || 0).toFixed(2);
+        const grossDistributor = (commission.distributor || 0);
         if (grossDistributor > 0) {
           const { gst, tds, net } = computeDeductions(grossDistributor);
 
@@ -99,7 +99,7 @@ async function distributeCommission({
             gst,
             tds,
             charge: 0,
-            totalDebit: Number((gst + tds).toFixed(2)),
+            totalDebit: Number(gst + tds),
             totalCredit: net,
             // netAmount: net,
             balance_after: distributorUser.eWallet,
@@ -122,7 +122,7 @@ async function distributeCommission({
             source: "Commission",
             fromUser: user,
             service: service._id,
-            charges: Number((gst + tds).toFixed(2)),
+            charges: Number(gst + tds),
             remark: `Commission credited for ${service.name} (gross ₹${grossDistributor}, gst ₹${gst}, tds ₹${tds})`
           }], { session });
 
@@ -132,7 +132,7 @@ async function distributeCommission({
         if (distributorUser.distributorId) {
           const adminUser = await userModel.findById(distributorUser.distributorId).session(session);
           if (adminUser) {
-            const grossAdmin = (commission.admin || 0).toFixed(2);
+            const grossAdmin = (commission.admin || 0);
             if (grossAdmin > 0) {
               const { gst, tds, net } = computeDeductions(grossAdmin);
 
@@ -147,7 +147,7 @@ async function distributeCommission({
                 gst,
                 tds,
                 charge: 0,
-                totalDebit: Number((gst + tds).toFixed(2)),
+                totalDebit: Number(gst + tds),
                 totalCredit: net,
                 // netAmount: net,
                 balance_after: adminUser.eWallet,
@@ -170,7 +170,7 @@ async function distributeCommission({
                 source: "Commission",
                 fromUser: user,
                 service: service._id,
-                charges: Number((gst + tds).toFixed(2)),
+                charges: Number(gst + tds),
                 remark: `Commission credited for ${service.name} (gross ₹${grossAdmin}, gst ₹${gst}, tds ₹${tds})`
               }], { session });
             }
