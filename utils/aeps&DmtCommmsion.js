@@ -2,6 +2,8 @@ const commissionModel = require("../models/commissionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const UserMeta = require("../models/userMetaModel.js");
 const userModel = require("../models/userModel.js");
+const mongoose = require("mongoose");
+
 
 const getCommissionPackage = async (userId, serviceName) => {
     // ✅ User check
@@ -9,7 +11,12 @@ const getCommissionPackage = async (userId, serviceName) => {
     if (!user) throw new Error("User not found");
 
     // ✅ Service check
-    const service = await servicesModal.findOne({ name: serviceName }).lean();
+    const service = await (
+        mongoose.Types.ObjectId.isValid(serviceName)
+            ? servicesModal.findById(serviceName).lean()
+            : servicesModal.findOne({ name: serviceName }).lean()
+    );
+
     if (!service) throw new Error(`${serviceName} service not found`);
 
     // ✅ If user isSpecial

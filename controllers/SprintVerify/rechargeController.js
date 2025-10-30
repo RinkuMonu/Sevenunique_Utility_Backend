@@ -161,7 +161,7 @@ exports.doRecharge = async (req, res, next) => {
     console.log("🔁 Starting Recharge Flow...");
 
     // ✅ Get service charges
-    const { commissions, service } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile (Prepaid)" : "DTH Recharge", operatorName);
+    const { commissions, service } = await getApplicableServiceCharge(userId, category, operatorName);
     console.log("💰 Service charges & meta:", commissions);
 
 
@@ -232,7 +232,7 @@ exports.doRecharge = async (req, res, next) => {
     // ✅ Create recharge record
     const rechargeRecord = await BbpsHistory.create([{
       userId,
-      rechargeType: category,
+      rechargeType: service?.name,
       operator: operatorName,
       customerNumber: canumber,
       amount: Number(amount),
