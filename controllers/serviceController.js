@@ -1,5 +1,8 @@
+const { default: axios } = require("axios");
 const Service = require("../models/servicesModal.js");
 const mongoose = require("mongoose");
+const Transaction = require("../models/transactionModel.js");
+const userModel = require("../models/userModel.js");
 
 // exports.upsertService = async (req, res) => {
 //   const {
@@ -69,8 +72,8 @@ exports.upsertService = async (req, res) => {
     const providerList = Array.isArray(providers)
       ? providers
       : providers
-        ? [providers]
-        : [];
+      ? [providers]
+      : [];
     let service;
     if (req.query.id) {
       service = await Service.findOne({
@@ -155,7 +158,6 @@ exports.getAllServices = async (req, res) => {
 };
 
 exports.getServiceById = async (req, res) => {
-
   try {
     const { id } = req.params;
     const service = await Service.findById(id);
@@ -215,5 +217,95 @@ exports.setServiceStatus = async (req, res) => {
   } catch (error) {
     console.error("Error in setServiceStatus:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.getCreditScore = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { name, mobile, pan } = req.body;
+    if (!name || !mobile || !pan) {
+      throw new Error("Name, Mobile and PAN are required");
+    }
+    const userId = req.user.id;
+    // 1️⃣ Validate user
+    const user = await userModel.findById(userId).session(session);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const chargeAmount = 30;
+    if (user.eWallet < chargeAmount) {
+      throw new Error("Insufficient wallet balance");
+    }
+
+    // 2️⃣ Deduct wallet balance
+    const currentBalance = Number(user.eWallet) || 0;
+    const updatedBalance = currentBalance - chargeAmount;
+    user.eWallet = updatedBalance;
+    await user.save({ session });
+
+    // 3️⃣ Create transaction record
+    const transactionRef = `CibilScore-${Date.now()}`;
+    const transaction = new Transaction({
+      user_id: user._id,
+      sender_Id: user._id,
+      transaction_type: "debit",
+      amount: chargeAmount,
+      totalDebit: chargeAmount,
+      balance_after: updatedBalance,
+      status: "Success",
+      payment_mode: "wallet",
+      transaction_reference_id: transactionRef,
+      description: `CIBIL Score Check for PAN ${pan}`,
+      meta: { source: "CibilScoreCheck" },
+    });
+
+    await transaction.save({ session });
+
+    // 4️⃣ Call Experian API
+    const apiResponse = await axios.post(
+      "https://api.7uniqueverfiy.com/api/verify/credit-report-experian/fetch-report-pdf",
+      {
+        consent: "Y",
+        mobile,
+        name,
+        pan,
+      },
+      {
+        headers: {
+          token:
+            "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA",
+          "client-id": "Seven012",
+          "x-env": "production",
+          "Content-Type": "application/json",
+          Authorization:
+            "Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA",
+        },
+      }
+    );
+
+    // 5️⃣ Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // 6️⃣ Return score (only data, not pdf)
+    return res.status(200).json({
+      success: true,
+      message: "CIBIL score fetched successfully",
+      data: apiResponse.data, // frontend me score dikhane ke liye
+      wallet_balance: updatedBalance,
+      transaction_ref: transactionRef,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error in getCreditScore:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   }
 };
