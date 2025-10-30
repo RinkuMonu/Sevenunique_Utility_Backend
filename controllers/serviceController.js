@@ -252,6 +252,7 @@ exports.getCreditScore = async (req, res) => {
     const transaction = new Transaction({
       user_id: user._id,
       sender_Id: user._id,
+      type2: "CIBIL Score Check",
       transaction_type: "debit",
       amount: chargeAmount,
       totalDebit: chargeAmount,
