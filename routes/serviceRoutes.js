@@ -72,6 +72,8 @@ router.post(
   authorizeRoles("Admin"),
   serviceController.upsertService
 );
+router.post("/credit-score/check", authenticateToken, serviceController.getCreditScore);
+
 router.get("/", authenticateToken, serviceController.getAllServices);
 router.get(
   "/:id",
