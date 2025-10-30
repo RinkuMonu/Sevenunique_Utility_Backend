@@ -263,7 +263,7 @@ const buyPlan = async (req, res) => {
       return res.status(409).json({
         success: false,
         requiresConfirmation: true,
-        message: `Aapka current plan abhi active hai . Kya aap ise cancel karke naya plan lena chahte hain?`,
+        message: `Your current plan is still active. Do you want to cancel it and get a new plan?`,
         currentPlan: {
           planId: userfind.plan.planId,
           planType: userfind.plan.planType,
