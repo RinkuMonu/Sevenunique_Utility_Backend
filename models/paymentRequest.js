@@ -76,6 +76,7 @@ const paymentRequestSchema = new mongoose.Schema(
     transactionType: {
       type: String,
       enum: ["debit", "credit"],
+      default: "credit",
     },
     bankDetails: {
       accountName: { type: String, trim: true },
