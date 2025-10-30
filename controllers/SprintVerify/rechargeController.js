@@ -161,7 +161,7 @@ exports.doRecharge = async (req, res, next) => {
     console.log("🔁 Starting Recharge Flow...");
 
     // ✅ Get service charges
-    const { commissions, service } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile Recharge" : "Dth Recharge", operatorName);
+    const { commissions, service } = await getApplicableServiceCharge(userId, category === "mobile" ? "Mobile (Prepaid)" : "DTH Recharge", operatorName);
     console.log("💰 Service charges & meta:", commissions);
 
 
