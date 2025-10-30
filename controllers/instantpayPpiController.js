@@ -292,10 +292,10 @@ export const makeTransaction = async (req, res) => {
 
     // return;
     try {
-        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, beneficiaryId } = req.body;
+        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, beneficiaryId, category } = req.body;
 
         // 1️⃣ Validate required fields
-        if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid) {
+        if (!remitterMobileNumber || !accountNumber || !ifsc || !category || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid) {
             return res.status(400).json({ status: false, message: "All fields are required." });
         }
 
@@ -304,7 +304,7 @@ export const makeTransaction = async (req, res) => {
         if (!user) throw new Error("User not found");
 
         // 2️⃣ Calculate commission & check wallet balance
-        const { commissions, service } = await getApplicableServiceCharge(userId, "DMT Money Transfer");
+        const { commissions, service } = await getApplicableServiceCharge(userId, category);
         const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
         const usableBalance = user.eWallet - (user.cappingMoney || 0);
         const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2));
