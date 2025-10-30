@@ -65,7 +65,7 @@ exports.allPayin = async (req, res, next) => {
           userId: 1,
           userName: "$user.name",
           userEmail: "$user.email",
-          UserId: "$user.UserId", 
+          UserId: "$user.UserId",
           name: 1,
           email: 1,
           mobile: 1,
@@ -235,7 +235,8 @@ exports.generatePayment = async (req, res, next) => {
 
   try {
     const response = await axios.post(
-      "https://api.worldpayme.com/api/v1.1/createUpiIntent",
+      "https://admin.finuniques.in/api/v1.1/t1/UpiIntent",
+      // "https://api.worldpayme.com/api/v1.1/createUpiIntent",
       {
         amount,
         reference,
@@ -246,7 +247,7 @@ exports.generatePayment = async (req, res, next) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiZjQyMjY2MDRmMjg2YjYwYmNmZGM2N2FmZTI1Yjc0MjEyMDI4MDEyZTUwNjYwYWY2NmJkMDAxNTIxNTIwY2IxYjRhYjljOTg4YzQ2NzQ2ZTciLCJpYXQiOjE3NTg5NTczMzguNjgyNzg2LCJuYmYiOjE3NTg5NTczMzguNjgyNzg4LCJleHAiOjE3OTA0OTMzMzguNjgwMDU3LCJzdWIiOiIyNTYiLCJzY29wZXMiOltdfQ.SuRTKARoCVWS7DXQMvQloq4Fatl2yb0hkcHOaqh1FJS1758p9xTDmQBT2E-x9pQvGKt0xl2xuBouPljGvZvMeBUpPJugY_eEh-LN0C1M9y2Hbw3aiQ_8ZyBRDhI3jMkeo6aJK9QMWhJg8S7JWSABshxB5SuT3ISFeT4P9qxXRatoqueuLfP9yBnZi440uMXP9MMnffIf04nUAojrIBrmN7xK7xmtm0q0cvIuheS1X5OuB8hU6rdSmHDyQuX9FSI8PasVPcZyj__WOSEwKoP41Oc9DblHR-xs3RyHIZkpdtwPGBqmJ8D-DujBFVWdg7MsPFmUaUP473Lp19iYrcf1LyYUU5roQu7tIcUV2-xe2YAGReg1i-a_Ae4bO46MaacdMiaTFkFZbGnCNOsYU5-PZ096z_nrgWlHXM-H558IKumRCoHTMrIDudqtTye6rVWay4V8VxL1v-6o7h9KS7EvJLLiIdPLCi1_J9-wYnG5OdHbqQT5c3r5BCB_U32WePnWduQNG4HoZsv64caD4373M1drj9lum5DPK-5YEnX2D_JOyIxTzvQCNlNrlS1NCU4gotELmIYvBcUrpiY33PXApdKBRqPwliGZwK9CVJLFYTJ-EE9X4LY-JX0yCMwpPTSvI3MPJdOdf8sM6VshaPX6XCzsxyYKXeYSlk2eMG5f4gQ`,
+          Authorization: `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiODljNzdlZGMwMjBkMzc1MDI5ZmU5MWRiZjI4MDhjMzEzZjMxODg4NTA0NGM0Y2FiYzRiY2UwYmFjZGViZTQ4OTY1NGI3Y2Q3ZTc5YTBjMjkiLCJpYXQiOjE3NTEzNTM1MzMuMzkxNzc5LCJuYmYiOjE3NTEzNTM1MzMuMzkxNzgsImV4cCI6MTc4Mjg4OTUzMy4zOTA0LCJzdWIiOiIxNzQiLCJzY29wZXMiOltdfQ.wZ8kN3XTocrWqFY4IsGwuibbQLIzKemhOPuzbFC-4bF1rT1HlMj0wiubaSazOvy-TQlquCEGv179Bg83nb5PkCxnN35ES7RgSihb3Eegd3r3H5yT5vh_E6B_MQ1J6w75-0IbrPM0iP0tELFafTopGN0vkIIu-TWJ6MK_seKxCgjmH_z9y_hFjkXVm_fCsZGFRWdoaw4NrKqR7g9vDx4SNTbrZE-k8Sq4-oEDt1qaFOtRS38xM90k6UXUpCnYVgcecTmZYUqbeAyJITEszZsLMda3gL40VVC0Nx5rVeMDrXRu1BsR2vEkMoSc7B3qa_zRP-IQst1UxVE13HIRegg4J2w-_1yFVO7jf2XAQGBCmZqIWJrdCPiarV0U2PK0iO6Cp6rXuEzUg-MFcd-rgFYwn7fVVSShFSzST8nqVSEmOugpGp3XWbapFIY3mu-5RvI1LDBn-x81Gj945hajukURqIOrlNVC4CbTP-aO8GwiEw0EesxWa0dwLzKemk3N2a_HjXQiSly_MEHLWIKHaYdUZ6pYPW5_lOCHpZqoVg3k4J_4TriAWnmhrc5c9hZJutRPMo--OIYI_mR3qFSeOfj0J_0tkxaBa4gUKR_DBsdJMIoKTDOVzTTXhwJXrHMkTjH4u51IEJkCDSSoCaru3yfjbflW5yHFg0aVj1LwwZLNa2Q`,
         },
       }
     );

@@ -445,6 +445,7 @@ exports.getUserTransactions = async (req, res) => {
           userEmail: "$user.email",
           UserId: "$user.UserId",
           serviceName: { $ifNull: ["$service.name", "$plan.name"] },
+          type2:1,
           transaction_type: 1,
           amount: 1,
           gst: 1,

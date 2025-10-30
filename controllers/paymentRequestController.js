@@ -208,6 +208,8 @@ exports.updatePaymentRequestStatus = async (req, res) => {
       const ledgerEntry = new Transaction({
         user_id: user._id,
         transaction_type: "credit",
+        type2: "Fund Transfer",
+        transaction_reference_id: paymentRequest.reference,
         amount: currentBalance,
         balance_after: newBalance,
         status: "Success",
@@ -241,9 +243,6 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
-
 
 exports.fundTransfer = async (req, res) => {
   const session = await mongoose.startSession();
@@ -281,25 +280,21 @@ exports.fundTransfer = async (req, res) => {
     if (mode === "debit") {
       if (sender.role === "Admin") {
         if ((recipient.eWallet || 0) < amt) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "Recipient has insufficient balance",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "Recipient has insufficient balance",
+          });
         }
         recipient.eWallet -= amt;
       } else {
         if ((sender.eWallet || 0) < amt) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "Sender has insufficient balance",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "Sender has insufficient balance",
+          });
         }
         sender.eWallet -= amt;
-        recipient.eWallet += amt; 
+        recipient.eWallet += amt;
       }
     } else if (mode === "credit") {
       recipient.eWallet += amt;
@@ -314,6 +309,7 @@ exports.fundTransfer = async (req, res) => {
     const transaction = new Transaction({
       user_id: recipient._id,
       sender_Id: sender._id,
+      type2: "Fund Transfer",
       transaction_type: mode === "debit" ? "debit" : "credit",
       amount: amt,
       balance_after: recipient.eWallet,
