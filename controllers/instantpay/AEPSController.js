@@ -218,9 +218,10 @@ exports.cashWithdrawal = async (req, res) => {
       mobile,
       amount,
       pidData,
+      category
     } = req.body;
 
-    if (!aadhaar || !bankiin || !mobile || !amount || !pidData) {
+    if (!aadhaar || !bankiin || !mobile || !amount || !pidData || !category) {
       return res.status(400).json({ status: false, message: "Missing required fields" });
     }
 
@@ -229,7 +230,7 @@ exports.cashWithdrawal = async (req, res) => {
     if (!user) throw new Error("User not found");
 
     // Get commission details
-    const { commissions, service } = await getApplicableServiceCharge(userId, "AEPS");
+    const { commissions, service } = await getApplicableServiceCharge(userId, category);
     const commission = commissions
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
@@ -397,8 +398,8 @@ exports.balanceEnquiry = async (req, res, next) => {
   try {
     session.startTransaction();
 
-    const { aadhaar, bankiin, mobile, pidData } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData)
+    const { aadhaar, bankiin, mobile, pidData, category } = req.body;
+    if (!aadhaar || !bankiin || !mobile || !pidData || !category)
       throw createError(400, "Missing required fields");
 
     const biometricParsed = await parsePidXML(pidData);
@@ -424,7 +425,7 @@ exports.balanceEnquiry = async (req, res, next) => {
     const user = await userModel.findById(req.user.id).session(session);
     if (!user) throw new Error("User not found");
 
-    const { commissions } = await getApplicableServiceCharge(req.user.id, "AEPS");
+    const { commissions } = await getApplicableServiceCharge(req.user.id, category);
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
     const required = Number(commissions.aepsBalanceEnquiry);
 
@@ -531,8 +532,8 @@ exports.miniStatement = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-    const { aadhaar, bankiin, mobile, pidData } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
+    const { aadhaar, bankiin, mobile, pidData, category } = req.body;
+    if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const externalRef = "REF" + Date.now();
@@ -555,7 +556,7 @@ exports.miniStatement = async (req, res, next) => {
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
     if (!user) throw new Error("User not found");
-    const { commissions } = await getApplicableServiceCharge(userId, "AEPS");
+    const { commissions } = await getApplicableServiceCharge(userId, category);
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
     const required = Number(commissions.aepsMiniStatement);
@@ -655,8 +656,8 @@ exports.deposite = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-    const { aadhaar, bankiin, mobile, amount, pidData } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData) throw createError(400, "Missing required fields");
+    const { aadhaar, bankiin, mobile, amount, pidData, category } = req.body;
+    if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const payload = {
@@ -683,7 +684,7 @@ exports.deposite = async (req, res, next) => {
 
 
     // Get commission details
-    const { commissions, service } = await getApplicableServiceCharge(userId, "AEPS");
+    const { commissions, service } = await getApplicableServiceCharge(userId, category);
     const commission = commissions
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
