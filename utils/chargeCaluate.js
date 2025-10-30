@@ -197,7 +197,7 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
 
   // Fallback to default provider from Service
   const matchedProvider = service.providers.find(
-    (p) => p === service.defaultSwitch
+    (p) => p.name === service.defaultSwitch
   );
 
   if (!matchedProvider) {
