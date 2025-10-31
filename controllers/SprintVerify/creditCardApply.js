@@ -4,11 +4,13 @@ import generatePaysprintJWT from "../../services/Dmt&Aeps/TokenGenrate.js";
 
 function getPaysprintHeaders() {
   const jwtToken = generatePaysprintJWT();
-  console.log("Generated JWT:", jwtToken);
+
+  console.log("Generated JWT nEw:", jwtToken);
   return {
-    Authorization: `Bearer ${jwtToken}`, 
-    Token: `${jwtToken}`, 
+    Authorization: `Bearer ${jwtToken}`,
+    Token: `${jwtToken}`,
     "Content-Type": "application/json",
+    // authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
     authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
   };
 }
