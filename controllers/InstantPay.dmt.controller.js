@@ -452,14 +452,14 @@ exports.makeTransaction = async (req, res) => {
     session.startTransaction();
 
     try {
-        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id } = req.body;
+        const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id, category } = req.body;
 
         // 1️⃣ Validate fields
         if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid || !bene_id) {
             return res.status(400).json({ status: false, message: "Missing required fields." });
         }
 
-        const { commissions, service } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
+        const { commissions, service } = await getApplicableServiceCharge(req.user.id, category);
         const userId = req.user.id;
         const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
         const user = await userModel.findById(userId).session(session);

@@ -292,10 +292,11 @@ exports.PennyDrop = async (req, res, next) => {
             address,
             dob,
             gst_state,
-            bene_id
+            bene_id,
+            category
         } = req.body;
 
-        const commissionPackage = await getDmtOrAepsMeta(req.user.id, "DMT Money Transfer");
+        const commissionPackage = await getDmtOrAepsMeta(req.user.id, category);
         console.log("commissionPackage", commissionPackage);
 
 
@@ -507,10 +508,11 @@ exports.performTransaction = async (req, res, next) => {
             dob = "01-01-1990",
             gst_state = "07",
             lat = "28.786543",
-            long = "78.345678"
+            long = "78.345678",
+            category
         } = req.body;
 
-        const { commissions, service } = await getApplicableServiceCharge(req.user.id, "DMT Money Transfer");
+        const { commissions, service } = await getApplicableServiceCharge(req.user.id, category);
 
         let userId = req.user.id;
 
