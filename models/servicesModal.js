@@ -4,7 +4,7 @@ const serviceSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true, 
+      required: true,
       unique: true,
       trim: true
     },
@@ -12,7 +12,7 @@ const serviceSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    category: { 
+    category: {
       type: String,
       default: '',
     },
@@ -22,7 +22,7 @@ const serviceSchema = new mongoose.Schema(
     },
     defaultSwitch: {
       type: String,
-      enum: ['billAvenue', 'spritVerify', 'Mobikwik', "instantPay"],
+      enum: ['billAvenue', 'spritVerify', 'Mobikwik', "instantPay", "iserveu"],
       // required: true,
       default: 'spritVerify',
     },

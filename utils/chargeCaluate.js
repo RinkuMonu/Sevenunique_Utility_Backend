@@ -147,7 +147,9 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
 
   const [user, service] = await Promise.all([
     User.findById(userId),
-    Service.findOne({ name: serviceName })
+    mongoose.Types.ObjectId.isValid(serviceName)
+      ? Service.findById(serviceName)
+      : Service.findOne({ name: serviceName })
   ]);
 
   if (!user) {

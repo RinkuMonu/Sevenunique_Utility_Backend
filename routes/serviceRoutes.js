@@ -10,6 +10,8 @@ const providerSchema = Joi.object({
     .valid(
       "billAwene",
       "spritVerify",
+      "iserveu",
+      "instantPay",
       "serverMaintenance",
       "A2",
       "A3",
@@ -45,6 +47,7 @@ const serviceValidator = {
         "billAvenue",
         "spritVerify",
         "instantPay",
+        "iserveu",
         "A1",
         "A2",
         "A3",
