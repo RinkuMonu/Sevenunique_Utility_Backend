@@ -52,7 +52,7 @@ router.get(
 );
 
 router.post("/recharge/dthPlan", authenticateToken, dthPlan);
-router.post("/generate_utm",authenticateToken, creditCard);
+router.post("/generate_utm", creditCard);
 
 router.get("/recharge/opertor", authenticateToken, getOperatorList);
 
