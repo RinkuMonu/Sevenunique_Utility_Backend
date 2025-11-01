@@ -232,7 +232,7 @@ exports.doRecharge = async (req, res, next) => {
     // ✅ Create recharge record
     const rechargeRecord = await BbpsHistory.create([{
       userId,
-      rechargeType: service?.name,
+      rechargeType: service?._id,
       operator: operatorName,
       customerNumber: canumber,
       amount: Number(amount),
