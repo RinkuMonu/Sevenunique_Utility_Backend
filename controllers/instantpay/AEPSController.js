@@ -243,6 +243,7 @@ exports.cashWithdrawal = async (req, res) => {
     const aepsReport = await AEPSTransaction.create([{
       userId,
       type: "Withdrawal",
+      balance_after: user.eWallet,
       adhaarnumber: aadhaar,
       mobilenumber: mobile,
       bankiin,
@@ -323,14 +324,43 @@ exports.cashWithdrawal = async (req, res) => {
 
     // ✅ API Success
     if (result.statuscode === "TXN") {
+      // ✅ Update user's wallet
       user.eWallet = (user.eWallet || 0) + Number(amount);
       await user.save({ session });
 
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
-      await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
+      // ✅ Update Transaction
+      await Transaction.updateOne(
+        { transaction_reference_id: externalRef },
+        {
+          $set: {
+            status: "Success",
+            balance_after: user.eWallet,
+          },
+        },
+        { session }
+      );
+
+      // ✅ Update PayIn record
+      await payInModel.updateOne(
+        { reference: externalRef },
+        {
+          $set: {
+            status: "Success",
+          },
+        },
+        { session }
+      );
+
+      // ✅ Update AEPS Transaction
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Success", apiResponse: result },
+        {
+          $set: {
+            status: "Success",
+            balance_after: user.eWallet,
+            apiResponse: result,
+          },
+        },
         { session }
       );
 
@@ -445,6 +475,7 @@ exports.balanceEnquiry = async (req, res, next) => {
     // 🔹 Create AEPS transaction entry
     const txn = await AEPSTransaction.create([{
       userId: req.user.id,
+      balance_after: user.eWallet,
       type: "BalanceEnquiry",
       adhaarnumber: aadhaar,
       mobilenumber: mobile,
@@ -495,27 +526,79 @@ exports.balanceEnquiry = async (req, res, next) => {
     const apiRes = response.data;
 
     if (apiRes.statuscode === "TXN") {
+      // ✅ Success case
       await AEPSTransaction.updateOne(
         { clientrefno: externalRef },
-        { $set: { status: "Success", apiResponse: apiRes } },
+        {
+          $set: {
+            status: "Success",
+            apiResponse: apiRes,
+            balance_after: user.eWallet,
+          },
+        },
         { session }
       );
-      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+
+      await payOutModel.updateOne(
+        { reference: externalRef },
+        {
+          $set: {
+            status: "Success",
+          },
+        },
+        { session }
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: externalRef },
+        {
+          $set: {
+            status: "Success",
+            balance_after: user.eWallet,
+          },
+        },
+        { session }
+      );
     } else {
-      // Refund
       if (required > 0) {
         user.eWallet += required;
         await user.save({ session });
       }
+
       await AEPSTransaction.updateOne(
         { clientrefno: externalRef },
-        { $set: { status: "Failed", apiResponse: apiRes } },
+        {
+          $set: {
+            status: "Failed",
+            apiResponse: apiRes,
+            balance_after: user.eWallet,
+          },
+        },
         { session }
       );
-      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+
+      await payOutModel.updateOne(
+        { reference: externalRef },
+        {
+          $set: {
+            status: "Failed",
+          },
+        },
+        { session }
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: externalRef },
+        {
+          $set: {
+            status: "Failed",
+            balance_after: user.eWallet,
+          },
+        },
+        { session }
+      );
     }
+
 
     await session.commitTransaction();
     return res.json(apiRes);
@@ -583,6 +666,7 @@ exports.miniStatement = async (req, res, next) => {
       mobilenumber: mobile,
       bankiin,
       submerchantid: "",
+      balance_after: user.eWallet,
       amount: 0,
       clientrefno: externalRef,
       charges: required || 0,
@@ -621,26 +705,85 @@ exports.miniStatement = async (req, res, next) => {
       totalDebit: required,
       remark: `Mini Statement (AePS)`
     }).save({ session });
+
     const response = await instantpay.post("/fi/aeps/miniStatement", payload);
+
     if (response.data.statuscode === "TXN") {
+
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Success", apiResponse: response.data },
+        {
+          $set: {
+            status: "Success",
+            apiResponse: response.data,
+            balance_after: user.eWallet,
+          },
+        },
         { session }
       );
-      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+
+      await payOutModel.updateOne(
+        { reference: externalRef },
+        {
+          $set: {
+            status: "Success",
+          },
+        },
+        { session }
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: externalRef },
+        {
+          $set: {
+            status: "Success",
+            balance_after: user.eWallet,
+          },
+        },
+        { session }
+      );
+
     } else {
-      user.eWallet += required;
-      await user.save({ session });
+      // ❌ FAILED CASE → Refund user if required
+      if (required > 0) {
+        user.eWallet += required;
+        await user.save({ session });
+      }
+
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Failed", apiResponse: response.data },
+        {
+          $set: {
+            status: "Failed",
+            apiResponse: response.data,
+            balance_after: user.eWallet,
+          },
+        },
         { session }
       );
-      await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+
+      await payOutModel.updateOne(
+        { reference: externalRef },
+        {
+          $set: {
+            status: "Failed",
+          },
+        },
+        { session }
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: externalRef },
+        {
+          $set: {
+            status: "Failed",
+            balance_after: user.eWallet,
+          },
+        },
+        { session }
+      );
     }
+
     await session.commitTransaction();
     return res.json(response.data);
   } catch (err) {
@@ -708,6 +851,7 @@ exports.deposite = async (req, res, next) => {
       type: "Deposit",
       adhaarnumber: aadhaar,
       mobilenumber: mobile,
+      balance_after: user.eWallet,
       bankiin,
       submerchantid: "",
       amount,
@@ -773,11 +917,11 @@ exports.deposite = async (req, res, next) => {
       user.eWallet = (user.eWallet || 0) - Number(required);
       await user.save({ session });
 
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success", balance_after: user.eWallet, } }, { session });
       await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Success", apiResponse: result },
+        { status: "Success", apiResponse: result, balance_after: user.eWallet, },
         { session }
       );
 
@@ -817,11 +961,11 @@ exports.deposite = async (req, res, next) => {
       // ❌ API Failed
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Failed", apiResponse: result },
+        { status: "Failed", apiResponse: result, balance_after: user.eWallet, },
         { session }
       );
 
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed" } }, { session });
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Failed", balance_after: user.eWallet, } }, { session });
       await payInModel.updateOne({ reference: externalRef }, { $set: { status: "Failed" } }, { session });
 
       throw new Error(result.status || "Cash Deposit failed at provider");
