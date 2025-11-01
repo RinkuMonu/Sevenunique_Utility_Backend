@@ -12,6 +12,14 @@ const paymentRequestSchema = new mongoose.Schema(
       ref: "User",
       // required: true,
     },
+    transferType: {
+      type: String,
+      default: null,
+    },
+    bank: {
+      type: String,
+      default: null,
+    },
     requestId: {
       type: String,
       unique: true,
