@@ -25,7 +25,7 @@ exports.getBbpsReport = async (req, res) => {
     } = req.query;
     // Role-based matchStage
     const matchStage = {};
-    
+
     if (rechargeType) matchStage.rechargeType = { $regex: rechargeType, $options: "i" };
     if (status) matchStage.status = status;
     console.log(matchStage);
@@ -382,10 +382,8 @@ exports.getAllDmtReports = async (req, res, next) => {
             doc
               .fontSize(10)
               .text(
-                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${
-                  report.benename
-                } (${report.account_number}) - ₹${
-                  report.gatewayCharges?.txn_amount || 0
+                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${report.benename
+                } (${report.account_number}) - ₹${report.gatewayCharges?.txn_amount || 0
                 } - ${report.status ? "Success" : "Failed"}`,
                 50,
                 yPosition
@@ -537,8 +535,8 @@ exports.aepsTransactions = async (req, res, next) => {
         status === "true" || status === true
           ? true
           : status === "false" || status === false
-          ? false
-          : undefined;
+            ? false
+            : undefined;
 
       if (parsedStatus !== undefined) {
         matchStage.status = parsedStatus;
@@ -576,6 +574,22 @@ exports.aepsTransactions = async (req, res, next) => {
     }
 
     pipeline.push({ $sort: { createdAt: -1 } });
+   pipeline.push(
+  { $sort: { createdAt: -1 } },
+  {
+    $lookup: {
+      from: "users",
+      localField: "userId",
+      foreignField: "_id",
+      as: "user",
+      pipeline: [
+        { $project: { name: 1, _id: 0 } } 
+      ],
+    },
+  },
+  { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+
+);
 
     const downloadPipeline = [...pipeline];
 
