@@ -10,6 +10,7 @@ const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
+const { distributeCommission } = require("../../utils/distributerCommission");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
