@@ -418,11 +418,11 @@ exports.getUserTransactions = async (req, res) => {
     );
 
     const totalCountPipeline = [{ $match: match }];
-
     if (keyword) {
       const regex = new RegExp(keyword, "i");
       const numVal = parseFloat(keyword);
-      totalCountPipeline.push({
+
+      const keywordMatch = {
         $match: {
           $or: [
             { description: { $regex: regex } },
@@ -433,7 +433,10 @@ exports.getUserTransactions = async (req, res) => {
             { "user.email": { $regex: regex } },
           ],
         },
-      });
+      };
+
+      pipeline.push(keywordMatch);
+      totalCountPipeline.push(keywordMatch);
     }
 
     pipeline.push(
@@ -445,7 +448,7 @@ exports.getUserTransactions = async (req, res) => {
           userEmail: "$user.email",
           UserId: "$user.UserId",
           serviceName: { $ifNull: ["$service.name", "$plan.name"] },
-          type2:1,
+          type2: 1,
           transaction_type: 1,
           amount: 1,
           gst: 1,
