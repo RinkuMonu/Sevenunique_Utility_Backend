@@ -283,7 +283,7 @@ exports.makePayment = async (req, res, next) => {
     // ✅ Create BBPS record
     const [rechargeRecord] = await BbpsHistory.create([{
       userId,
-      rechargeType: category,
+      rechargeType: service?._id,
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
