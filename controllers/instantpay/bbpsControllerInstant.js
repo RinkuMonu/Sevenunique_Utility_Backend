@@ -223,7 +223,7 @@ exports.makePayment = async (req, res, next) => {
 
     const body = await schema.validateAsync(req.body);
 
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category } = req.body;
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}`;
@@ -311,7 +311,7 @@ exports.makePayment = async (req, res, next) => {
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, transactionAmount, enquiryReferenceId, externalRef });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
