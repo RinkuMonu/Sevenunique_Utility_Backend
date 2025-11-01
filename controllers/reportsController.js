@@ -77,6 +77,23 @@ exports.getBbpsReport = async (req, res) => {
         },
       },
       { $unwind: { path: "$distributor", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "services",
+          let: { serviceId: "$rechargeType" },
+          pipeline: [
+            {
+              $match: { $expr: { $eq: ["$_id", "$$serviceId"] } },
+            },
+            {
+              $project: { name: 1, _id: 0 },
+            },
+          ],
+          as: "rechargeType",
+        },
+      },
+      { $unwind: { path: "$rechargeType", preserveNullAndEmptyArrays: true } },
+      { $addFields: { rechargeType: "$rechargeType.name" } },
 
       // Search by user name
       ...(search
@@ -574,22 +591,22 @@ exports.aepsTransactions = async (req, res, next) => {
     }
 
     pipeline.push({ $sort: { createdAt: -1 } });
-   pipeline.push(
-  { $sort: { createdAt: -1 } },
-  {
-    $lookup: {
-      from: "users",
-      localField: "userId",
-      foreignField: "_id",
-      as: "user",
-      pipeline: [
-        { $project: { name: 1, _id: 0 } } 
-      ],
-    },
-  },
-  { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+          pipeline: [
+            { $project: { name: 1, _id: 0 } }
+          ],
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
 
-);
+    );
 
     const downloadPipeline = [...pipeline];
 
