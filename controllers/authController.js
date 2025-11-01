@@ -1190,7 +1190,7 @@ const getDashboardStats = async (req, res, next) => {
         {
           $group: {
             _id: null,
-            todayEarning: { $sum: "$roles.totalEarned" },
+            todayEarning: { $sum: "$roles.commission" },
           },
         },
       ]);
@@ -1211,7 +1211,7 @@ const getDashboardStats = async (req, res, next) => {
         {
           $group: {
             _id: null,
-            todayCharges: { $sum: "$roles.charge" }, // 👈 assuming 'charge' field exists
+            todayCharges: { $sum: "$roles.chargeShare" },
           },
         },
       ]);
