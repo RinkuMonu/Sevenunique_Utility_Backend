@@ -8,7 +8,8 @@ const bbpsHistorySchema = new mongoose.Schema(
       required: true,
     },
     rechargeType: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Service',
       required: true,
     },
     operator: {
