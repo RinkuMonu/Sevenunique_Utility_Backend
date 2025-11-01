@@ -20,7 +20,7 @@ const instantpay = axios.create({
 function normalizePayloadForEnquiry(body) {
   return {
     ...body,
-    initChannel: body.initChannel || "AGT",
+    // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164", // fallback IPv4
       mac: "BC-BE-33-65-E6-AC",
@@ -36,7 +36,7 @@ function normalizePayloadForEnquiry(body) {
 function normalizePayloadForPayment(body) {
   return {
     ...body,
-    initChannel: body.initChannel || "AGT",
+    // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164",
       mac: "BC-BE-33-65-E6-AC",
@@ -46,7 +46,7 @@ function normalizePayloadForPayment(body) {
       geoCode: "28.6139,77.2090",
       ...(body.deviceInfo || {})
     },
-    paymentMode: body.paymentMode || "Cash", // always default Cash
+    // paymentMode: body.paymentMode || "Cash", 
     paymentInfo: { Remarks: "CashPayment" }, // default remarks
     remarks: {
       // ✅ yaha hamesha mobile number dalna hai, consumer number nahi
