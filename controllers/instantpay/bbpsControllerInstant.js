@@ -10,6 +10,7 @@ const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
+const { distributeCommission } = require("../../utils/distributerCommission");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -20,7 +21,7 @@ const instantpay = axios.create({
 function normalizePayloadForEnquiry(body) {
   return {
     ...body,
-    initChannel: body.initChannel || "AGT",
+    // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164", // fallback IPv4
       mac: "BC-BE-33-65-E6-AC",
@@ -36,7 +37,7 @@ function normalizePayloadForEnquiry(body) {
 function normalizePayloadForPayment(body) {
   return {
     ...body,
-    initChannel: body.initChannel || "AGT",
+    // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164",
       mac: "BC-BE-33-65-E6-AC",
@@ -46,7 +47,7 @@ function normalizePayloadForPayment(body) {
       geoCode: "28.6139,77.2090",
       ...(body.deviceInfo || {})
     },
-    paymentMode: body.paymentMode || "Cash", // always default Cash
+    // paymentMode: body.paymentMode || "Cash", 
     paymentInfo: { Remarks: "CashPayment" }, // default remarks
     remarks: {
       // ✅ yaha hamesha mobile number dalna hai, consumer number nahi
@@ -223,7 +224,7 @@ exports.makePayment = async (req, res, next) => {
 
     const body = await schema.validateAsync(req.body);
 
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category } = req.body;
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}`;
@@ -283,7 +284,7 @@ exports.makePayment = async (req, res, next) => {
     // ✅ Create BBPS record
     const [rechargeRecord] = await BbpsHistory.create([{
       userId,
-      rechargeType: category,
+      rechargeType: service?._id,
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
@@ -311,7 +312,7 @@ exports.makePayment = async (req, res, next) => {
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, transactionAmount, enquiryReferenceId, externalRef });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
