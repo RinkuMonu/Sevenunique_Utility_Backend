@@ -140,10 +140,13 @@ exports.createPermission = async (req, res) => {
 
 // 🔹 Get all global permissions
 exports.getAllPermissions = async (req, res) => {
-  console.log("Fetching all global permissions");
-
   try {
-    const all = await Permission.find().sort({ key: 1 });
+    const { key } = req.query;
+    const filter = {};
+    if (key) {
+      filter.key = { $regex: key, $options: "i" };
+    }
+    const all = await Permission.find(filter).sort({ key: 1 });
     res.json({ success: true, data: all });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
