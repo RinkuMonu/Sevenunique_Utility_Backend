@@ -159,11 +159,30 @@ const verifyOTPController = async (req, res) => {
         message: verificationResult.message || "Invalid OTP",
       });
     }
+    let user = await User.findOne({ mobileNumber });
+
+    let nextStep = 2;
+
+    if (user) {
+      if (user.name && user.email && user.password) nextStep = 3;
+
+      if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
+        nextStep = 4;
+
+      if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
+        nextStep = 5;
+
+      if (user.panDetails && Object.keys(user.panDetails).length > 0)
+        nextStep = 6;
+    }
 
     // ✅ Success
     return res.status(200).json({
       success: true,
       message: "OTP verified successfully",
+      userId: user ? user._id : null,
+      nextStep,
+      isExistingUser: !!user,
     });
   } catch (error) {
     console.error("❌ Error in verifyOTPController:", error);
@@ -887,7 +906,6 @@ const getUsersWithFilters = async (req, res) => {
         "status",
         "isKycVerified",
         "eWallet",
-        "cappingMoney",
         "createdAt",
       ];
     }
@@ -968,7 +986,6 @@ const getUsersWithFilters = async (req, res) => {
           "Status",
           "KYC Status",
           "eWallet",
-          "Capping Money",
           "Created At",
           "Updated At",
         ];
@@ -982,7 +999,6 @@ const getUsersWithFilters = async (req, res) => {
           u.status,
           u.isKycVerified ? "Verified" : "Not Verified",
           u.eWallet,
-          u.cappingMoney,
           u.createdAt ? new Date(u.createdAt).toLocaleString() : "-",
           u.updatedAt ? new Date(u.updatedAt).toLocaleString() : "-",
         ]);
