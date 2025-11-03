@@ -197,7 +197,7 @@ exports.updateLead = async (req, res) => {
     if (status && invalidTransitions[currentStatus]?.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status change: cannot move from ${currentStatus} → ${status}`,
+        message: `Sorrry! cannot move from ${currentStatus} → ${status}`,
       });
     }
 
