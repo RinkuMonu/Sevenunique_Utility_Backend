@@ -169,7 +169,7 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     if (["Completed", "Failed"].includes(paymentRequest.status)) {
       return res.status(400).json({
         success: false,
-        message: "Cannot update a finalized transaction",
+        message: "Cannot update a after it is marked Completed or Failed",
       });
     }
 
