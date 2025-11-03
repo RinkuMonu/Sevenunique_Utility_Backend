@@ -8,6 +8,7 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit"); // Make sure PDF is also imported
 const userModel = require("../models/userModel.js");
 
+
 exports.getBbpsReport = async (req, res) => {
   try {
     const {
@@ -26,9 +27,16 @@ exports.getBbpsReport = async (req, res) => {
     // Role-based matchStage
     const matchStage = {};
 
-    if (rechargeType) matchStage.rechargeType = { $regex: rechargeType, $options: "i" };
+    if (rechargeType) {
+      if (mongoose.Types.ObjectId.isValid(rechargeType)) {
+
+        matchStage.rechargeType = new mongoose.Types.ObjectId(rechargeType);
+      } else {
+
+        matchStage.rechargeType = { $regex: rechargeType, $options: "i" };
+      }
+    }
     if (status) matchStage.status = status;
-    console.log(matchStage);
 
     if (req.user.role === "Admin") {
       if (userId) matchStage.userId = new mongoose.Types.ObjectId(userId);
