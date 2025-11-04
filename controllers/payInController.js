@@ -1,8 +1,10 @@
 const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
-const PayIn = require("../models/payInModel.js"); // Renamed to match model convention
+const PayIn = require("../models/payInModel.js"); 
 const axios = require("axios");
 const { parse } = require("json2csv");
+const Transaction = require("../models/transactionModel.js");
+const payInModel = require("../models/payInModel.js");
 
 exports.allPayin = async (req, res, next) => {
   try {
@@ -214,26 +216,73 @@ exports.createPayIn = async (req, res, next) => {
 };
 
 exports.generatePayment = async (req, res, next) => {
-  const { userId, amount, reference, name, mobile, email } = req.body;
-
-  if (!amount || !reference || !name || !mobile || !email) {
-    return res
-      .status(400)
-      .json({ success: false, message: "All fields are required" });
-  }
-
-  const user = await User.findOne({
-    _id: req?.user?.id || userId,
-    status: true,
-  });
-
-  if (!user) {
-    return res
-      .status(404)
-      .json({ success: false, message: "User not found or not active" });
-  }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
+    const { userId, amount, reference, name, mobile, email } = req.body;
+
+    if (!amount || !reference || !name || !mobile || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    const user = await User.findOne({
+      _id: req?.user?.id || userId,
+      status: true,
+    }).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found or inactive" });
+    }
+
+    const referenceId = `PAY${Date.now()}`;
+
+
+    const [transaction] = await Transaction.create(
+      [
+        {
+          user_id: user._id,
+          transaction_type: "credit",
+          amount: Number(amount),
+          type: "PayIn",
+          balance_after: user.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: referenceId,
+          description: `PayIn initiated for ${user.name}`,
+          status: "Pending",
+        },
+      ],
+      { session }
+    );
+
+
+    const [payIn] = await PayIn.create(
+      [
+        {
+          userId: user._id,
+          fromUser: user._id,
+          mobile: user.mobileNumber,
+          email: user.email,
+          reference: referenceId,
+          name: user.name,
+          source: "PayIn",
+          amount: Number(amount),
+          type: "PayIn",
+          charges: 0,
+          status: "Pending",
+        },
+      ],
+      { session }
+    );
+
+
     const response = await axios.post(
       "https://admin.finuniques.in/api/v1.1/t1/UpiIntent",
       // "https://api.worldpayme.com/api/v1.1/createUpiIntent",
@@ -252,24 +301,41 @@ exports.generatePayment = async (req, res, next) => {
       }
     );
 
-    if (response.status !== 200) {
-      throw new Error("Failed to create payment intent");
+    // If external API failed
+    if (response.status !== 200 || !response.data?.success) {
+      throw new Error("Failed to create UPI Intent");
     }
 
-    const newPayIn = new PayIn({
-      userId: user._id,
-      amount,
-      reference,
-      name,
-      mobile,
-      email,
+      payIn.status = "Success";
+    transaction.status = "Success";
+
+     user.eWallet = Number(user.eWallet) + Number(amount);
+
+   
+    await user.save({ session });
+    await payIn.save({ session });
+    await transaction.save({ session });
+
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json({
+      success: true,
+      message: "PayIn successful and wallet updated",
+      data: {
+        paymentIntent: response.data,
+        updatedBalance: user.eWallet,
+      },
     });
-
-    await newPayIn.save();
-
-    return res.status(200).json(response.data);
   } catch (error) {
-    next(error);
+    await session.abortTransaction();
+    session.endSession();
+    console.error("❌ PayIn Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong while processing payment",
+    });
   }
 };
 exports.callbackPayIn = async (req, res) => {
