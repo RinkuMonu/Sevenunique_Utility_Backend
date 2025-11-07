@@ -180,20 +180,25 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
       (s) => s.serviceId.toString() === service?._id.toString());
 
     if (matchedService) {
-      const commissions = await commissionModel.findById(matchedService.packageId)
-      if (!commissions) {
-        throw new Error("Package not found");
+      const commissions = await commissionModel.findById(matchedService.packageId);
+      if (commissions) {
+        return { commissions, service };
+      } else {
+        return {
+          commissions: {
+            slabs: [],
+            isDefault: true,
+            isActive: true,
+            charge: 0,
+            gst: 0,
+            tds: 0,
+            retailer: 0,
+            distributor: 0,
+            admin: 0,
+          },
+          service,
+        };
       }
-      return {
-        commissions, service
-        // source: "UserMeta",
-        // chargeType: matchedService.chargeType,
-        // serviceCharges: matchedService.serviceCharges,
-        // gst: commission.gst,
-        // tds: commission.tds,
-        // distributorCommission: matchedService.distributorCommission,
-        // adminCommission: matchedService.adminCommission,
-      };
     }
   }
 
@@ -228,7 +233,19 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
 
 
   if (!commissions) {
-    throw new Error("commission not found.");
+    return {
+      commissions: {
+        slabs: [],
+        isDefault: true,
+        isActive: true,
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+      }, service
+    }
 
   }
 
