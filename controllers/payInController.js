@@ -1,10 +1,12 @@
 const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
-const PayIn = require("../models/payInModel.js"); 
+const PayIn = require("../models/payInModel.js");
 const axios = require("axios");
 const { parse } = require("json2csv");
 const Transaction = require("../models/transactionModel.js");
 const payInModel = require("../models/payInModel.js");
+const servicesModal = require("../models/servicesModal.js");
+
 
 exports.allPayin = async (req, res, next) => {
   try {
@@ -220,7 +222,25 @@ exports.generatePayment = async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const { userId, amount, reference, name, mobile, email } = req.body;
+    const tokenResponse = await axios.post(
+      "https://admin.finuniques.in/api/v1.1/t1/oauth/token",
+      new URLSearchParams({
+        authKey: "UTI6tamscw",
+        authSecret: "4jtudpz0ri1x2t@y",
+      }),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }
+    );
+
+    const accessToken = tokenResponse?.data?.data?.access_token;
+
+    if (!accessToken) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Failed to fetch token" });
+    }
+    const { userId, amount, category, reference, name, mobile, email } = req.body;
 
     if (!amount || !reference || !name || !mobile || !email) {
       return res.status(400).json({
@@ -234,16 +254,18 @@ exports.generatePayment = async (req, res, next) => {
       status: true,
     }).session(session);
 
+    const service = await servicesModal.findOne({ _id: category });
+    if (!service) {
+      return res.status(400).json({ success: false, message: "Service not found" });
+    }
+
     if (!user) {
       await session.abortTransaction();
       session.endSession();
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found or inactive" });
+      return res.status(404).json({ success: false, message: "User not found or inactive" });
     }
 
     const referenceId = `PAY${Date.now()}`;
-
 
     const [transaction] = await Transaction.create(
       [
@@ -251,7 +273,7 @@ exports.generatePayment = async (req, res, next) => {
           user_id: user._id,
           transaction_type: "credit",
           amount: Number(amount),
-          type: "PayIn",
+          type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
           transaction_reference_id: referenceId,
@@ -261,7 +283,6 @@ exports.generatePayment = async (req, res, next) => {
       ],
       { session }
     );
-
 
     const [payIn] = await PayIn.create(
       [
@@ -274,8 +295,9 @@ exports.generatePayment = async (req, res, next) => {
           name: user.name,
           source: "PayIn",
           amount: Number(amount),
-          type: "PayIn",
+          type: service._id,
           charges: 0,
+          remark: "Payment Pending",
           status: "Pending",
         },
       ],
@@ -283,39 +305,55 @@ exports.generatePayment = async (req, res, next) => {
     );
 
 
-    const response = await axios.post(
-      "https://admin.finuniques.in/api/v1.1/t1/UpiIntent",
-      // "https://api.worldpayme.com/api/v1.1/createUpiIntent",
-      {
-        amount,
-        reference,
-        name,
-        email,
-        mobile,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI4IiwianRpIjoiODljNzdlZGMwMjBkMzc1MDI5ZmU5MWRiZjI4MDhjMzEzZjMxODg4NTA0NGM0Y2FiYzRiY2UwYmFjZGViZTQ4OTY1NGI3Y2Q3ZTc5YTBjMjkiLCJpYXQiOjE3NTEzNTM1MzMuMzkxNzc5LCJuYmYiOjE3NTEzNTM1MzMuMzkxNzgsImV4cCI6MTc4Mjg4OTUzMy4zOTA0LCJzdWIiOiIxNzQiLCJzY29wZXMiOltdfQ.wZ8kN3XTocrWqFY4IsGwuibbQLIzKemhOPuzbFC-4bF1rT1HlMj0wiubaSazOvy-TQlquCEGv179Bg83nb5PkCxnN35ES7RgSihb3Eegd3r3H5yT5vh_E6B_MQ1J6w75-0IbrPM0iP0tELFafTopGN0vkIIu-TWJ6MK_seKxCgjmH_z9y_hFjkXVm_fCsZGFRWdoaw4NrKqR7g9vDx4SNTbrZE-k8Sq4-oEDt1qaFOtRS38xM90k6UXUpCnYVgcecTmZYUqbeAyJITEszZsLMda3gL40VVC0Nx5rVeMDrXRu1BsR2vEkMoSc7B3qa_zRP-IQst1UxVE13HIRegg4J2w-_1yFVO7jf2XAQGBCmZqIWJrdCPiarV0U2PK0iO6Cp6rXuEzUg-MFcd-rgFYwn7fVVSShFSzST8nqVSEmOugpGp3XWbapFIY3mu-5RvI1LDBn-x81Gj945hajukURqIOrlNVC4CbTP-aO8GwiEw0EesxWa0dwLzKemk3N2a_HjXQiSly_MEHLWIKHaYdUZ6pYPW5_lOCHpZqoVg3k4J_4TriAWnmhrc5c9hZJutRPMo--OIYI_mR3qFSeOfj0J_0tkxaBa4gUKR_DBsdJMIoKTDOVzTTXhwJXrHMkTjH4u51IEJkCDSSoCaru3yfjbflW5yHFg0aVj1LwwZLNa2Q`,
-        },
-      }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        "https://admin.finuniques.in/api/v1.1/t1/UpiIntent",
+        { amount, reference, name, email, mobile },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      console.log(response);
 
-    // If external API failed
-    if (response.status !== 200 || !response.data?.success) {
-      throw new Error("Failed to create UPI Intent");
+    } catch (apiError) {
+
+      response = { status: 500, data: { success: false, message: apiError.response.data.message } };
     }
 
-      payIn.status = "Success";
+    // 🔹 Check API response and decide outcome
+    if (response.status !== 200 || !response.data?.success == 'success') {
+      // ❌ Mark as Failed and save before exiting
+      payIn.status = "Failed";
+      transaction.status = "Failed";
+      payIn.remark = response.data?.message || "UPI Intent creation failed";
+      transaction.description = response.data?.message || "UPI Intent creation failed";
+
+      await payIn.save({ session });
+      await transaction.save({ session });
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return res.status(400).json({
+        success: false,
+        message: payIn.remark,
+      });
+    }
+
+    // ✅ Success flow
+    payIn.status = "Success";
     transaction.status = "Success";
+    payIn.remark = response.data?.message || "Payment Successfully add!";
+    transaction.description = response.data?.message || "Payment Successfully add!";
+    user.eWallet = Number(user.eWallet) + Number(amount);
 
-     user.eWallet = Number(user.eWallet) + Number(amount);
-
-   
     await user.save({ session });
     await payIn.save({ session });
     await transaction.save({ session });
-
 
     await session.commitTransaction();
     session.endSession();
@@ -338,6 +376,7 @@ exports.generatePayment = async (req, res, next) => {
     });
   }
 };
+
 exports.callbackPayIn = async (req, res) => {
   try {
     const data = req.body;
