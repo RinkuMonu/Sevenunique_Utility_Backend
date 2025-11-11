@@ -224,6 +224,7 @@ exports.generatePayment = async (req, res, next) => {
   try {
     const tokenResponse = await axios.post(
       "https://admin.finuniques.in/api/v1.1/t1/oauth/token",
+      
       new URLSearchParams({
         authKey: "UTI6tamscw",
         authSecret: "4jtudpz0ri1x2t@y",

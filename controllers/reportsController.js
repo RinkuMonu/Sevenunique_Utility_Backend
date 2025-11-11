@@ -25,7 +25,15 @@ exports.getBbpsReport = async (req, res) => {
     } = req.query;
     // Role-based matchStage
     const matchStage = {};
+    let serviceName = null;
 
+    if (rechargeType && mongoose.Types.ObjectId.isValid(rechargeType)) {
+      const serviceDoc = await mongoose
+        .model("Service")
+        .findById(rechargeType)
+        .select("name");
+      serviceName = serviceDoc ? serviceDoc.name : null;
+    }
     if (rechargeType) {
       if (mongoose.Types.ObjectId.isValid(rechargeType)) {
         matchStage.rechargeType = new mongoose.Types.ObjectId(rechargeType);
@@ -109,6 +117,7 @@ exports.getBbpsReport = async (req, res) => {
                   { "user.name": { $regex: search, $options: "i" } },
                   { "user.UserId": { $regex: search, $options: "i" } },
                   { transactionId: { $regex: search, $options: "i" } },
+                  { customerNumber: { $regex: search, $options: "i" } },
                 ],
               },
             },
@@ -192,6 +201,7 @@ exports.getBbpsReport = async (req, res) => {
         totalPages: Math.ceil(total / limitNumber),
         totalResults: total,
       },
+      serviceName,
     });
   } catch (err) {
     console.error("🔥 Error fetching BBPS report:", err);
