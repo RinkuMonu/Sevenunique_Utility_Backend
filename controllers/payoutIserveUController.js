@@ -84,8 +84,15 @@ exports.generateToken = async (req, res) => {
 };
 
 const FormData = require("form-data");
+const userModel = require("../models/userModel");
+const { default: mongoose } = require("mongoose");
+const Transaction = require("../models/transactionModel");
+const payOutModel = require("../models/payOutModel");
 
 exports.initiatePayout = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const {
       beneName,
@@ -103,7 +110,86 @@ exports.initiatePayout = async (req, res) => {
       latlong,
       paramA,
       paramB,
+      type = "690314decc20a7e1a531cd05",
     } = req.body;
+    const userId = req.user.id;
+    const referenceId = `PAYOUT${Date.now()}`;
+    const user = await userModel
+      .findOne({
+        _id: userId,
+        status: true,
+      })
+      .session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "User not found or inactive",
+      });
+    }
+    if (!beneName || !beneAccountNo || !beneifsc || !amount) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Missing required payout details",
+      });
+    }
+    //for payout
+    const totalDebit = Number(amount);
+
+    // ✅ Check wallet balance
+    if (Number(user.eWallet) < totalDebit) {
+      await session.abortTransaction();
+      session.endSession();
+      return res
+        .status(400)
+        .json({ success: false, message: "Insufficient wallet balance" });
+    }
+
+    // ✅ Step 1: Create initial "Pending" payout record
+    const [payoutRecord] = await payOutModel.create(
+      [
+        {
+          userId,
+          amount: Number(amount),
+          reference: referenceId,
+          trans_mode: fundTransferType || "IMPS",
+          account: beneAccountNo,
+          ifsc: beneifsc,
+          name: beneName,
+          mobile: benePhoneNo,
+          email: paramA || user.email,
+          status: "Pending",
+          remark: "Payout initiated",
+          charges: 0,
+          gst: 0,
+          tds: 0,
+          totalDebit,
+        },
+      ],
+      { session }
+    );
+    // wallet report
+    const [transactionRecord] = await Transaction.create(
+      [
+        {
+          user_id: userId,
+          transaction_type: "debit",
+          amount: Number(amount),
+          type: type,
+          totalDebit,
+          balance_after: user.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: referenceId,
+          description: `Payout initiated for ${beneName}`,
+          status: "Pending",
+        },
+      ],
+      { session }
+    );
 
     // 1️⃣ Get access token
     const tokenResponse = await axios.post(
@@ -118,20 +204,29 @@ exports.initiatePayout = async (req, res) => {
     );
 
     const accessToken = tokenResponse?.data?.data?.access_token;
-    console.log("✅ Access Token:", accessToken);
-
+    // const accessToken = true;
+    console.log("access Token:", accessToken);
     if (!accessToken) {
+      payoutRecord.status = "Failed";
+      transactionRecord.status = "Failed";
+      payoutRecord.remark = "Failed to fetch token";
+      transactionRecord.description = "Failed to fetch token";
+      await payoutRecord.save({ session });
+      await transactionRecord.save({ session });
+      await session.commitTransaction();
+      session.endSession();
       return res
         .status(400)
-        .json({ success: false, message: "Failed to fetch token" });
+        .json({ success: false, message: "technical issue try again later" });
     }
 
     // 2️⃣ Prepare multipart form-data
     const formData = new FormData();
     formData.append("amount", amount);
-    formData.append("reference", clientReferenceNo);
+    formData.append("reference", referenceId || clientReferenceNo);
     formData.append("trans_mode", fundTransferType); // e.g., "imps" or "neft"
     formData.append("account", beneAccountNo);
+    formData.append("beneBankName", beneBankName);
     formData.append("ifsc", beneifsc);
     formData.append("name", beneName);
     formData.append("email", paramA || "demo@gmail.com");
@@ -146,34 +241,76 @@ exports.initiatePayout = async (req, res) => {
     if (latlong) formData.append("latlong", latlong);
 
     // 3️⃣ Make payout API call
-    const payoutResponse = await axios.post(
-      "https://admin.finuniques.in/api/v1.1/t1/withdrawal",
-      formData,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          ...formData.getHeaders(),
+    let response;
+    try {
+      response = await axios.post(
+        "https://admin.finuniques.in/api/v1.1/t1/withdrawal",
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            ...formData.getHeaders(),
+          },
+        }
+      );
+    } catch (apiError) {
+      response = {
+        status: 500,
+        data: {
+          success: false,
+          message: apiError.response?.data?.message || "Payout API failed",
         },
-      }
-    );
+      };
+    }
 
-    console.log("✅ Payout Response:", payoutResponse.data);
+    console.log("✅ Payout Response:", response.data);
+    const isSuccess = true;
+    response.status === 200 &&
+      (response.data?.success === true ||
+        response.data?.status === "SUCCESS" ||
+        response.data?.message?.toLowerCase()?.includes("success"));
 
-    // 4️⃣ Return to frontend
+    if (!isSuccess) {
+      payoutRecord.status = "Failed";
+      transactionRecord.status = "Failed";
+      payoutRecord.remark = response.data?.message || "  failed";
+      transactionRecord.description = response.data?.message || "Payout failed";
+
+      await payoutRecord.save({ session });
+      await transactionRecord.save({ session });
+
+      await session.commitTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: payoutRecord.remark,
+        data: response.data,
+      });
+    }
+    user.eWallet = Number(user.eWallet) - Number(amount);
+    payoutRecord.status = "Success";
+    transactionRecord.status = "Success";
+    await user.save({ session });
+    await payoutRecord.save({ session });
+    await transactionRecord.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
     return res.status(200).json({
       success: true,
       message: "Payout request processed successfully",
-      data: payoutResponse.data,
+      data: response.data,
+      payOut: payoutRecord,
+      transaction: transactionRecord,
+      updatedBalance: user.eWallet,
     });
   } catch (error) {
-    console.error(
-      "❌ Error in initiatePayout:",
-      error.response?.data || error.message
-    );
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Payout Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Payout failed",
-      error: error.response?.data || error.message,
+      message: error.message || "Something went wrong while processing payout",
     });
   }
 };
@@ -283,7 +420,6 @@ exports.payoutCallback = async (req, res) => {
     return res.status(500).json({ success: false });
   }
 };
-
 
 /**
  * @desc Send payout transaction

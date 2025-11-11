@@ -177,7 +177,6 @@ exports.getLeadById = async (req, res) => {
   }
 };
 
-// Admin: update status + note + optional remark append
 exports.updateLead = async (req, res) => {
   try {
     const { status, adminNote, remark } = req.body;
