@@ -11,7 +11,7 @@ const payOutSchema = new mongoose.Schema(
     amount: {
       type: Number, // Changed from String to Number for consistency with amounts
       required: true,
-      min: [0, 'Amount must be greater than or equal to zero'], // Validation for amount
+      min: [0, "Amount must be greater than or equal to zero"], // Validation for amount
     },
     reference: {
       type: String,
@@ -21,20 +21,29 @@ const payOutSchema = new mongoose.Schema(
     trans_mode: {
       type: String,
       required: false,
-      enum: ["Bank Transfer", "UPI", "Cash", "Cheque", 'IMPS', 'NEFT', 'WALLET',"AEPS"], // Adding some common payment modes
+      enum: [
+        "Bank Transfer",
+        "UPI",
+        "Cash",
+        "Cheque",
+        "IMPS",
+        "NEFT",
+        "WALLET",
+        "AEPS",
+        "RTGS",
+      ], // Adding some common payment modes
     },
     account: {
-      type: String
+      type: String,
     },
     type: {
       type: Schema.Types.ObjectId,
       ref: "Service",
-    
     },
     ifsc: {
       type: String,
       required: false,
-      match: [/^[A-Za-z]{4}\d{7}$/, 'Invalid IFSC code'], // IFSC code format validation
+      match: [/^[A-Za-z]{4}\d{7}$/, "Invalid IFSC code"], // IFSC code format validation
     },
     name: {
       type: String,
@@ -46,14 +55,14 @@ const payOutSchema = new mongoose.Schema(
       required: true,
       validate: {
         validator: (v) => /\d{10}/.test(v), // Mobile number validation (10 digits)
-        message: 'Invalid mobile number',
+        message: "Invalid mobile number",
       },
     },
     email: {
       type: String,
-      required: true,
+      // required: true,
       lowercase: true, // Convert email to lowercase
-      match: [/\S+@\S+\.\S+/, 'Please enter a valid email address'], // Email format validation
+      match: [/\S+@\S+\.\S+/, "Please enter a valid email address"], // Email format validation
     },
     status: {
       type: String,
@@ -75,7 +84,7 @@ const payOutSchema = new mongoose.Schema(
       type: Number, // Changed to Number type for charges
       required: true,
       default: 0, // Default value for charges
-      min: [0, 'Charges must be greater than or equal to zero'],
+      min: [0, "Charges must be greater than or equal to zero"],
     },
     gst: {
       type: Number,
