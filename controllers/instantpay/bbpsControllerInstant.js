@@ -244,6 +244,16 @@ exports.makePayment = async (req, res, next) => {
     let commission;
     if (commissions?.slabs?.length > 0) {
       commission = calculateCommissionFromSlabs(transactionAmount, commissions, billerId.billerName);
+    } else {
+      commission = {
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+        totalCommission: 0,
+      };
     }
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
