@@ -257,7 +257,7 @@ exports.generatePayment = async (req, res, next) => {
 
     // const tokenResponse = await axios.post(
     //   "https://admin.finuniques.in/api/v1.1/t1/oauth/token",
-      
+
     //   new URLSearchParams({
     //     authKey: "UTI6tamscw",
     //     authSecret: "4jtudpz0ri1x2t@y",
@@ -275,7 +275,7 @@ exports.generatePayment = async (req, res, next) => {
     //     .json({ success: false, message: "Failed to fetch token" });
     // }
 
-    const { userId, amount, category, reference, name, mobile, email } = req.body;
+    const { userId, amount, category = "69098858833bc4bd990d6e22", reference, name, mobile, email } = req.body;
 
     if (!amount || !email) {
       return res.status(400).json({
@@ -552,7 +552,7 @@ exports.generatePayment = async (req, res, next) => {
 
 exports.callbackPayIn = async (req, res) => {
   try {
-    
+
     const data = req.body;
     const responseCode = data?.responseCode?.toString();
     const isSuccess = responseCode === "100";
