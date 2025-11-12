@@ -1080,6 +1080,7 @@ const updateUserDetails = async (req, res) => {
       password,
       mpin,
       outletId,
+      callbackUrl
     } = req.body;
 
     if (!userId) {
@@ -1101,6 +1102,7 @@ const updateUserDetails = async (req, res) => {
     if (password) user.password = password;
     if (mpin) user.mpin = mpin;
     if (outletId) user.outletId = outletId;
+    if (callbackUrl) user.callbackUrl = callbackUrl;
 
     await user.save();
     return res.status(200).json({
