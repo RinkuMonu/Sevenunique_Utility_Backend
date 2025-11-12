@@ -357,9 +357,6 @@ exports.generatePayment = async (req, res, next) => {
       checksum,
     };
     // return
-
-    payIn.status = "Pending";
-    transaction.status = "Pending";
     payIn.remark = "Redirect to Zaakpay for payment";
     transaction.description = "Redirect to Zaakpay for payment";
 
