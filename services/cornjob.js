@@ -1,9 +1,12 @@
 import cron from "node-cron";
 import userModel from "../models/userModel.js";
+import payInModel from "../models/payInModel.js";
+import Transaction from "../models/transactionModel.js";
+
 
 // Every day at midnight
 export const planCheckCronJob = () => {
-  
+
   // cron.schedule("*/30 * * * * *", async () => {
   cron.schedule("0 0 * * *", async () => {
     console.log("🔄 Running daily plan expiry check...");
@@ -35,6 +38,41 @@ export const planCheckCronJob = () => {
       }
     } catch (err) {
       console.error("❌ Error in plan expiry cron job:", err);
+    }
+  });
+
+  cron.schedule("* * * * *", async () => {
+    console.log("⏱️ [CRON] Checking for expired pending wallets...");
+
+    try {
+      const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+      const expired = await payInModel.find({
+        status: "Pending",
+        createdAt: { $lte: cutoff },
+        pgTransId: { $exists: false },
+      });
+
+      if (expired.length === 0) return;
+
+      for (const p of expired) {
+        p.status = "Failed";
+        p.remark = "User left payment page without completing transaction";
+        await p.save();
+
+        await Transaction.findOneAndUpdate(
+          { transaction_reference_id: p.reference },
+          {
+            $set: {
+              status: "Failed",
+              description: "User left payment page without completing transaction",
+            },
+          }
+        );
+
+        console.log(`❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`);
+      }
+    } catch (err) {
+      console.error("❌ [ERROR] Auto-fail PayIn CRON:", err.message);
     }
   });
 };

@@ -64,7 +64,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     payment_mode: {
       type: String,
-      enum: ["wallet", "bank_transfer", "cash"],
+      default: "wallet"
     },
     transaction_reference_id: {
       type: String,
