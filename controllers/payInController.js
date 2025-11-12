@@ -347,8 +347,8 @@ exports.generatePayment = async (req, res, next) => {
       currency: "INR",
       merchantIdentifier: merchant_identifier,
       orderId: referenceId,
-      // returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
-      returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
+      returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
+      // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
     };
     const checksum = generateZaakpayChecksum(payload, secretKey);
 
