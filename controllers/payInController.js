@@ -672,7 +672,6 @@ exports.callbackPayIn = async (req, res) => {
       </html>
     `;
 
-
     if (user && user.callbackUrl) {
       try {
         const res = await axios.post(user.callbackUrl, data, {
