@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-const generateJwtToken = (userId, mobileNumber) => {
+const generateJwtToken = (userId, role, mobileNumber) => {
   try {
     const payload = {
       id: userId,
+      role,
       mobileNumber
     };
 
