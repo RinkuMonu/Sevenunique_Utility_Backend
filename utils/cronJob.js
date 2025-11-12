@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const User = require("../models/userModel");
 
+
 // ✅ Run cron job every day at midnight (12:00 AM)
 cron.schedule("0 0 * * *", async () => {
   console.log("⏳ [CRON] Running daily expired plan check...");
@@ -44,5 +45,8 @@ cron.schedule("0 0 * * *", async () => {
     console.error("❌ [ERROR] CRON Job Failed:", error);
   }
 });
+
+
+
 
 module.exports = cron;
