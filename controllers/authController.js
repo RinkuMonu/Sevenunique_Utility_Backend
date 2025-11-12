@@ -373,7 +373,7 @@ const loginController = async (req, res) => {
     }
 
     // ✅ Generate JWT
-    const token = generateJwtToken(user._id, user.mobileNumber);
+    const token = generateJwtToken(user._id, user.role, user.mobileNumber);
 
     sendLoginEmail(user);
 
