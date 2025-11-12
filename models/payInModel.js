@@ -68,6 +68,9 @@ const payInSchema = new mongoose.Schema(
     service: {
       type: String,
     },
+    pgTransId: {
+      type: String
+    },
     charges: {
       type: Number,
       required: true,

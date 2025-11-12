@@ -1,7 +1,6 @@
 const cron = require("node-cron");
 const User = require("../models/userModel");
-const payInModel = require("../models/payInModel");
-const Transaction = require("../models/transactionModel");
+
 
 // ✅ Run cron job every day at midnight (12:00 AM)
 cron.schedule("0 0 * * *", async () => {
@@ -47,39 +46,7 @@ cron.schedule("0 0 * * *", async () => {
   }
 });
 
-cron.schedule("* * * * *", async () => {
-  console.log("⏱️ [CRON] Checking for expired pending wallets...");
 
-  try {
-    const cutoff = new Date(Date.now() - 5 * 60 * 1000); 
-    const expired = await payInModel.find({
-      status: "Pending",
-      createdAt: { $lte: cutoff }
-    });
-
-    if (expired.length === 0) return;
-
-    for (const p of expired) {
-      p.status = "FAILED";
-      p.remark = "User left payment page without completing transaction";
-      await p.save();
-
-      await Transaction.findOneAndUpdate(
-        { transaction_reference_id: p.reference },
-        {
-          $set: {
-            status: "FAILED",
-            description: "User left payment page without completing transaction",
-          },
-        }
-      );
-
-      console.log(`❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`);
-    }
-  } catch (err) {
-    console.error("❌ [ERROR] Auto-fail PayIn CRON:", err.message);
-  }
-});
 
 
 module.exports = cron;
