@@ -1,7 +1,7 @@
 const express = require('express');
 const { celebrate, Segments, Joi } = require('celebrate');
 const authenticateToken = require('../middleware/verifyToken.js');
-const { allPayin, generatePayment, callbackPayIn, checkPayInStatus, createPayIn } = require('../controllers/payInController.js');
+const { allPayin, generatePayment, callbackPayIn, checkPayInStatus, createPayIn, callbackGet } = require('../controllers/payInController.js');
 const { getPayOuts, generatePayOut, callbackPayout, getPayoutStatus } = require('../controllers/payoutController.js');
 const router = express.Router();
 
@@ -60,6 +60,7 @@ router.get('/payin', celebrate(validation), authenticateToken, allPayin);
 router.post('/paygen', createPayIn)
 router.post('/payin', generatePayment);
 router.post('/payin/callback', callbackPayIn);
+router.post('/payin/callbackGet', callbackGet);
 router.get('/payin/:reference', authenticateToken, checkPayInStatus);
 
 router.get('/payout', celebrate(validation), authenticateToken, getPayOuts);
