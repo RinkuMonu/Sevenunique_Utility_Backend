@@ -8,7 +8,6 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit"); // Make sure PDF is also imported
 const userModel = require("../models/userModel.js");
 
-
 exports.getBbpsReport = async (req, res) => {
   try {
     const {
@@ -26,13 +25,19 @@ exports.getBbpsReport = async (req, res) => {
     } = req.query;
     // Role-based matchStage
     const matchStage = {};
+    let serviceName = null;
 
+    if (rechargeType && mongoose.Types.ObjectId.isValid(rechargeType)) {
+      const serviceDoc = await mongoose
+        .model("Service")
+        .findById(rechargeType)
+        .select("name");
+      serviceName = serviceDoc ? serviceDoc.name : null;
+    }
     if (rechargeType) {
       if (mongoose.Types.ObjectId.isValid(rechargeType)) {
-
         matchStage.rechargeType = new mongoose.Types.ObjectId(rechargeType);
       } else {
-
         matchStage.rechargeType = { $regex: rechargeType, $options: "i" };
       }
     }
@@ -105,7 +110,18 @@ exports.getBbpsReport = async (req, res) => {
 
       // Search by user name
       ...(search
-        ? [{ $match: { "user.name": { $regex: search, $options: "i" } } }]
+        ? [
+            {
+              $match: {
+                $or: [
+                  { "user.name": { $regex: search, $options: "i" } },
+                  { "user.UserId": { $regex: search, $options: "i" } },
+                  { transactionId: { $regex: search, $options: "i" } },
+                  { customerNumber: { $regex: search, $options: "i" } },
+                ],
+              },
+            },
+          ]
         : []),
 
       {
@@ -127,6 +143,7 @@ exports.getBbpsReport = async (req, res) => {
           extraDetails: 1,
           "user.name": 1,
           "user.email": 1,
+          "user.UserId": 1,
           "distributor._id": 1,
           "distributor.name": 1,
           "distributor.email": 1,
@@ -184,6 +201,7 @@ exports.getBbpsReport = async (req, res) => {
         totalPages: Math.ceil(total / limitNumber),
         totalResults: total,
       },
+      serviceName,
     });
   } catch (err) {
     console.error("🔥 Error fetching BBPS report:", err);
@@ -407,8 +425,10 @@ exports.getAllDmtReports = async (req, res, next) => {
             doc
               .fontSize(10)
               .text(
-                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${report.benename
-                } (${report.account_number}) - ₹${report.gatewayCharges?.txn_amount || 0
+                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${
+                  report.benename
+                } (${report.account_number}) - ₹${
+                  report.gatewayCharges?.txn_amount || 0
                 } - ${report.status ? "Success" : "Failed"}`,
                 50,
                 yPosition
@@ -560,8 +580,8 @@ exports.aepsTransactions = async (req, res, next) => {
         status === "true" || status === true
           ? true
           : status === "false" || status === false
-            ? false
-            : undefined;
+          ? false
+          : undefined;
 
       if (parsedStatus !== undefined) {
         matchStage.status = parsedStatus;
@@ -607,13 +627,10 @@ exports.aepsTransactions = async (req, res, next) => {
           localField: "userId",
           foreignField: "_id",
           as: "user",
-          pipeline: [
-            { $project: { name: 1, _id: 0 } }
-          ],
+          pipeline: [{ $project: { name: 1, _id: 0 } }],
         },
       },
-      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
-
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } }
     );
 
     const downloadPipeline = [...pipeline];
