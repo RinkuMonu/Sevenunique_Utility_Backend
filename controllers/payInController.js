@@ -254,6 +254,27 @@ exports.generatePayment = async (req, res, next) => {
   let transactionCompleted = false;
 
   try {
+
+    // const tokenResponse = await axios.post(
+    //   "https://admin.finuniques.in/api/v1.1/t1/oauth/token",
+      
+    //   new URLSearchParams({
+    //     authKey: "UTI6tamscw",
+    //     authSecret: "4jtudpz0ri1x2t@y",
+    //   }),
+    //   {
+    //     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    //   }
+    // );
+
+    // const accessToken = tokenResponse?.data?.data?.access_token;
+
+    // if (!accessToken) {
+    //   return res
+    //     .status(400)
+    //     .json({ success: false, message: "Failed to fetch token" });
+    // }
+
     const { userId, amount, category, reference, name, mobile, email } = req.body;
 
     if (!amount || !email) {
