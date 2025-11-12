@@ -170,7 +170,7 @@ exports.listDeviceRequests = async (req, res) => {
           as: "device",
         },
       },
-      { $unwind: "$device" },
+      { $unwind: { path: "$device", preserveNullAndEmptyArrays: true } },
 
       // ✅ retailer join only name field
       {
@@ -179,9 +179,7 @@ exports.listDeviceRequests = async (req, res) => {
           localField: "retailerId",
           foreignField: "_id",
           as: "retailer",
-          pipeline: [
-            { $project: { _id: 0, name: 1 } }, 
-          ],
+          pipeline: [{ $project: { _id: 0, name: 1 } }],
         },
       },
       { $unwind: { path: "$retailer", preserveNullAndEmptyArrays: true } },
