@@ -24,6 +24,9 @@ const userSchema = new mongoose.Schema(
     outletId: {
       type: String
     },
+    callbackUrl: {
+      type: String
+    },
 
     email: {
       type: String,
@@ -250,12 +253,12 @@ const userSchema = new mongoose.Schema(
     },
     registrationProgress: {
       currentStep: { type: Number, default: 1 },
-      currentStepTitle: { type: String, default: "Start" }, 
+      currentStepTitle: { type: String, default: "Start" },
       status: {
         type: String,
         enum: ["completed", "incomplete"],
         default: "incomplete",
-      }, 
+      },
     },
 
     documents: [String],
