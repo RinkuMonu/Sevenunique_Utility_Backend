@@ -562,7 +562,7 @@ exports.callbackPayIn = async (req, res) => {
       { reference: data?.orderId },
       {
         $set: {
-          status: isSuccess ? "SUCCESS" : "FAILED",
+          status: isSuccess ? "Success" : "Failed",
           responseDescription: data?.responseDescription,
           pgTransId: data?.pgTransId,
           paymentMode: data?.paymentMode,
@@ -591,7 +591,7 @@ exports.callbackPayIn = async (req, res) => {
       { transaction_reference_id: data?.orderId },
       {
         $set: {
-          status: isSuccess ? "SUCCESS" : "FAILED",
+          status: isSuccess ? "Success" : "Failed",
           balance_after: user.eWallet,
           gatewayResponse: data,
           payment_mode: data?.paymentMode,
