@@ -312,7 +312,7 @@ exports.generatePayment = async (req, res, next) => {
           type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
-          transaction_reference_id: referenceId,
+          transaction_reference_id: reference || referenceId,
           description: `PayIn initiated for ${user.name}`,
           status: "Pending",
         },
@@ -327,7 +327,7 @@ exports.generatePayment = async (req, res, next) => {
           fromUser: user._id,
           mobile: user.mobileNumber,
           email: user.email,
-          reference: referenceId,
+          reference: reference || referenceId,
           name: user.name,
           source: "PayIn",
           amount: Number(amount),
@@ -346,7 +346,7 @@ exports.generatePayment = async (req, res, next) => {
       buyerEmail: email,
       currency: "INR",
       merchantIdentifier: merchant_identifier,
-      orderId: referenceId,
+      orderId: reference || referenceId,
       returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
       // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
     };
