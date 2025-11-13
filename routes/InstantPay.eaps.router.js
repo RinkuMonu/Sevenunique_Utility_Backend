@@ -49,7 +49,7 @@ router.post("/instantpay/mini-statement", authenticateToken, instantpayControlle
 router.post("/instantpay/deposit", authenticateToken, instantpayController.deposite);
 
 // 🔹 Bank list
-router.get("/instantpay/bank-list", instantpayController.getBankList);
+router.get("/instantpay/bank-list", authenticateToken,instantpayController.getBankList);
 
 
 module.exports = router;
