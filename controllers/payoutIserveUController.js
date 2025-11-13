@@ -88,6 +88,7 @@ const userModel = require("../models/userModel");
 const { default: mongoose } = require("mongoose");
 const Transaction = require("../models/transactionModel");
 const payOutModel = require("../models/payOutModel");
+const { response } = require("express");
 
 exports.initiatePayout = async (req, res) => {
   const session = await mongoose.startSession();
@@ -160,7 +161,7 @@ exports.initiatePayout = async (req, res) => {
           account: beneAccountNo,
           ifsc: beneifsc,
           name: beneName,
-          mobile: benePhoneNo,
+          mobile: custMobNo,
           email: paramA || user.email,
           status: "Pending",
           remark: "Payout initiated",
@@ -193,10 +194,10 @@ exports.initiatePayout = async (req, res) => {
 
     // 1️⃣ Get access token
     const tokenResponse = await axios.post(
-      "https://admin.finuniques.in/api/v1.1/t1/oauth/token",
+      "https://instantpayco.com/api/v1.1/generateToken",
       new URLSearchParams({
-        authKey: "UTI6tamscw",
-        authSecret: "4jtudpz0ri1x2t@y",
+        clientKey: "bbps456udfg6",
+        clientSecret: "bbps456udfg6",
       }),
       {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -205,7 +206,7 @@ exports.initiatePayout = async (req, res) => {
 
     const accessToken = tokenResponse?.data?.data?.access_token;
     // const accessToken = true;
-    console.log("access Token:", accessToken);
+    // console.log("access Token:", accessToken);
     if (!accessToken) {
       payoutRecord.status = "Failed";
       transactionRecord.status = "Failed";
@@ -229,9 +230,9 @@ exports.initiatePayout = async (req, res) => {
     formData.append("beneBankName", beneBankName);
     formData.append("ifsc", beneifsc);
     formData.append("name", beneName);
-    formData.append("email", paramA || "demo@gmail.com");
-    formData.append("mobile", benePhoneNo);
-    formData.append("address", paramB || "Mumbai");
+    formData.append("email", paramA || "");
+    formData.append("mobile", custMobNo);
+    formData.append("address", paramB || "");
 
     // Optional extras if you want to pass them:
     if (pincode) formData.append("pincode", pincode);
@@ -244,7 +245,7 @@ exports.initiatePayout = async (req, res) => {
     let response;
     try {
       response = await axios.post(
-        "https://admin.finuniques.in/api/v1.1/t1/withdrawal",
+        "https://instantpayco.com/api/v1.1/payoutTransaction",
         formData,
         {
           headers: {
@@ -264,8 +265,8 @@ exports.initiatePayout = async (req, res) => {
     }
 
     console.log("✅ Payout Response:", response.data);
-    const isSuccess = true;
-    response.status === 200 &&
+    const isSuccess =
+      response.status === 200 &&
       (response.data?.success === true ||
         response.data?.status === "SUCCESS" ||
         response.data?.message?.toLowerCase()?.includes("success"));
@@ -312,6 +313,38 @@ exports.initiatePayout = async (req, res) => {
       success: false,
       message: error.message || "Something went wrong while processing payout",
     });
+  }
+};
+
+exports.payoutCallback = async (req, res) => {
+  try {
+    console.log("📥 Callback Received Query:", req.query);
+    console.log("📥 Callback Received Body:", req.body);
+
+    const { status, message, utr, reference, amount } = req.query;
+
+    if (!status || !reference) {
+      console.error("❌ Missing required params in callback");
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing parameters" });
+    }
+
+    console.log("✅ Callback Data Parsed:", {
+      status,
+      message,
+      utr,
+      reference,
+      amount,
+    });
+
+    // Proceed with your logic...
+    return res
+      .status(200)
+      .json({ success: true, message: "Callback received" });
+  } catch (error) {
+    console.error("❌ Callback Error:", error);
+    return res.status(500).json({ success: false });
   }
 };
 
@@ -402,24 +435,24 @@ exports.initiatePayout = async (req, res) => {
 // ========================
 // 🟢 2. Callback
 // ========================
-exports.payoutCallback = async (req, res) => {
-  try {
-    console.log("📥 Callback Received Raw:", req.body);
+// exports.payoutCallback = async (req, res) => {
+//   try {
+//     console.log("📥 Callback Received Raw:", req.body);
 
-    const { ResponseData } = req.body;
-    const decrypted = decryptAES256(ResponseData, AES_KEY);
-    const data = JSON.parse(decrypted);
+//     const { ResponseData } = req.body;
+//     const decrypted = decryptAES256(ResponseData, AES_KEY);
+//     const data = JSON.parse(decrypted);
 
-    console.log("🔓 Decrypted Callback Data:", data);
+//     console.log("🔓 Decrypted Callback Data:", data);
 
-    // TODO: Save/update DB transaction status
+//     // TODO: Save/update DB transaction status
 
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Callback Error:", err.message);
-    return res.status(500).json({ success: false });
-  }
-};
+//     return res.json({ success: true });
+//   } catch (err) {
+//     console.error("❌ Callback Error:", err.message);
+//     return res.status(500).json({ success: false });
+//   }
+// };
 
 /**
  * @desc Send payout transaction
