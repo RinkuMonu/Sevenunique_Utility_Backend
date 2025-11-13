@@ -528,7 +528,7 @@ exports.makeTransaction = async (req, res) => {
             // Create DMT report
             await DmtReport.create([{
                 user_id: userId,
-                status: true,
+                status: "Success",
                 type: service._id,
                 ackno: result.data.externalRef, // you may use poolReferenceId if needed
                 referenceid: result.data.poolReferenceId,
@@ -545,7 +545,7 @@ exports.makeTransaction = async (req, res) => {
                     customercharge: parseFloat(commission.charge || 0),
                     gst: parseFloat(commission.gst || 0),
                     tds: parseFloat(commission.tds || 0),
-                    netcommission: parseFloat(commission.distributor + commission.admin || 0),
+                    netcommission: parseFloat(commission.retailer + commission.distributor + commission.admin || 0),
                 },
                 charges: commission.charge,
                 commission: { distributor: commission.distributor, admin: commission.admin },
