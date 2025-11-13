@@ -23,7 +23,6 @@ const instantpay = axios.create({
     "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
     "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
     "X-Ipay-Auth-Code": "1",
-    "X-Ipay-Outlet-Id": "561894", // ✅ add this
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
@@ -158,7 +157,11 @@ exports.outletLoginStatus = async (req, res, next) => {
     const { outletId } = req.body;
     if (!outletId) throw createError(400, "OutletId required");
 
-    const response = await instantpay.post("/fi/aeps/outletLoginStatus", { outletId });
+    const response = await instantpay.post("/fi/aeps/outletLoginStatus", { outletId }, {
+      headers: {
+        "X-Ipay-Outlet-Id": outletId,
+      },
+    });
     return res.json(response.data);
   } catch (err) {
     console.error("Outlet Login Status Error:", err.response?.data || err.message);
@@ -193,7 +196,11 @@ exports.outletLogin = async (req, res, next) => {
 
     console.log("📤 Final Outlet Login Payload:", JSON.stringify(payload, null, 2));
 
-    const response = await instantpay.post("/fi/aeps/outletLogin", payload);
+    const response = await instantpay.post("/fi/aeps/outletLogin", payload, {
+      headers: {
+        "X-Ipay-Outlet-Id": outletId,
+      },
+    });
     console.log("✅ Outlet Login Response:", response.data);
 
     return res.json(response.data);
@@ -317,6 +324,10 @@ exports.cashWithdrawal = async (req, res) => {
         ...biometricParsed,
         iCount: biometricParsed.iCount || "0",
         pCount: biometricParsed.pCount || "0",
+      },
+    }, {
+      headers: {
+        "X-Ipay-Outlet-Id": user.outletId,
       },
     });
 
@@ -522,7 +533,11 @@ exports.balanceEnquiry = async (req, res, next) => {
     }], { session });
 
     // 🔹 Call API
-    const response = await instantpay.post("/fi/aeps/balanceInquiry", payload);
+    const response = await instantpay.post("/fi/aeps/balanceInquiry", payload, {
+      headers: {
+        "X-Ipay-Outlet-Id": user.outletId,
+      },
+    });
     const apiRes = response.data;
 
     if (apiRes.statuscode === "TXN") {
@@ -644,7 +659,11 @@ exports.miniStatement = async (req, res, next) => {
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
     const required = Number(commissions.aepsMiniStatement);
     if (required === 0) {
-      const { data } = await instantpay.post("/fi/aeps/balanceInquiry", payload);
+      const { data } = await instantpay.post("/fi/aeps/balanceInquiry", payload, {
+        headers: {
+          "X-Ipay-Outlet-Id": user.outletId,
+        },
+      });
       await session.commitTransaction();
       return res.json(data);
     }
@@ -706,7 +725,11 @@ exports.miniStatement = async (req, res, next) => {
       remark: `Mini Statement (AePS)`
     }).save({ session });
 
-    const response = await instantpay.post("/fi/aeps/miniStatement", payload);
+    const response = await instantpay.post("/fi/aeps/miniStatement", payload, {
+      headers: {
+        "X-Ipay-Outlet-Id": user.outletId
+      },
+    });
 
     if (response.data.statuscode === "TXN") {
 
@@ -911,7 +934,11 @@ exports.deposite = async (req, res, next) => {
     }).save({ session });
 
 
-    const response = await instantpay.post("/fi/aeps/cashDeposit", payload);
+    const response = await instantpay.post("/fi/aeps/cashDeposit", payload, {
+      headers: {
+        "X-Ipay-Outlet-Id": user.outletId,
+      },
+    });
     const result = response.data;
     if (result.statuscode === "TXN") {
       user.eWallet = (user.eWallet || 0) - Number(required);
@@ -987,7 +1014,14 @@ exports.deposite = async (req, res, next) => {
 };
 exports.getBankList = async (req, res, next) => {
   try {
-    const response = await instantpay.get("/fi/aeps/banks");
+    const userId = req.user.id;
+    const user = await userModel.findById(userId);
+    if (!user) throw new Error("User not found");
+    const response = await instantpay.get("/fi/aeps/banks", {
+      headers: {
+        "X-Ipay-Outlet-Id": user.outletId, 
+      },
+    });
     return res.json(response.data);
   } catch (err) {
     console.error("Bank List Error:", err.response?.data || err.message);
