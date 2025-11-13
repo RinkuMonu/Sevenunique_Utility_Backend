@@ -1080,7 +1080,7 @@ const updateUserDetails = async (req, res) => {
       password,
       mpin,
       outletId,
-      callbackUrl
+      callbackUrl,
     } = req.body;
 
     if (!userId) {
@@ -1117,12 +1117,6 @@ const updateUserDetails = async (req, res) => {
 const updateCredential = async (req, res) => {
   try {
     const { mobileNumber, type, newValue, otp, userId } = req.body;
-    console.log("Request Body:", req.body);
-
-    const existingOtp = await OTP.findOne({ mobileNumber, otp: String(otp) });
-    if (!existingOtp) {
-      return res.status(400).json({ message: "Invalid or expired OTP" });
-    }
 
     let user = null;
     if (userId) {
