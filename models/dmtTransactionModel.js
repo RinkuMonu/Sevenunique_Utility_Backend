@@ -7,10 +7,14 @@ const dmtReportSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     }, // User ID
-    status: { type: Boolean, required: true },
-    ackno: { type: String, required: true },
+    status: {
+      type: String,
+      enum: ["Pending", "Failed", "Success"],
+      default: "Pending"
+    },
+    ackno: { type: String },
     referenceid: { type: String, required: true },
-    utr: { type: String, required: true },
+    utr: { type: String },
     txn_status: { type: String, required: true },
     benename: { type: String },
     remarks: { type: String },
@@ -23,7 +27,7 @@ const dmtReportSchema = new mongoose.Schema(
     },
     account_number: { type: String, required: true },
     gatewayCharges: {
-      bc_share: { type: Number, required: true },
+      bc_share: { type: Number },
       txn_amount: { type: Number, required: true },
       customercharge: { type: Number, default: 0 },
       gst: { type: Number, default: 0 },
