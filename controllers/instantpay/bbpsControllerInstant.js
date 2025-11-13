@@ -344,7 +344,7 @@ exports.makePayment = async (req, res, next) => {
         userId,
         amount: Number(transactionAmount),
         reference: referenceid,
-        type: service?._id || "BBPS",
+        type: service?._id,
         trans_mode: "WALLET",
         name: user.name,
         mobile: user.mobileNumber,
