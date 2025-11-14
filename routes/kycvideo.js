@@ -14,6 +14,7 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + path.extname(file.originalname)),
 });
 const upload = multer({ storage });
+const axios = require("axios");
 
 // 1. Request KYC
 router.post("/request", async (req, res) => {
@@ -29,22 +30,91 @@ router.post("/request", async (req, res) => {
   res.json({ message: "KYC requested", kyc });
 });
 
+//send KYC approve mail to user
+sendKYCApprovalEmail = async (user, scheduledTime) => {
+  try {
+    const formattedTime = new Date(scheduledTime).toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    const payload = {
+      recipients: [
+        {
+          to: [
+            {
+              name: user?.name || "User",
+              email: user?.email,
+            },
+          ],
+          variables: {
+            company_name: "Finunique Small Private Limited",
+            name: user?.name || "User",
+            kyc_status: "Approved",
+            scheduled_time: formattedTime,
+          },
+        },
+      ],
+      from: {
+        name: "Finunique KYC Team",
+        email: "info@sevenunique.com",
+      },
+      domain: "mail.sevenunique.com",
+      template_id: "global_otp",
+    };
+
+    const res = await axios.post(
+      "https://control.msg91.com/api/v5/email/send",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          authkey: "415386Amp14kbEfs65c49c94P1",
+        },
+      }
+    );
+
+    console.log("📩 KYC Approval Email Sent:", res.data);
+  } catch (error) {
+    console.error("❌ Error sending KYC approval email:", error.message);
+  }
+};
 // 2. Approve request (admin)
 
 router.patch("/approve/:id", async (req, res, next) => {
   const { id } = req.params;
   const { scheduledTime } = req.body;
+  console.log(scheduledTime);
+  console.log(req.body);
+  if (!scheduledTime)
+    res.json({
+      success: false,
+      message: "please select metting/room time",
+    });
   try {
-    const kyc = await KYCRequest.findOneAndUpdate(
-      { user: id },
+    const kyc = await KYCRequest.findByIdAndUpdate(
+      id,
       {
         status: "approved",
         scheduledTime,
       },
       { new: true }
     );
-    res.json({ message: "KYC approved", kyc });
+    console.log("kyc", kyc);
+
+    const user = await User.findById(kyc.user);
+    if (user?.email) {
+      await sendKYCApprovalEmail(user, scheduledTime);
+    }
+    console.log("user user", user);
+    res.json({ success: true, message: "KYC approved and email sent", kyc });
   } catch (Error) {
+    console.error("❌ Error approving KYC:", Error);
     next(Error);
   }
 });

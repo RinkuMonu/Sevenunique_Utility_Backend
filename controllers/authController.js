@@ -138,6 +138,124 @@ const sendOtpController = async (req, res) => {
   }
 };
 
+const getLoginHistory = async (req, res) => {
+  try {
+    let { page = 1, limit = 10, search = "", role = "", date = "" } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+    const loginUser = req.user;
+    const skip = (page - 1) * limit;
+    let loginFilter = {}; // Final filter
+
+    if (loginUser.role === "Admin") {
+      // No filter → Admin sees all logs
+    } else if (loginUser.role === "Distributor") {
+      // Distributor → its own retailers + self
+      const retailers = await userModel.find(
+        { parendistributorIdtId: loginUser.id },
+        "_id"
+      );
+
+      const retailerIds = retailers.map((r) => r._id);
+
+      loginFilter.userId = { $in: [...retailerIds, loginUser.id] };
+    } else {
+      // Retailer / Normal User
+      loginFilter.userId = loginUser.id;
+    }
+    // ---------------------------------------------
+    // 1️⃣ USER SEARCH BY NAME OR MOBILE
+    // ---------------------------------------------
+    let matchedUserIds = [];
+
+    if (search.trim() !== "" || role !== "") {
+      const regex = new RegExp(search.trim(), "i");
+
+      const userFilter = {};
+
+      if (search.trim() !== "") {
+        userFilter.$or = [
+          { name: regex },
+          { mobile: regex },
+          { UserId: regex },
+        ];
+      }
+
+      if (role !== "") userFilter.role = role;
+
+      const matchedUsers = await userModel.find(userFilter).select("_id");
+      matchedUserIds = matchedUsers.map((u) => u._id);
+    }
+
+    // ---------------------------------------------
+    // 2️⃣ LOGIN HISTORY SEARCH FIELDS
+    // ---------------------------------------------
+    const regex = new RegExp(search.trim(), "i");
+
+    const loginSearchConditions = [];
+
+    if (search.trim() !== "") {
+      loginSearchConditions.push(
+        { mobileNumber: regex },
+        { ipAddress: regex },
+        { "location.pincode": regex }
+      );
+    }
+
+    if (matchedUserIds.length > 0) {
+      loginSearchConditions.push({ userId: { $in: matchedUserIds } });
+    }
+
+    if (loginSearchConditions.length > 0) {
+      loginFilter.$or = loginSearchConditions;
+    }
+
+    // ---------------------------------------------
+    // 3️⃣ DATE FILTER (YYYY-MM-DD)
+    // ---------------------------------------------
+    if (date && date !== "") {
+      const start = new Date(date);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
+
+      loginFilter.loginTime = {
+        $gte: start,
+        $lte: end,
+      };
+    }
+
+    // ---------------------------------------------
+    // 4️⃣ FETCH LOGS
+    // ---------------------------------------------
+    const logs = await LoginHistory.find(loginFilter)
+      .populate("userId", "name mobile role UserId")
+      .sort({ loginTime: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // ---------------------------------------------
+    // 5️⃣ COUNT TOTAL FOR PAGINATION
+    // ---------------------------------------------
+    const totalLogs = await LoginHistory.countDocuments(loginFilter);
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      totalLogs,
+      totalPages: Math.ceil(totalLogs / limit),
+      logs,
+    });
+  } catch (error) {
+    console.error("Error fetching login history:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};
+
 const verifyOTPController = async (req, res) => {
   try {
     const { mobileNumber, otp } = req.body;
@@ -336,8 +454,9 @@ const verifyOTPController = async (req, res) => {
 
 const loginController = async (req, res) => {
   try {
-    const { mobileNumber, password, otp } = req.body;
-
+    const { mobileNumber, password, otp, lat, long, pincode, ipAddress } =
+      req.body;
+    console.log("lofinnnn", req.body);
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
@@ -376,6 +495,19 @@ const loginController = async (req, res) => {
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
 
     sendLoginEmail(user);
+
+    await LoginHistory.create({
+      userId: user._id,
+      mobileNumber: user.mobileNumber,
+      loginTime: new Date(),
+      ipAddress: ipAddress || "",
+      userAgent: req.headers["user-agent"],
+      location: {
+        lat: lat || "",
+        long: long || "",
+        pincode: pincode || "",
+      },
+    });
 
     return res.status(200).json({
       message: "Login successful",
@@ -1679,6 +1811,8 @@ const CommissionTransaction = require("../models/CommissionTransaction.js");
 const payOutModel = require("../models/payOutModel.js");
 const payInModel = require("../models/payInModel.js");
 const otpModel = require("../models/otpModel.js");
+const LoginHistory = require("../models/LoginHistory.js");
+const userModel = require("../models/userModel.js");
 
 const updateUserPermissions = async (req, res) => {
   try {
@@ -1793,4 +1927,5 @@ module.exports = {
   getPayInPayOutReport,
   getUserId,
   updateProgress,
+  getLoginHistory,
 };
