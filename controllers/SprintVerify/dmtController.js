@@ -378,7 +378,7 @@ exports.PennyDrop = async (req, res, next) => {
         if (result.status === true && result.response_code == 1) {
             await DmtReport.create([{
                 user_id: userId,
-                status: result.status,
+                status: "Success",
                 type: commissionPackage.service,
                 ackno: result.ackno || "",
                 referenceid: result.referenceid || referenceid,
@@ -617,7 +617,7 @@ exports.performTransaction = async (req, res, next) => {
             await DmtReport.create([{
                 user_id: userId,
                 type: service._id,
-                status: result.status,
+                status: "Success",
                 ackno: result.ackno,
                 referenceid: result.referenceid,
                 utr: result.utr,
