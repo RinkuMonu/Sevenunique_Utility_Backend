@@ -19,6 +19,7 @@ const {
   getUserId,
   updateCredential,
   updateProgress,
+  getLoginHistory,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -43,6 +44,7 @@ router.post(
 );
 
 router.post("/login", loginController);
+router.get("/last-logins", authenticateToken, getLoginHistory);
 router.put("/profile", authenticateToken, updateProfileController);
 router.get("/profile", authenticateToken, getUserController);
 router.get("/user/:id", authenticateToken, getUserId);
