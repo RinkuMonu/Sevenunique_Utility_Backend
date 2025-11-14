@@ -144,11 +144,26 @@ const getLoginHistory = async (req, res) => {
 
     page = Number(page);
     limit = Number(limit);
-
+    const loginUser = req.user;
     const skip = (page - 1) * limit;
-
     let loginFilter = {}; // Final filter
 
+    if (loginUser.role === "Admin") {
+      // No filter → Admin sees all logs
+    } else if (loginUser.role === "Distributor") {
+      // Distributor → its own retailers + self
+      const retailers = await userModel.find(
+        { parendistributorIdtId: loginUser.id },
+        "_id"
+      );
+
+      const retailerIds = retailers.map((r) => r._id);
+
+      loginFilter.userId = { $in: [...retailerIds, loginUser.id] };
+    } else {
+      // Retailer / Normal User
+      loginFilter.userId = loginUser.id;
+    }
     // ---------------------------------------------
     // 1️⃣ USER SEARCH BY NAME OR MOBILE
     // ---------------------------------------------
@@ -240,8 +255,6 @@ const getLoginHistory = async (req, res) => {
     });
   }
 };
-
-module.exports = { getLoginHistory };
 
 const verifyOTPController = async (req, res) => {
   try {
@@ -483,21 +496,18 @@ const loginController = async (req, res) => {
 
     sendLoginEmail(user);
 
-    await LoginHistory.findOneAndUpdate(
-      { userId: user._id },
-      {
-        mobileNumber: user.mobileNumber,
-        loginTime: new Date(),
-        ipAddress: ipAddress || "",
-        userAgent: req.headers["user-agent"],
-        location: {
-          lat: lat || "",
-          long: long || "",
-          pincode: pincode || "",
-        },
+    await LoginHistory.create({
+      userId: user._id,
+      mobileNumber: user.mobileNumber,
+      loginTime: new Date(),
+      ipAddress: ipAddress || "",
+      userAgent: req.headers["user-agent"],
+      location: {
+        lat: lat || "",
+        long: long || "",
+        pincode: pincode || "",
       },
-      { upsert: true, new: true }
-    );
+    });
 
     return res.status(200).json({
       message: "Login successful",
