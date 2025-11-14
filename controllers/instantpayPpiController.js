@@ -369,7 +369,7 @@ export const makeTransaction = async (req, res) => {
             // Success: create DMT report
             await DmtReport.create([{
                 user_id: userId,
-                status: true,
+                status: "Success",
                 type: service._id,
                 ackno: result.data.externalRef,
                 referenceid: result.data.poolReferenceId,
@@ -438,7 +438,7 @@ export const makeTransaction = async (req, res) => {
             // Success: create DMT report
             await DmtReport.create([{
                 user_id: userId,
-                status: true,
+                status: "Pending",
                 type: service._id,
                 ackno: result.data.externalRef,
                 referenceid: result.data.poolReferenceId,
