@@ -312,7 +312,7 @@ exports.generatePayment = async (req, res, next) => {
           type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
-          transaction_reference_id: referenceId,
+          transaction_reference_id: reference || referenceId,
           description: `PayIn initiated for ${user.name}`,
           status: "Pending",
         },
@@ -327,7 +327,7 @@ exports.generatePayment = async (req, res, next) => {
           fromUser: user._id,
           mobile: user.mobileNumber,
           email: user.email,
-          reference: referenceId,
+          reference: reference || referenceId,
           name: user.name,
           source: "PayIn",
           amount: Number(amount),
@@ -346,7 +346,7 @@ exports.generatePayment = async (req, res, next) => {
       buyerEmail: email,
       currency: "INR",
       merchantIdentifier: merchant_identifier,
-      orderId: referenceId,
+      orderId: reference || referenceId,
       returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
       // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
     };
@@ -562,7 +562,7 @@ exports.callbackPayIn = async (req, res) => {
       { reference: data?.orderId },
       {
         $set: {
-          status: isSuccess ? "SUCCESS" : "FAILED",
+          status: isSuccess ? "Success" : "Failed",
           responseDescription: data?.responseDescription,
           pgTransId: data?.pgTransId,
           paymentMode: data?.paymentMode,
@@ -591,7 +591,7 @@ exports.callbackPayIn = async (req, res) => {
       { transaction_reference_id: data?.orderId },
       {
         $set: {
-          status: isSuccess ? "SUCCESS" : "FAILED",
+          status: isSuccess ? "Success" : "Failed",
           balance_after: user.eWallet,
           gatewayResponse: data,
           payment_mode: data?.paymentMode,
