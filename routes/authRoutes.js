@@ -44,7 +44,7 @@ router.post(
 );
 
 router.post("/login", loginController);
-router.get("/last-logins", getLoginHistory);
+router.get("/last-logins", authenticateToken, getLoginHistory);
 router.put("/profile", authenticateToken, updateProfileController);
 router.get("/profile", authenticateToken, getUserController);
 router.get("/user/:id", authenticateToken, getUserId);
