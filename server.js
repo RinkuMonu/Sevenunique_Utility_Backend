@@ -21,7 +21,8 @@ const { planCheckCronJob } = require("./services/cornjob.js");
 const loan = require("./routes/loan.routes.js");
 const { default: router } = require("./routes/instantpayPpiRoutes.js");
 
-const bannerRoutes = require("./routes/bannerRoutes.js")
+const bannerRoutes = require("./routes/bannerRoutes.js");
+const panroute = require("./routes/pan.routes.js");
 const app = express();
 planCheckCronJob();
 
@@ -71,7 +72,6 @@ app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
 app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 app.use("/api/InstantPay_PPI", router);
 
-
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
 
 app.use("/api/recharge", rechargeRoute);
@@ -80,7 +80,8 @@ app.use("/api/v1/news", NewsRouter);
 app.use("/api/v1/getallrole", getAllRole);
 app.use("/api/loans", loan);
 app.use("/api/assets", require("./routes/device.routes"));
-app.use('/api/banners', bannerRoutes);
+app.use("/api/banners", bannerRoutes);
+app.use("/api/pan", panroute);
 app.get("/", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the API" })
 );

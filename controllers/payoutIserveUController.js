@@ -341,7 +341,15 @@ exports.payoutCallback = async (req, res) => {
     // Proceed with your logic...
     return res
       .status(200)
-      .json({ success: true, message: "Callback received" });
+      .json({
+        success: true,
+        message: "Callback received",
+        status,
+        message,
+        utr,
+        reference,
+        amount,
+      });
   } catch (error) {
     console.error("❌ Callback Error:", error);
     return res.status(500).json({ success: false });
