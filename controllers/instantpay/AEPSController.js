@@ -237,7 +237,7 @@ exports.cashWithdrawal = async (req, res) => {
     if (!user) throw new Error("User not found");
 
     // Get commission details
-    const { commissions, service } = await getApplicableServiceCharge(userId, category);
+    const { commissions, service } = await getApplicableServiceCharge(userId, "6918314027e9c0be214ff15d");
     const commission = commissions
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
@@ -1019,7 +1019,7 @@ exports.getBankList = async (req, res, next) => {
     if (!user) throw new Error("User not found");
     const response = await instantpay.get("/fi/aeps/banks", {
       headers: {
-        "X-Ipay-Outlet-Id": user.outletId, 
+        "X-Ipay-Outlet-Id": user.outletId,
       },
     });
     return res.json(response.data);
