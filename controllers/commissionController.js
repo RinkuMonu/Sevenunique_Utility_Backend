@@ -52,7 +52,7 @@ exports.getAllPackages = async (req, res) => {
   try {
     const { page, limit, service, isActive, packageName } = req.query;
 
-    const query = {};
+    const query = {};    
 
     if (service) {
       if (mongoose.Types.ObjectId.isValid(service)) {
@@ -76,6 +76,7 @@ exports.getAllPackages = async (req, res) => {
     if (packageName) {
       query.packageName = { $regex: packageName, $options: "i" }; 
     }
+console.log(query);
 
     const total = await CommissionPackage.countDocuments(query);
     const packages = await CommissionPackage.find(query)
