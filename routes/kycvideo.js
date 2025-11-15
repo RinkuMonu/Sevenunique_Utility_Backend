@@ -17,17 +17,38 @@ const upload = multer({ storage });
 const axios = require("axios");
 
 // 1. Request KYC
+// router.post("/request", async (req, res) => {
+//   console.log(req?.user?.id);
+
+//   const already = await KYCRequest.findOne({ user: req.user.id });
+
+//   if (already) {
+//     return res.json({ message: "Request already submited" });
+//   }
+//   const kyc = await KYCRequest.create({ user: req?.user?.id });
+//   await kyc.save();
+//   res.json({ message: "KYC requested", kyc });
+// });
 router.post("/request", async (req, res) => {
-  console.log(req?.user?.id);
+  try {
+    console.log(req?.user?.id);
 
-  const already = await KYCRequest.findOne({ user: req.user.id });
+    const already = await KYCRequest.findOne({ user: req.user.id });
 
-  if (already) {
-    return res.json({ message: "Request already submited" });
+    if (already) {
+      return res.json({ message: "Request already submited" });
+    }
+
+    const kyc = await KYCRequest.create({ user: req?.user?.id });
+    await kyc.save();
+
+    return res.json({ message: "KYC requested", kyc });
+  } catch (error) {
+    console.error("Error in /request KYC:", error);
+    return res
+      .status(500)
+      .json({ message: "Server error while processing KYC request" });
   }
-  const kyc = await KYCRequest.create({ user: req?.user?.id });
-  await kyc.save();
-  res.json({ message: "KYC requested", kyc });
 });
 
 //send KYC approve mail to user
@@ -271,12 +292,9 @@ router.get("/all", async (req, res) => {
 
 router.get("/user/:id", async (req, res) => {
   const { id } = req.params;
-  console.log(id);
   try {
-    const kyc = await KYCRequest.findOne({ user: id })
-      .sort({ createdAt: -1 }) // In case there are multiple
-      .populate("user");
-
+    const kyc = await KYCRequest.findOne({ user: id }).sort({ createdAt: -1 }); // In case there are multiple
+    console.log("kyc", kyc);
     if (!kyc) {
       return res.status(404).json({ message: "No KYC request found" });
     }
