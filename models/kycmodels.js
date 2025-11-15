@@ -7,7 +7,7 @@ const kycRequestSchema = new mongoose.Schema({
     enum: ["pending", "approved", "room_created", "completed"],
     default: "pending",
   },
-  scheduledTime: { type: Date, required: true },
+  scheduledTime: { type: Date },
   roomLink: String,
   createdAt: { type: Date, default: Date.now },
 });
