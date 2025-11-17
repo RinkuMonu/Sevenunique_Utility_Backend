@@ -282,10 +282,23 @@ exports.fundTransfer = async (req, res) => {
         if ((recipient.eWallet || 0) < amt) {
           return res.status(400).json({
             success: false,
-            message: "Recipient has insufficient balance",
+            message: "Debitor has insufficient balance",
           });
         }
         recipient.eWallet -= amt;
+      } else {
+        if ((recipient.eWallet || 0) < amt) {
+          return res.status(400).json({
+            success: false,
+            message: "Debitor has insufficient balance",
+          });
+        }
+        recipient.eWallet -= amt;
+        sender.eWallet += amt;
+      }
+    } else if (mode === "credit") {
+      if (sender.role === "Admin") {
+        recipient.eWallet += amt;
       } else {
         if ((sender.eWallet || 0) < amt) {
           return res.status(400).json({
@@ -296,13 +309,11 @@ exports.fundTransfer = async (req, res) => {
         sender.eWallet -= amt;
         recipient.eWallet += amt;
       }
-    } else if (mode === "credit") {
-      recipient.eWallet += amt;
     } else {
       return res.status(400).json({ success: false, message: "Invalid mode" });
     }
 
-    // await sender.save({ session });
+    await sender.save({ session });
     await recipient.save({ session });
 
     // Ledger/Transaction entry
@@ -355,7 +366,6 @@ exports.fundTransfer = async (req, res) => {
     await paymentRequest.save({ session });
 
     await session.commitTransaction();
-    session.endSession();
 
     res.status(200).json({
       success: true,
@@ -370,5 +380,7 @@ exports.fundTransfer = async (req, res) => {
     session.endSession();
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    session.endSession();
   }
 };
