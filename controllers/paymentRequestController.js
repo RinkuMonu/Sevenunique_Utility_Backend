@@ -217,6 +217,8 @@ exports.updatePaymentRequestStatus = async (req, res) => {
         amount: currentBalance,
         balance_after: newBalance,
         status: "Success",
+        totalDebit: paymentRequest.transactionType === "debit" ? paymentRequest.amount : 0,
+        totalCredit: paymentRequest.transactionType === "credit" ? paymentRequest.amount : 0,
         payment_mode: "bank_transfer",
         transaction_id: paymentRequest.reference,
         description: "Wallet top-up via payment request",
