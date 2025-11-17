@@ -314,7 +314,7 @@ exports.PennyDrop = async (req, res, next) => {
 
         const user = await userModel.findById(userId).session(session);
         if (!user || user.eWallet < amount) {
-            throw new Error("Insufficient wallet balance (Minimum ₹10 required)");
+            throw new Error("Insufficient wallet balance");
         }
 
         user.eWallet -= amount;
@@ -541,7 +541,7 @@ exports.performTransaction = async (req, res, next) => {
         const required = Number((
             Number(amount) +
             Number(commission.charge || 0) +
-            Number(commission.gst || 0) + Number(commission.tds || 0)
+            Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)
         ).toFixed(2));
 
         console.log(required);
@@ -567,7 +567,7 @@ exports.performTransaction = async (req, res, next) => {
             tds: Number(commission.tds),
             charge: Number(commission.charge),
             totalDebit: Number(required),
-            // netAmount: Number(required),
+            totalCredit: Number(commission.retailer || 0),
             balance_after: user.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,

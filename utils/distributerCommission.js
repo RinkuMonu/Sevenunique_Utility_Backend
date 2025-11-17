@@ -31,54 +31,54 @@ async function distributeCommission({
 
   try {
     // 1) Retailer
-    if (user) {
-      const retailerUser = await userModel.findById(user).session(session);
-      if (retailerUser) {
-        const grossRetailer = commission.retailer;
-        if (grossRetailer > 0) {
-          const { gst, tds, net } = computeDeductions(grossRetailer);
+    // if (user) {
+    //   const retailerUser = await userModel.findById(user).session(session);
+    //   if (retailerUser) {
+    //     const grossRetailer = commission.retailer;
+    //     if (grossRetailer > 0) {
+    //       const { gst, tds, net } = computeDeductions(grossRetailer);
 
-          retailerUser.eWallet = Number((retailerUser.eWallet || 0) + net);
-          await retailerUser.save({ session });
+    //       retailerUser.eWallet = Number((retailerUser.eWallet || 0) + net);
+    //       await retailerUser.save({ session });
 
-          // Transaction: record net amount + GST/TDS details + totals
-          await transactionModel.create([{
-            user_id: retailerUser._id,
-            transaction_type: "credit",
-            amount: commission.retailer,
-            type: service._id,
-            gst,
-            tds,
-            charge: 0,
-            totalDebit: Number(gst + tds),
-            totalCredit: net,
-            // netAmount: net,
-            balance_after: retailerUser.eWallet,
-            payment_mode: "wallet",
-            transaction_reference_id: reference,
-            description: description || `Retailer commission for ${service.name} (gross ₹${grossRetailer})`,
-            status: "Success",
-            meta: { grossCommission: String(grossRetailer) }
-          }], { session });
+    //       // Transaction: record net amount + GST/TDS details + totals
+    //       await transactionModel.create([{
+    //         user_id: retailerUser._id,
+    //         transaction_type: "credit",
+    //         amount: commission.retailer,
+    //         type: service._id,
+    //         gst,
+    //         tds,
+    //         charge: 0,
+    //         totalDebit: Number(gst + tds),
+    //         totalCredit: net,
+    //         // netAmount: net,
+    //         balance_after: retailerUser.eWallet,
+    //         payment_mode: "wallet",
+    //         transaction_reference_id: reference,
+    //         description: description || `Retailer commission for ${service.name} (gross ₹${grossRetailer})`,
+    //         status: "Success",
+    //         meta: { grossCommission: String(grossRetailer) }
+    //       }], { session });
 
-          await PayInModel.create([{
-            userId: retailerUser._id,
-            type: service._id,
-            amount: net,
-            reference: reference + "_RETAILER_COM",
-            name: retailerUser.name || "Retailer",
-            mobile: retailerUser.mobileNumber || 0,
-            email: retailerUser.email || "na@example.com",
-            source: "Commission",
-            fromUser: retailerUser._id,
-            service: service._id,
-            status: "Success",
-            charges: Number(gst + tds),
-            remark: `Commission credited for ${service.name} (gross ₹${grossRetailer}, gst ₹${gst}, tds ₹${tds})`
-          }], { session });
-        }
-      }
-    }
+    //       await PayInModel.create([{
+    //         userId: retailerUser._id,
+    //         type: service._id,
+    //         amount: net,
+    //         reference: reference + "_RETAILER_COM",
+    //         name: retailerUser.name || "Retailer",
+    //         mobile: retailerUser.mobileNumber || 0,
+    //         email: retailerUser.email || "na@example.com",
+    //         source: "Commission",
+    //         fromUser: retailerUser._id,
+    //         service: service._id,
+    //         status: "Success",
+    //         charges: Number(gst + tds),
+    //         remark: `Commission credited for ${service.name} (gross ₹${grossRetailer}, gst ₹${gst}, tds ₹${tds})`
+    //       }], { session });
+    //     }
+    //   }
+    // }
 
     // 2) Distributor
     if (distributer) {

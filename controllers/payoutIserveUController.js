@@ -144,7 +144,7 @@ exports.initiatePayout = async (req, res) => {
 
     const usableBalance = Number(user.eWallet) - Number(user.cappingMoney || 0);
     const required = Number(
-      (Number(amount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2)
+      (Number(amount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2)
     );
 
     // 🔹 Check wallet balance
@@ -194,6 +194,7 @@ exports.initiatePayout = async (req, res) => {
           tds: Number(commission.tds || 0),
           charge: Number(commission.charge || 0),
           totalDebit: Number(required),
+          totalCredit:Number(commission.retailer || 0),
           balance_after: user.eWallet - Number(required),
           payment_mode: "wallet",
           transaction_reference_id: referenceId,

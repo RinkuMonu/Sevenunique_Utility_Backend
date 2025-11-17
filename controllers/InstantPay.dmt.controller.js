@@ -466,8 +466,8 @@ exports.makeTransaction = async (req, res) => {
         if (!user) throw new Error("User not found");
 
         const usableBalance = user.eWallet - (user.cappingMoney || 0);
-        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2));
-        console.log(required);
+        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+
         if (usableBalance < required) {
             return res.status(400).json({
                 error: true, message: `Insufficient wallet balance.You must maintain ₹${user.cappingMoney} in your wallet.Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
@@ -487,6 +487,7 @@ exports.makeTransaction = async (req, res) => {
             tds: commission.tds,
             charge: commission.charge,
             totalDebit: required,
+            totalCredit: Number(commission.retailer || 0),
             balance_after: user.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
@@ -530,7 +531,7 @@ exports.makeTransaction = async (req, res) => {
                 user_id: userId,
                 status: "Success",
                 type: service._id,
-                ackno: result.data.externalRef, // you may use poolReferenceId if needed
+                ackno: result.data.externalRef,
                 referenceid: result.data.poolReferenceId,
                 utr: result.data.txnReferenceId,
                 txn_status: "1",
