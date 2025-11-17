@@ -145,6 +145,7 @@ exports.updatePaymentRequestStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, remark, completedAt } = req.body;
+    const sender = req.user;
 
     if (!status) {
       return res
@@ -176,7 +177,9 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     paymentRequest.status = status;
     if (completedAt) paymentRequest.completedAt = completedAt;
     if (remark) paymentRequest.remark = remark;
-
+    if (sender) {
+      paymentRequest.sender_Id = sender.id || sender._id;
+    }
     await paymentRequest.save({ session });
 
     if (status === "Completed") {
@@ -203,6 +206,7 @@ exports.updatePaymentRequestStatus = async (req, res) => {
         utr: paymentRequest.utr || null,
         remark: paymentRequest.description || "Payment completed via request",
       });
+      ``;
       await payIn.save({ session });
 
       const ledgerEntry = new Transaction({
@@ -324,6 +328,8 @@ exports.fundTransfer = async (req, res) => {
       transaction_type: mode === "debit" ? "debit" : "credit",
       amount: amt,
       balance_after: recipient.eWallet,
+      totalDebit: mode === "debit" ? amt : 0,
+      totalCredit: mode === "credit" ? amt : 0,
       status: "Success",
       payment_mode: "wallet",
       transaction_reference_id: `FT-${Date.now()}`,
