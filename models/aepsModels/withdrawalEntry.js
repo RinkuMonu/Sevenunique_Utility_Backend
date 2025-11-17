@@ -23,6 +23,8 @@ const aepsTransactionSchema = new mongoose.Schema(
 
         // ✅ Transaction Details
         amount: { type: Number },
+        totalDebit: { type: Number },
+        totalCredit: { type: Number },
         balance_after: { type: Number },
         bankrrn: { type: String },
         clientrefno: { type: String, required: true },

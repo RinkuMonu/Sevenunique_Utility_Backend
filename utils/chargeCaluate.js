@@ -98,7 +98,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
       if (matchedSlab.commissionType === "flat") return val;
       if (matchedSlab.commissionType === "percentage") return (val * amount) / 100;
     }
-
+    
     return 0;
   };
 

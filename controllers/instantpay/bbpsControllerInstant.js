@@ -227,7 +227,7 @@ exports.makePayment = async (req, res, next) => {
     const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
-    const referenceid = `REF${Date.now()}`;
+    const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const user = await userModel.findById(userId).session(session);
     if (!user) throw new Error("User not found");
 
@@ -257,7 +257,7 @@ exports.makePayment = async (req, res, next) => {
     }
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2));
+    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
 
 
     // ✅ Balance check
@@ -283,6 +283,7 @@ exports.makePayment = async (req, res, next) => {
       tds: Number(commission.tds || 0),
       charge: Number(commission.charge || 0),
       totalDebit: Number(required),
+      totalCredit: Number(commission.retailer || 0),
       balance_after: user.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
@@ -298,18 +299,9 @@ exports.makePayment = async (req, res, next) => {
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
-      retailerCommission: Number(
-        (commission.retailer || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
-      distributorCommission: Number(
-        (commission.distributor || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
-      adminCommission: Number(
-        (commission.admin || 0) *
-        (1 - (commission.gst || 0) / 100 - (commission.tds || 0) / 100)
-      ).toFixed(2),
+      retailerCommission: Number(commission.retailer || 0),
+      distributorCommission: Number(commission.distributor || 0),
+      adminCommission: Number(commission.admin || 0),
       gst: commission.gst,
       tds: commission.tds,
       charges: commission.charge,
