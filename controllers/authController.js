@@ -16,7 +16,59 @@ const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
 
-const sendLoginEmail = async (user) => {
+// utils/getDeviceName.js
+
+const getDeviceName = (userAgent = "") => {
+  const ua = userAgent || "";
+
+  // Detect Browser
+  let browser = "Unknown Browser";
+  browser = ua.includes("Chrome")
+    ? "Chrome"
+    : ua.includes("Firefox")
+    ? "Firefox"
+    : ua.includes("Safari") && !ua.includes("Chrome")
+    ? "Safari"
+    : ua.includes("Edg")
+    ? "Edge"
+    : "Unknown Browser";
+
+  // Detect OS
+  let os = "Unknown OS/device";
+  os = ua.includes("Windows")
+    ? "Windows"
+    : ua.includes("Android")
+    ? "Android"
+    : ua.includes("iPhone")
+    ? "iPhone"
+    : ua.includes("Mac")
+    ? "MacOS"
+    : "Unknown OS";
+
+  return `${browser} on ${os}`;
+};
+
+const sendLoginEmail = async (
+  user,
+  lat,
+  long,
+  pincode,
+  ipAddress,
+  deviceLocation,
+  deviceName
+) => {
+  console.log(
+    "Sending login email to data:",
+    user.email,
+    user.name,
+    lat,
+    long,
+    pincode,
+    ipAddress,
+    deviceLocation,
+    deviceName
+  );
+
   try {
     const loginTime = new Date().toLocaleString("en-IN", {
       day: "2-digit",
@@ -33,24 +85,31 @@ const sendLoginEmail = async (user) => {
           to: [
             {
               name: user?.name || "User",
-              email: user?.email,
+              // email: user?.email,
+              email: "niranjan@7unique.in",
             },
           ],
           variables: {
-            company_name: "SevenUnique Tech Solutions Pvt Ltd",
-            name: user?.name || "User",
-            login_time: loginTime,
+            userName: user?.name ?? "User",
+            company_name: "Finunique Small Private Limited",
+            loginTime: loginTime ?? "N/A",
+            lat: lat ?? "N/A",
+            long: long ?? "N/A",
+            pincode: pincode ?? "N/A",
+            ipAddress: ipAddress ?? "N/A",
+            deviceLocation: deviceLocation ?? "N/A",
+            deviceName: deviceName ?? "N/A",
+            currentYear: new Date().getFullYear(),
           },
         },
       ],
       from: {
-        name: "SevenUnique",
+        name: "Finunique Small Private Limited",
         email: "info@sevenunique.com",
       },
       domain: "mail.sevenunique.com",
       template_id: "global_otp",
     };
-
     try {
       const res = await axios.post(
         "https://control.msg91.com/api/v5/email/send",
@@ -59,7 +118,7 @@ const sendLoginEmail = async (user) => {
           headers: {
             "Content-Type": "application/json",
             accept: "application/json",
-            authkey: "415386Amp14kbEfs65c49c94P1",
+            authkey: process.env.MSG91_AUTH_KEY,
           },
         }
       );
@@ -454,9 +513,16 @@ const verifyOTPController = async (req, res) => {
 
 const loginController = async (req, res) => {
   try {
-    const { mobileNumber, password, otp, lat, long, pincode, ipAddress } =
-      req.body;
-    console.log("lofinnnn", req.body);
+    const {
+      mobileNumber,
+      password,
+      otp,
+      lat,
+      long,
+      pincode,
+      ipAddress,
+      deviceLocation,
+    } = req.body;
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
@@ -494,18 +560,30 @@ const loginController = async (req, res) => {
     // ✅ Generate JWT
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
 
-    sendLoginEmail(user);
+    const deviceName = getDeviceName(req.headers["user-agent"]);
+
+    sendLoginEmail(
+      user,
+      lat,
+      long,
+      pincode,
+      ipAddress,
+      deviceLocation,
+      deviceName
+    );
 
     await LoginHistory.create({
-      userId: user._id,
-      mobileNumber: user.mobileNumber,
-      loginTime: new Date(),
-      ipAddress: ipAddress || "",
-      userAgent: req.headers["user-agent"],
+      userId: user._id ?? null,
+      mobileNumber: user.mobileNumber ?? "",
+      loginTime: new Date() ?? Date.now(),
+      ipAddress: ipAddress ?? req.ip,
+      userAgent: req.headers["user-agent"] ?? "",
+      deviceLocation: deviceLocation ?? "",
+      deviceName: deviceName ?? "",
       location: {
-        lat: lat || "",
-        long: long || "",
-        pincode: pincode || "",
+        lat: lat ?? "",
+        long: long ?? "",
+        pincode: pincode ?? "",
       },
     });
 
@@ -527,7 +605,7 @@ const loginController = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in loginController:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "please try again later" });
   }
 };
 

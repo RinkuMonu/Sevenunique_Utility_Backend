@@ -566,7 +566,6 @@ exports.aepsTransactions = async (req, res, next) => {
       limit = 10,
       export: exportType,
     } = req.query;
-    console.log(status);
     const matchStage = {};
 
     if (req?.user?.role === "Admin") {
@@ -575,17 +574,8 @@ exports.aepsTransactions = async (req, res, next) => {
       matchStage.userId = new mongoose.Types.ObjectId(req.user.id);
     }
 
-    if (status !== undefined) {
-      const parsedStatus =
-        status === "true" || status === true
-          ? true
-          : status === "false" || status === false
-          ? false
-          : undefined;
-
-      if (parsedStatus !== undefined) {
-        matchStage.status = parsedStatus;
-      }
+    if (status) {
+      matchStage.status = status;
     }
 
     if (startDate && endDate) {
@@ -634,6 +624,10 @@ exports.aepsTransactions = async (req, res, next) => {
     );
 
     const downloadPipeline = [...pipeline];
+    downloadPipeline.push(
+      { $skip: (page - 1) * parseInt(limit) },
+      { $limit: parseInt(limit) }
+    );
 
     // ===== EXPORT HANDLER =====
     if (exportType) {
@@ -643,12 +637,12 @@ exports.aepsTransactions = async (req, res, next) => {
         mobilenumber: item.mobilenumber,
         adhaarnumber: `'${item.adhaarnumber?.toString()}'`,
         amount: item.amount,
-        balanceamount: item.balanceamount,
+        charges: item.charges,
         clientrefno: item.clientrefno,
-        ackno: item.ackno,
+        bankiin: item.bankiin,
+        type: item.type,
         bankiin: item.bankiin,
         submerchantid: item.submerchantid,
-        bankrrn: item.bankrrn,
         status: item.status ? "Success" : "Failed",
         createdAt: item.createdAt,
       }));
