@@ -1003,7 +1003,7 @@ exports.getBankList = async (req, res, next) => {
     if (!user) throw new Error("User not found");
     const response = await instantpay.get("/fi/aeps/banks", {
       headers: {
-        "X-Ipay-Outlet-Id": user.outletId,
+        "X-Ipay-Outlet-Id": user.outletId ||"561907",
       },
     });
     return res.json(response.data);
