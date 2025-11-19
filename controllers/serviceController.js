@@ -109,10 +109,20 @@ exports.upsertService = async (req, res) => {
       });
     }
 
-    res.json({ success: true, data: service });
+    res.json({
+      success: true,
+      data: service,
+      message: "Service updated successfully",
+    });
   } catch (err) {
     console.error("Error in upsertService:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    if (err.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Service with this name already exists.",
+      });
+    }
+    res.status(500).json({ success: false, message: "Please try again later" });
   }
 };
 
