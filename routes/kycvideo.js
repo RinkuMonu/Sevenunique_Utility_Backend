@@ -69,7 +69,8 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
           to: [
             {
               name: user?.name || "User",
-              email: user?.email,
+              // email: user?.email,
+              email: "niranjan@7unique.in",
             },
           ],
           variables: {
