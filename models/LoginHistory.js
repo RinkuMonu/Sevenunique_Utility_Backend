@@ -11,6 +11,10 @@ const loginHistorySchema = new mongoose.Schema({
     long: String,
     pincode: String,
   },
+  deviceLocation: {
+    type: String,
+    default: "N/A",
+  },
 });
 
 module.exports = mongoose.model("LoginHistory", loginHistorySchema);
