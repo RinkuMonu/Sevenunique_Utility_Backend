@@ -153,7 +153,7 @@ exports.doRecharge = async (req, res, next) => {
     return res.status(400).json({ status: "fail", message: "Missing required fields" });
   }
 
-  const referenceid = `REF${Date.now()}`;
+  const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -166,13 +166,9 @@ exports.doRecharge = async (req, res, next) => {
 
 
     // ✅ Check for slabs
-    let commission;
-
-    if (commissions.slabs && commissions.slabs.length > 0) {
-      // Slabs present → calculate from slabs
-      commission = calculateCommissionFromSlabs(amount, commissions, operatorName);
-
-    }
+    let commission = commissions?.slabs?.length
+      ? calculateCommissionFromSlabs(amount, commissions, operatorName)
+      : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
 
     const user = await userModel.findOne({ _id: userId }).session(session);
 
@@ -180,7 +176,11 @@ exports.doRecharge = async (req, res, next) => {
       throw new Error("Invalid mpin ! Please enter a vaild mpin");
     }
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number(amount) + (commission.charge || 0);
+    const required = Number((
+      Number(amount) +
+      Number(commission.charge || 0) +
+      Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)
+    ).toFixed(2));
 
     if (usableBalance < required) {
       return res.status(400).json({
@@ -207,29 +207,14 @@ exports.doRecharge = async (req, res, next) => {
       tds: Number(commission.tds),
       charge: Number(commission.charge),
       totalDebit: Number(required),
+      totalCredit: Number(commission.retailer || 0),
       balance_after: user.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Recharge for ${canumber} (${operatorName})`,
       status: "Pending"
     }], { session });
-    console.log("📝 Debit transaction created:", debitTxn[0]._id);
-    const headers = getPaysprintHeaders();
-    // ✅ Get operator
-    const operatorRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/getoperator", {}, { headers });
-    logApiCall({ url: "getoperator", requestData: {}, responseData: operatorRes.data });
-    console.log("🔎 Operator response:", operatorRes.data);
 
-    if (operatorRes.data?.responsecode !== 1) {
-      throw new Error("Operator lookup failed");
-    }
-
-    const operator = operatorRes.data?.data?.find(op => op.name.toLowerCase() === operatorName.toLowerCase());
-    if (!operator) throw new Error("Invalid operator name");
-
-    const operatorId = operator.id;
-
-    // ✅ Create recharge record
     const rechargeRecord = await BbpsHistory.create([{
       userId,
       rechargeType: service?._id,
@@ -239,17 +224,11 @@ exports.doRecharge = async (req, res, next) => {
 
       charges: Number(commission.charge || 0),
 
-      retailerCommission:
-        (Number(commission.retailer || 0) *
-          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100).toFixed(2)),
+      retailerCommission: Number(commission.retailer || 0),
 
-      distributorCommission:
-        (Number(commission.distributor || 0) *
-          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100)).toFixed(2),
+      distributorCommission: Number(commission.distributor || 0),
 
-      adminCommission:
-        (Number(commission.admin || 0) *
-          (1 - Number(commission.gst || 0) / 100 - Number(commission.tds || 0) / 100)).toFixed(2),
+      adminCommission: Number(commission.admin || 0),
 
       gst: Number(commission.gst || 0),
       tds: Number(commission.tds || 0),
@@ -261,9 +240,21 @@ exports.doRecharge = async (req, res, next) => {
       status: "Pending"
     }], { session });
 
+    const headers = getPaysprintHeaders();
 
-    console.log("rechargeRecord---------", rechargeRecord);
-    console.log("🗂️ Recharge record created:", rechargeRecord[0]._id);
+    const operatorRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/getoperator", {}, { headers });
+    logApiCall({ url: "getoperator", requestData: {}, responseData: operatorRes.data });
+
+
+    if (operatorRes.data?.responsecode !== 1) {
+      throw new Error("Operator lookup failed");
+    }
+
+    const operator = operatorRes.data?.data?.find(op => op.name.toLowerCase() === operatorName.toLowerCase());
+    if (!operator) throw new Error("Invalid operator name");
+
+    const operatorId = operator.id;
+
 
     const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
@@ -295,38 +286,22 @@ exports.doRecharge = async (req, res, next) => {
       await user.save({ session });
       console.log("💰 Refund completed. Wallet:", user.eWallet);
 
-      await Transaction.create([{
-        user_id: userId,
-        transaction_type: "credit",
-        amount: amount,
-        type: service._id,
-        charges: commission.charge || 0,
-        commission: commission.totalCommission || 0,
-        gst: commission.gst || 0,
-        tds: commission.tds || 0,
-        totalCredit: required,
-        balance_after: user.eWallet,
-        payment_mode: "wallet",
-        transaction_reference_id: `${referenceid}-refund`,
-        description: `Refund for failed recharge to ${canumber} (${operatorName})`,
-        status: "Success"
-      }], { session });
-
       rechargeRecord[0].status = "Refunded";
       await rechargeRecord[0].save({ session });
+
+      debitTxn[0].status = status;
+      await debitTxn[0].save({ session });
       console.log("♻️ Recharge marked as refunded");
     }
 
-    // ✅ Create payout and distribute commission if success
+ 
     if (status === "Success") {
       const newPayOut = new PayOut({
         userId,
         amount: Number(amount),
         reference: referenceid,
         type: service._id,
-        account: null,
         trans_mode: "WALLET",
-        ifsc: null,
         name: user.name,
         mobile: user.mobileNumber,
         email: user.email,

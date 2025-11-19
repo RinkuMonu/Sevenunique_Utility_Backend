@@ -119,6 +119,7 @@ exports.initiatePayout = async (req, res) => {
 
     const userId = req.user.id;
     const referenceId = `DMTEX${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+
     const user = await userModel.findOne({ _id: userId, status: true }).session(session);
 
     if (!user) {
@@ -133,36 +134,32 @@ exports.initiatePayout = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required payout details" });
     }
 
-    // 🔹 Fetch service charges and commissions
+    // Get charges
     const { commissions, service } = await getApplicableServiceCharge(userId, type);
-    let commission;
-    if (commissions?.slabs?.length > 0) {
-      commission = calculateCommissionFromSlabs(amount, commissions);
-    } else {
-      commission = { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0, totalCommission: 0 };
-    }
+    let commission = commissions?.slabs?.length
+      ? calculateCommissionFromSlabs(amount, commissions)
+      : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
 
     const usableBalance = Number(user.eWallet) - Number(user.cappingMoney || 0);
     const required = Number(
-      (Number(amount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0)).toFixed(2)
+      (Number(amount) + Number(commission.charge) + Number(commission.gst) + Number(commission.tds) - Number(commission.retailer)).toFixed(2)
     );
 
-    // 🔹 Check wallet balance
     if (usableBalance < required) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney || 0}. Available: ₹${user.eWallet}, Required: ₹${required}`,
+        message: `Insufficient balance. Required: ₹${required}, Available: ₹${user.eWallet}`,
       });
     }
 
-    // 🔹 Step 1: Create initial "Pending" payout record
+    // Create payout record
     const [payoutRecord] = await payOutModel.create(
       [
         {
           userId,
-          amount: Number(amount),
+          amount,
           reference: referenceId,
           type: service?._id,
           trans_mode: fundTransferType || "IMPS",
@@ -173,28 +170,29 @@ exports.initiatePayout = async (req, res) => {
           account: beneAccountNo,
           ifsc: beneifsc,
           remark: "DMT EX initiated",
-          charges: commission.charge || 0,
-          gst: commission.gst || 0,
-          tds: commission.tds || 0,
+          charges: commission.charge,
+          gst: commission.gst,
+          tds: commission.tds,
           totalDebit: required,
         },
       ],
       { session }
     );
 
-    // 🔹 Step 2: Create wallet transaction
+    // Wallet txn
     const [transactionRecord] = await Transaction.create(
       [
         {
           user_id: userId,
           transaction_type: "debit",
-          amount: Number(amount),
+          amount,
           type: service?._id || type,
-          gst: Number(commission.gst || 0),
-          tds: Number(commission.tds || 0),
-          charge: Number(commission.charge || 0),
-          totalDebit: Number(required),
-          balance_after: user.eWallet - Number(required),
+          gst: commission.gst,
+          tds: commission.tds,
+          charge: commission.charge,
+          totalDebit: required,
+          totalCredit: commission.retailer,
+          balance_after: user.eWallet - required,
           payment_mode: "wallet",
           transaction_reference_id: referenceId,
           description: `DMT EX initiated for ${beneName}`,
@@ -204,7 +202,7 @@ exports.initiatePayout = async (req, res) => {
       { session }
     );
 
-    // 🔹 Step 3: Create DMT report
+    // Create DMT report
     const [dmtTransaction] = await DmtReport.create(
       [
         {
@@ -220,29 +218,33 @@ exports.initiatePayout = async (req, res) => {
           account_number: beneAccountNo,
           gatewayCharges: {
             txn_amount: parseFloat(amount),
-            customercharge: parseFloat(commission.charge || 0),
-            gst: parseFloat(commission.gst || 0),
-            tds: parseFloat(commission.tds || 0),
+            customercharge: parseFloat(commission.charge),
+            gst: parseFloat(commission.gst),
+            tds: parseFloat(commission.tds),
             netcommission: parseFloat(
-              commission.retailer + commission.distributor + commission.admin || 0
+              commission.retailer + commission.distributor + commission.admin
             ),
           },
           charges: commission.charge,
           commission: { distributor: commission.distributor, admin: commission.admin },
           gst: commission.gst,
           tds: commission.tds,
-          amount: amount,
+          amount,
           totalDebit: required,
         },
       ],
       { session }
     );
 
-    // 🔹 Deduct wallet (lock funds)
+    // Deduct wallet
     user.eWallet = Number(user.eWallet) - Number(required);
     await user.save({ session });
 
-    // 🔹 Generate API token
+    // 👉 COMMIT EVERYTHING BEFORE API CALL
+    await session.commitTransaction();
+    session.endSession();
+
+    // Now generate token (outside transaction)
     const tokenResponse = await axios.post(
       "https://instantpayco.com/api/v1.1/generateToken",
       new URLSearchParams({
@@ -253,25 +255,23 @@ exports.initiatePayout = async (req, res) => {
     );
 
     const accessToken = tokenResponse?.data?.data?.access_token;
+
     if (!accessToken) {
-      user.eWallet = Number(user.eWallet) + Number(required);
-      await user.save({ session });
-      payoutRecord.status = "Failed";
-      transactionRecord.status = "Failed";
-      dmtTransaction.status = "Failed";
-      dmtTransaction.remarks = "Failed to fetch token";
-      await payoutRecord.save({ session });
-      await transactionRecord.save({ session });
-      await dmtTransaction.save({ session });
-      await session.commitTransaction();
-      session.endSession();
-      return res.status(400).json({ success: false, message: "Technical issue, try again later" });
+      // If token failed → mark records failed
+      await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: "Failed to fetch token" });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: user.eWallet });
+      await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
+
+      // Refund wallet
+      await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } });
+
+      return res.status(400).json({ success: false, message: "Technical issue, try later" });
     }
 
-    // 🔹 Prepare payout API request
+    // Prepare API body
     const formData = new FormData();
     formData.append("amount", amount);
-    formData.append("reference", referenceId || clientReferenceNo);
+    formData.append("reference", referenceId);
     formData.append("trans_mode", fundTransferType);
     formData.append("account", beneAccountNo);
     formData.append("beneBankName", beneBankName);
@@ -282,7 +282,7 @@ exports.initiatePayout = async (req, res) => {
     formData.append("address", paramB || "");
     if (pincode) formData.append("pincode", pincode);
 
-    // 🔹 Call payout API
+    // Hit payout API
     let response;
     try {
       response = await axios.post("https://instantpayco.com/api/v1.1/payoutTransaction", formData, {
@@ -291,41 +291,25 @@ exports.initiatePayout = async (req, res) => {
           ...formData.getHeaders(),
         },
       });
-    } catch (apiError) {
-      response = {
-        status: 500,
-        data: { success: false, message: apiError.response?.data?.message || "DMT EX API failed" },
-      };
+    } catch (err) {
+      response = { data: { success: false, message: err.message || "API failed" } };
     }
-
-    console.log("✅ DMT EX Response:", response.data);
-
-    // Always mark "Pending" — status will be updated via callback
-    await payoutRecord.save({ session });
-    await transactionRecord.save({ session });
-    await dmtTransaction.save({ session });
-    await session.commitTransaction();
-    session.endSession();
 
     return res.status(200).json({
       success: true,
-      message: "DMT EX initiated successfully. Awaiting callback confirmation.",
       data: response.data,
     });
+
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    console.error("❌ DMT EX Error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Something went wrong while processing DMT EX",
-    });
+    console.error("Payout Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ============================================================
-// 🔹 CALLBACK HANDLER
-// ============================================================
+
+//  CALLBACK HANDLER
 exports.payoutCallback = async (req, res) => {
   try {
     console.log("📥 Callback Received:", req.query, req.body);
@@ -336,9 +320,11 @@ exports.payoutCallback = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing status or reference" });
     }
 
-    const payout = await payOutModel.findOne({ reference });
+    const payout = await payOutModel.findOne({ reference: reference });
     const transaction = await Transaction.findOne({ transaction_reference_id: reference });
     const dmtReport = await DmtReport.findOne({ referenceid: reference });
+
+
 
     if (!payout || !transaction || !dmtReport) {
       return res.status(404).json({ success: false, message: "Records not found for callback" });
@@ -346,7 +332,7 @@ exports.payoutCallback = async (req, res) => {
 
     const user = await userModel.findById(payout.userId);
 
-    if (status.toLowerCase() === "success") {
+    if (status.toLowerCase() == "success") {
       payout.status = "Success";
       transaction.status = "Success";
       dmtReport.status = "Success";
@@ -354,17 +340,22 @@ exports.payoutCallback = async (req, res) => {
       dmtReport.utr = utr || "";
       dmtReport.remarks = message || "Transaction successful";
       dmtReport.message = message || "Transaction successful";
-    } else if (status.toLowerCase() === "failed") {
-      payout.status = "Failed";
-      transaction.status = "Failed";
-      dmtReport.status = "Failed";
-      dmtReport.remarks = message || "Transaction failed";
-      dmtReport.message = message || "Transaction failed";
-      // Refund wallet
+      payout.remark = message || "Transaction successful";
+      transaction.description = message || "Transaction successful";
+    } else if (status.toLowerCase() == "failed") {
       if (user) {
         user.eWallet = Number(user.eWallet) + Number(payout.totalDebit || 0);
         await user.save();
       }
+      payout.status = "Failed";
+      transaction.status = "Failed";
+      transaction.balance_after = user.eWallet,
+        dmtReport.status = "Failed";
+      dmtReport.remarks = message || "Transaction failed";
+      dmtReport.message = message || "Transaction failed";
+      payout.remark = message || "Transaction failed";
+      transaction.description = message || "Transaction failed";
+      // Refund wallet
     } else {
       payout.status = "Pending";
       transaction.status = "Pending";

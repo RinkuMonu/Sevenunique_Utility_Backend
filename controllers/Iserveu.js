@@ -73,7 +73,7 @@ exports.aepsCallback = async (req, res) => {
     let distributorComm = (amount * commissionSlab.distributor) / 100;
     let adminComm = (amount * commissionSlab.admin) / 100;
 
-    // TODO: DB me transaction save + wallet update logic
+
     console.log("Commission:", {
       retailerComm,
       distributorComm,

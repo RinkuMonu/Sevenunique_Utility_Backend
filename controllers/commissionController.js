@@ -48,24 +48,24 @@ exports.createPackage = async (req, res, next) => {
 };
 
 exports.getAllPackages = async (req, res) => {
-  console.log("Fetching all commission packages with filters:", req.query);
   try {
-    const { page, limit, service, isActive, packageName } = req.query;
+    let { page = 1, limit = 20, service, isActive, packageName } = req.query;
 
-    const query = {};    
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const query = {};
 
     if (service) {
       if (mongoose.Types.ObjectId.isValid(service)) {
         query.service = service;
       } else {
         const srv = await servicesModal.findOne({ name: service });
-        if (srv?._id) {
-          query.service = srv._id;
-        } else {
-          return res
-            .status(400)
-            .json({ success: false, message: "Invalid service filter" });
-        }
+        if (srv?._id) query.service = srv._id;
+        else return res.status(400).json({
+          success: false,
+          message: "Invalid service filter"
+        });
       }
     }
 
@@ -74,29 +74,30 @@ exports.getAllPackages = async (req, res) => {
     }
 
     if (packageName) {
-      query.packageName = { $regex: packageName, $options: "i" }; 
+      query.packageName = { $regex: packageName, $options: "i" };
     }
-console.log(query);
 
     const total = await CommissionPackage.countDocuments(query);
+
     const packages = await CommissionPackage.find(query)
       .populate("service")
       .skip((page - 1) * limit)
-      .limit(parseInt(limit))
+      .limit(limit)
       .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       total,
-      currentPage: parseInt(page),
       totalPages: Math.ceil(total / limit),
+      currentPage: page,
       data: packages,
     });
+
   } catch (error) {
-    console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 exports.getPackageById = async (req, res) => {
   try {
