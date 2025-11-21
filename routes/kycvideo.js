@@ -15,6 +15,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 const axios = require("axios");
+const { verifyEmail7Unique } = require("../controllers/authController");
 
 // 1. Request KYC
 // router.post("/request", async (req, res) => {
@@ -52,7 +53,13 @@ router.post("/request", async (req, res) => {
 });
 
 //send KYC approve mail to user
-sendKYCApprovalEmail = async (user, scheduledTime) => {
+const sendKYCApprovalEmail = async (user, scheduledTime) => {
+  const check = await verifyEmail7Unique(user.email || "");
+
+  if (!check.valid) {
+    console.log("Skipping login email. Invalid email:", user.email);
+    return;
+  }
   try {
     const formattedTime = new Date(scheduledTime).toLocaleString("en-IN", {
       day: "2-digit",
@@ -69,8 +76,8 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
           to: [
             {
               name: user?.name || "User",
-              // email: user?.email,
-              email: "niranjan@7unique.in",
+              email: user?.email,
+              // email: "niranjan@7unique.in",
             },
           ],
           variables: {
@@ -86,7 +93,7 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
         email: "info@sevenunique.com",
       },
       domain: "mail.sevenunique.com",
-      template_id: "global_otp",
+      template_id: "kyc_notification_template",
     };
 
     const res = await axios.post(
@@ -96,7 +103,7 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
         headers: {
           "Content-Type": "application/json",
           accept: "application/json",
-          authkey: "415386Amp14kbEfs65c49c94P1",
+          authkey: process.env.MSG91_AUTH_KEY,
         },
       }
     );
@@ -127,13 +134,12 @@ router.patch("/approve/:id", async (req, res, next) => {
       },
       { new: true }
     );
-    console.log("kyc", kyc);
 
     const user = await User.findById(kyc.user);
     if (user?.email) {
       await sendKYCApprovalEmail(user, scheduledTime);
     }
-    console.log("user user", user);
+    // console.log("user user", user);
     res.json({ success: true, message: "KYC approved and email sent", kyc });
   } catch (Error) {
     console.error("❌ Error approving KYC:", Error);
@@ -240,6 +246,22 @@ router.get("/all", async (req, res) => {
         },
       },
       { $unwind: "$user" },
+      {
+        $project: {
+          status: 1,
+          createdAt: 1,
+          scheduledTime: 1,
+          roomLink: 1,
+          user: {
+            _id: 1,
+            UserId: "$user.UserId",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+            role: "$user.role",
+          },
+        },
+      },
       { $match: matchStage },
     ];
 
