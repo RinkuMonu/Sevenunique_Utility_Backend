@@ -9,7 +9,7 @@ const router = express.Router();
 
 // multer config
 const storage = multer.diskStorage({
-  destination: "uploads/",
+  destination: "/var/www/uploads/",
   filename: (req, file, cb) =>
     cb(null, Date.now() + path.extname(file.originalname)),
 });
@@ -166,6 +166,39 @@ router.patch("/verify", async (req, res, next) => {
   }
 });
 
+// location update
+router.post("/update-location", async (req, res) => {
+  try {
+    const { userId, requestId, latitude, longitude, pincode, deviceLocation } = req.body;
+    console.log(req.body)
+    if (!requestId) {
+      return res.status(400).json({ message: "Request ID missing" });
+    }
+
+    await KYCRequest.findByIdAndUpdate(
+      requestId,
+      {
+        videoLocation: {
+          lat: latitude || null,
+          lng: longitude || null,
+          pincode: pincode || null,
+          deviceLocation: deviceLocation || null
+        },
+      },
+      { new: true }
+    );
+
+    res.json({
+      message: "Location updated"
+    });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 // 3. Create room (admin)
 router.patch("/create-room/:id", async (req, res) => {
   const { id } = req.params;
@@ -186,11 +219,12 @@ router.post(
   "/upload-screenshot",
   upload.single("screenshot"),
   async (req, res) => {
+
     const { userId } = req.body;
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const user = await User.findById(userId);
-    user.documents.push(req.file.path);
+    user.documents.push(`uploads/${req.file.filename}`);
     await user.save();
 
     res.json({ message: "Screenshot uploaded", path: req.file.path });

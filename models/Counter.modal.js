@@ -13,7 +13,7 @@ counterSchema.statics.getNextUserId = async function () {
   );
 
   const padded = String(counter.seq).padStart(4, "0");
-  return `FIN${padded}`;
+  return `FINU${padded}`;
 };
 
 module.exports = mongoose.model("Counter", counterSchema);
