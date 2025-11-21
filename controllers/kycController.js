@@ -85,7 +85,7 @@ const submitAadharOTP = async (req, res) => {
 
       const newData = await User.findByIdAndUpdate(
         userId,
-        { aadharDetails: nameFromAadhar},
+        { aadharDetails: nameFromAadhar },
         { new: true }
       );
       console.log(newData);
@@ -229,45 +229,6 @@ const normalizeName = (name) => {
   return name;
 };
 
-// const userVerify = async (req, res) => {
-//   const { userId } = req.body;
-//   const user = await User.findById(userId);
-//   console.log(user);
-//   if (!user) return res.status(404).send("User not found!");
-
-//   const normalizedAadharName = normalizeName(
-//     user?.aadharDetails?.data?.full_name || ""
-//   );
-//   const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
-//   const normalizedBankName = normalizeName(user?.bankDetails?.account_name || "");
-
-//   console.log("🧾 Normalized Names:", {
-//     Aadhaar: normalizedAadharName,
-//     PAN: normalizedPanName,
-//     Bank: normalizedBankName,
-//   });
-
-//   if (
-//     normalizedAadharName === normalizedPanName &&
-//     normalizedPanName === normalizedBankName
-//   ) {
-//     user.isKycVerified = true;
-//     await user.save();
-//     return res.status(200).send("User verified successfully");
-
-//   }
-
-//   // user.aadharDetails = {};
-//   // user.panDetails = {};
-//   // user.bankDetails = {};
-//   user.isKycVerified = false;
-//   await user.save();
-
-//   return res
-//     .status(400)
-//     .send("Dismatched User details. Please correct the information.");
-// };
-
 const userVerify = async (req, res) => {
   try {
     const { userId, fromApp } = req.body;
@@ -349,64 +310,151 @@ const updateBankAccount = async (req, res) => {
   const { id_number, ifsc } = req.body;
   console.log("🔄 Updating Bank Account:", id_number, ifsc);
 
-  let user = await User.findById(req.user.id);
-  if (!user) return res.status(404).json({ message: "User not found" });
-
-  const normalizedAadharName = normalizeName(
-    user.aadharDetails.full_name || ""
-  );
-  const normalizedPanName = normalizeName(user.panDetails.full_name || "");
-
   if (!id_number || !ifsc) {
-    return res
-      .status(400)
-      .json({ success: false, message: "IFSC number or ID is missing" });
+    return res.status(400).json({
+      success: false,
+      message: "Account number & IFSC are required",
+    });
   }
+
+  const user = await User.findById(req.user.id);
+  if (!user)
+    return res.status(404).json({ success: false, message: "User not found" });
+
+  // Normalize saved names
+  const normalizedAadharName = normalizeName(
+    user?.aadharDetails?.data?.full_name || ""
+  );
+  const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
 
   try {
     const response = await axios.post(
-      "https://kyc-api.surepass.io/api/v1/bank-verification/",
-      { id_number, ifsc, ifsc_details: true },
+      "https://api.7uniqueverfiy.com/api/verify/bankVerify/v2",
+      {
+        account_number: id_number,
+        ifsc_code: ifsc,
+      },
       {
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.TOKEN}`,
+          "client-id": "Seven012",
+          authorization: `Bearer ${generateToken()}`,
+          "x-env": "production",
         },
       }
     );
 
-    console.log("✅ Surepass Bank Verify Response:", response.data);
+    console.log("✅ Bank Verify Response:", response.data);
 
-    const nameFromBank = response.data.data.full_name;
+    const api = response.data;
+
+    if (!api.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Service returned failure",
+      });
+    }
+
+    if (
+      api.data?.status !== true ||
+      api.data?.statuscode !== 200 ||
+      !api.data?.data
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bank details provided",
+      });
+    }
+
+    const bankData = api.data.data;
+    const nameFromBank = bankData.account_name || "";
     const normalizedBankName = normalizeName(nameFromBank);
 
     if (
       normalizedAadharName === normalizedBankName &&
       normalizedPanName === normalizedBankName
     ) {
-      user.bankDetails = response.data.data;
+      user.bankDetails = bankData;
       await user.save();
+
       return res.status(200).json({
         success: true,
         message: "Bank details updated successfully",
-        data: response.data,
-      });
-    } else {
-      console.warn("❌ Name Mismatch with Aadhaar & PAN");
-      return res.status(400).json({
-        success: false,
-        message: "Bank account name mismatch with Aadhaar & PAN",
+        bankDetails: bankData,
       });
     }
+
+    return res.status(400).json({
+      success: false,
+      message: "Bank name mismatch with Aadhaar & PAN",
+      aadharName: user?.aadharDetails?.data?.full_name,
+      panName: user?.panDetails?.full_name,
+      bankName: nameFromBank,
+    });
   } catch (error) {
     console.error(
-      "❌ Error updating bank account:",
+      "Error updating bank account:",
       error.response?.data || error.message
     );
-    return res
-      .status(500)
-      .json({ success: false, message: "Error updating bank details" });
+    return res.status(500).json({
+      success: false,
+      message: "Service under maintenance",
+    });
   }
+};
+
+const verifyEmail7UniqueVerify = async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res
+      .status(201)
+      .json({ success: false, message: "Email is required" });
+  }
+  try {
+    const payload = {
+      refid: Date.now().toString(),
+      email,
+    };
+
+    const resp = await axios.post(
+      "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${generateToken()}`,
+          "x-env": "production",
+          "client-id": process.env.SEVEN_CLIENT_ID,
+        },
+      }
+    );
+
+    const api = resp.data;
+    console.log("✅ Email Verification Response:", api);
+
+    if (api.success === true && api.data) {
+      const inner = api.data.data;
+      console.log("🔍 Email Verification Details:", inner);
+
+      if (inner.valid === true && inner.valid_syntax === true) {
+        return res.status(200).json({
+          emailvalid: true,
+          reason: inner,
+          message: "valid Email and deliverable",
+        });
+      } else {
+        return res.status(200).json({
+          emailvalid: false,
+          reason: inner,
+          message: "invalid Email or undeliverable",
+        });
+      }
+    }
+  } catch (error) {
+    return res
+      .status(400)
+      .json({ success: false, message: "email verify service on maintenance" });
+  }
+  console.error("❌ Email Check Error:", error);
 };
 
 module.exports = {
@@ -416,4 +464,6 @@ module.exports = {
   verifyPAN,
   userVerify,
   updateBankAccount,
+  verifyEmail7UniqueVerify,
+  generateToken,
 };
