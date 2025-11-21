@@ -220,8 +220,8 @@ exports.cashWithdrawal = async (req, res) => {
     const {
       aadhaar,
       bankiin,
-      latitude = "26.79900",
-      longitude = "75.86500",
+      latitude,
+      longitude,
       mobile,
       amount,
       pidData,
@@ -242,7 +242,7 @@ exports.cashWithdrawal = async (req, res) => {
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
 
-    const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
+    const externalRef = `ACW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
@@ -388,7 +388,7 @@ exports.cashWithdrawal = async (req, res) => {
         referenceId: externalRef,
         service: service._id,
         baseAmount: amount,
-        charge: commission.charge + commission.gst+commission.tds,
+        charge: commission.charge + commission.gst + commission.tds,
         netAmount: required,
         roles: [
           { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
@@ -435,19 +435,19 @@ exports.balanceEnquiry = async (req, res, next) => {
   try {
     session.startTransaction();
 
-    const { aadhaar, bankiin, mobile, pidData, category } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData || !category)
+    const { aadhaar, bankiin, mobile, pidData, category, latitude, longitude } = req.body;
+    if (!aadhaar || !bankiin || !mobile || !pidData || !category || !longitude || !latitude)
       throw createError(400, "Missing required fields");
 
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
-    const externalRef = "REF" + Date.now();
+    const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
-      latitude: "26.79900",
-      longitude: "75.86500",
+      latitude,
+      longitude,
       mobile,
       externalRef,
       captureType: "FINGER",
@@ -622,16 +622,17 @@ exports.miniStatement = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-    const { aadhaar, bankiin, mobile, pidData, category } = req.body;
+    const { aadhaar, bankiin, mobile, pidData, category, latitude,
+      longitude } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
-    const externalRef = "REF" + Date.now();
+    const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
-      latitude: "26.79900",
-      longitude: "75.86500",
+      latitude,
+      longitude,
       mobile,
 
       externalRef: externalRef,
@@ -812,15 +813,16 @@ exports.deposite = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-    const { aadhaar, bankiin, mobile, amount, pidData, category } = req.body;
+    const { aadhaar, bankiin, mobile, amount, pidData, category, latitude,
+      longitude } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,
-      latitude: "26.79900",
-      longitude: "75.86500",
+      latitude,
+      longitude,
       mobile,
       amount,
       externalRef: `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
@@ -1003,7 +1005,7 @@ exports.getBankList = async (req, res, next) => {
     if (!user) throw new Error("User not found");
     const response = await instantpay.get("/fi/aeps/banks", {
       headers: {
-        "X-Ipay-Outlet-Id": user.outletId ||"561907",
+        "X-Ipay-Outlet-Id": user.outletId || "561907",
       },
     });
     return res.json(response.data);

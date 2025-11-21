@@ -9,7 +9,7 @@ const { processBillerData, getBillerByCategory, getBillerById } = require("../..
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "./uploads"),
+  destination: (req, file, cb) => cb(null, "/var/www/uploads"),
   filename: (req, file, cb) => cb(null, "biller_data.xlsx"),
 });
 

@@ -41,7 +41,7 @@ app.use(
 );
 
 app.use(bodyParser.json());
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static("/var/www/uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

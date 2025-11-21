@@ -1,5 +1,5 @@
 const express = require("express");
-const { signupInitiate, signupValidate, mobileChangeInitiate, mobileChangeValidate, getMerchantList } = require("../controllers/InstantPay.aeps.controller");
+const { signupInitiate, signupValidate, mobileChangeInitiate, mobileChangeValidate, getMerchantList, MerchantBiometricKyc, MerchantBiometric } = require("../controllers/InstantPay.aeps.controller");
 const router = express.Router();
 const bbpsController = require("../controllers/instantpay/bbpsControllerInstant");
 const instantpayController = require("../controllers/instantpay/AEPSController");
@@ -9,6 +9,8 @@ const authenticateToken = require("../middleware/verifyToken");
 // Existing routes
 router.post("/signup/initiate", signupInitiate);
 router.post("/signup/validate", signupValidate);
+router.post("/signup/MerchantBiometric", MerchantBiometric);
+router.post("/signup/MerchantBiometricKyc", MerchantBiometricKyc);
 router.post("/mobile/update", mobileChangeInitiate);
 router.post("/mobile/validate", mobileChangeValidate);
 router.post("/list", getMerchantList);

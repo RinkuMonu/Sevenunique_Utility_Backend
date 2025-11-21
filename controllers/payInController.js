@@ -631,7 +631,7 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
           </div>
-          <div class="footer">© ${new Date().getFullYear()} SEVENUNIQUE TECH SOLUTIONS PVT. LTD.</div>
+          <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED</div>
         </div>
       </body>
       </html>
@@ -666,7 +666,7 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
           </div>
-          <div class="footer">© ${new Date().getFullYear()} SEVENUNIQUE TECH SOLUTIONS PVT. LTD.</div>
+          <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED </div>
         </div>
       </body>
       </html>
