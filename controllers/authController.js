@@ -18,6 +18,42 @@ const OTP = require("../models/otpModel");
 
 // utils/getDeviceName.js
 
+const verifyEmail7Unique = async (email) => {
+  try {
+    const res = await axios.post(
+      "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+      {
+        refid: `${Date.now()}`,
+        email,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-env": "production",
+          "client-id": "Seven012",
+          Authorization: `Bearer ${generateToken()}`,
+        },
+      }
+    );
+
+    const data = res?.data;
+
+    console.log("Email Verify Cron Response:", data);
+
+    if (!data) return { valid: false, reason: "no_response" };
+    return {
+      valid:
+        data?.data?.status &&
+        data?.data?.data?.valid_syntax &&
+        data?.data?.data?.valid,
+      reason: data?.data?.data?.status || "unknown",
+    };
+  } catch (err) {
+    console.error("Email Verify Cron Error:", err.message);
+    return { valid: false, reason: "api_error" };
+  }
+};
+
 const getDeviceName = (userAgent = "") => {
   const ua = userAgent || "";
 
@@ -57,19 +93,13 @@ const sendLoginEmail = async (
   deviceLocation,
   deviceName
 ) => {
-  console.log(
-    "Sending login email to data:",
-    user.email,
-    user.name,
-    lat,
-    long,
-    pincode,
-    ipAddress,
-    deviceLocation,
-    deviceName
-  );
-
   try {
+    const check = await verifyEmail7Unique(user.email || "");
+    if (!check.valid) {
+      console.log("⚠ Skipping login email. Invalid email:", user.email);
+      return;
+    }
+    console.log("✅ Email verified by 7Unique:", check);
     const loginTime = new Date().toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
@@ -85,8 +115,8 @@ const sendLoginEmail = async (
           to: [
             {
               name: user?.name || "User",
-              // email: user?.email,
-              email: "niranjan@7unique.in",
+              email: user?.email,
+              // email: "niranjan@7unique.in",
             },
           ],
           variables: {
@@ -108,8 +138,9 @@ const sendLoginEmail = async (
         email: "info@sevenunique.com",
       },
       domain: "mail.sevenunique.com",
-      template_id: "global_otp",
+      template_id: "login_notification_template",
     };
+    // console.log("Login email payload:", payload.recipients[0].variables);
     try {
       const res = await axios.post(
         "https://control.msg91.com/api/v5/email/send",
@@ -194,6 +225,159 @@ const sendOtpController = async (req, res) => {
       message: "Internal Server Error",
       error: error.message,
     });
+  }
+};
+
+const verifyOTPController = async (req, res) => {
+  try {
+    const { mobileNumber, otp } = req.body;
+
+    // ✅ Validation
+    if (!mobileNumber || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number and OTP are required",
+      });
+    }
+
+    // ✅ Verify OTP
+    const verificationResult = await verifyOtp(mobileNumber, otp);
+
+    if (!verificationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.message || "Invalid OTP",
+      });
+    }
+    let user = await User.findOne({ mobileNumber });
+
+    let nextStep = 2;
+
+    if (user) {
+      if (user.name && user.email && user.password) nextStep = 3;
+
+      if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
+        nextStep = 4;
+
+      if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
+        nextStep = 5;
+
+      if (user.panDetails && Object.keys(user.panDetails).length > 0)
+        nextStep = 6;
+    }
+
+    // ✅ Success
+    return res.status(200).json({
+      success: true,
+      message: "OTP verified successfully",
+      userId: user ? user._id : null,
+      nextStep,
+      isExistingUser: !!user,
+    });
+  } catch (error) {
+    console.error("❌ Error in verifyOTPController:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+const loginController = async (req, res) => {
+  try {
+    const {
+      mobileNumber,
+      password,
+      otp,
+      lat,
+      long,
+      pincode,
+      ipAddress,
+      deviceLocation,
+    } = req.body;
+    if (!mobileNumber) {
+      return res.status(400).json({ message: "Mobile number is required" });
+    }
+
+    const user = await User.findOne({ mobileNumber });
+    if (!user) {
+      return res.status(404).json({ message: "No user found" });
+    }
+
+    if (user.status === false) {
+      return res
+        .status(403)
+        .json({ message: "Your account is blocked. Please contact support." });
+    }
+
+    // ✅ OTP login
+    if (otp) {
+      const verificationResult = await verifyOtp(mobileNumber, otp);
+      if (!verificationResult.success) {
+        return res.status(400).json({ message: verificationResult.message });
+      }
+    }
+    // ✅ Password login
+    else if (password) {
+      const isMatch = await user.comparePassword(password);
+
+      if (!isMatch)
+        return res.status(400).json({ message: "Invalid password" });
+    } else {
+      return res
+        .status(400)
+        .json({ message: "Password or OTP is required to login" });
+    }
+
+    // ✅ Generate JWT
+    const token = generateJwtToken(user._id, user.role, user.mobileNumber);
+
+    const deviceName = getDeviceName(req.headers["user-agent"]);
+
+    sendLoginEmail(
+      user,
+      lat,
+      long,
+      pincode,
+      ipAddress,
+      deviceLocation,
+      deviceName
+    );
+    await LoginHistory.create({
+      userId: user._id ?? null,
+      mobileNumber: user.mobileNumber ?? "",
+      loginTime: new Date() ?? Date.now(),
+      ipAddress: ipAddress ?? req.ip,
+      userAgent: req.headers["user-agent"] ?? "",
+      deviceLocation: deviceLocation ?? "",
+      deviceName: deviceName ?? "",
+      location: {
+        lat: lat ?? "",
+        long: long ?? "",
+        pincode: pincode ?? "",
+      },
+    });
+
+    return res.status(200).json({
+      message: "Login successful",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobileNumber,
+        role: user.role,
+        token,
+        ownerPhoto: user.ownerPhoto,
+        isKycVerified: user.isKycVerified,
+        isVideoKyc: user.isVideoKyc,
+        address: user.address,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error("Error in loginController:", error);
+    return res.status(500).json({ message: "please try again later" });
   }
 };
 
@@ -312,300 +496,6 @@ const getLoginHistory = async (req, res) => {
       success: false,
       message: "Server Error",
     });
-  }
-};
-
-const verifyOTPController = async (req, res) => {
-  try {
-    const { mobileNumber, otp } = req.body;
-
-    // ✅ Validation
-    if (!mobileNumber || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: "Mobile number and OTP are required",
-      });
-    }
-
-    // ✅ Verify OTP
-    const verificationResult = await verifyOtp(mobileNumber, otp);
-
-    if (!verificationResult.success) {
-      return res.status(400).json({
-        success: false,
-        message: verificationResult.message || "Invalid OTP",
-      });
-    }
-    let user = await User.findOne({ mobileNumber });
-
-    let nextStep = 2;
-
-    if (user) {
-      if (user.name && user.email && user.password) nextStep = 3;
-
-      if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-        nextStep = 4;
-
-      if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-        nextStep = 5;
-
-      if (user.panDetails && Object.keys(user.panDetails).length > 0)
-        nextStep = 6;
-    }
-
-    // ✅ Success
-    return res.status(200).json({
-      success: true,
-      message: "OTP verified successfully",
-      userId: user ? user._id : null,
-      nextStep,
-      isExistingUser: !!user,
-    });
-  } catch (error) {
-    console.error("❌ Error in verifyOTPController:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
-  }
-};
-
-// const loginController = async (req, res) => {
-//   try {
-//     const { mobileNumber, otp } = req.body;
-
-//     if (!mobileNumber || !otp) {
-//       return res
-//         .status(400)
-//         .json({ message: "Mobile number and OTP are required" });
-//     }
-//     const verificationResult = await verifyOtp(mobileNumber, otp);
-//     if (!verificationResult.success) {
-//       return res.status(400).json({ message: verificationResult.message });
-//     }
-//     let user = await User.findOne({ mobileNumber });
-
-//     if (!user) {
-//       return res.status(404).json({ message: "No user found" });
-//     }
-//     if (user.status === false) {
-//       return res
-//         .status(403)
-//         .json({ message: "Your account is blocked. Please contact support." });
-//     }
-
-//     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
-
-//     return res.status(200).json({
-//       message: "Login successful",
-//       user: {
-//         id: user._id,
-//         mobileNumber: user.mobileNumber,
-//         token,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error in loginController:", error);
-//     return res.status(500).json({ message: "Internal server error" });
-//   }
-// };
-
-// const registerUser = async (req, res) => {
-//   try {
-//     const {
-//       name,
-//       email,
-//       mobileNumber,
-//       address,
-//       pinCode,
-//       mpin,
-//       role,
-//       distributorId,
-//       businessName,
-//       businessType,
-
-//     } = req.body;
-
-//     let user = await User.findOne({ $or: [{ email }, { mobileNumber }] });
-//     if (user) {
-//       return res.status(400).json({ message: "User already exists" });
-//     }
-
-//     let adminUser;
-//     if (!distributorId) {
-//       adminUser = await User.findOne({ role: "Admin" });
-//     }
-
-//     let shopPhotoPaths = [];
-//     if (req.files?.shopPhoto) {
-//       shopPhotoPaths = req.files.shopPhoto.map(
-//         (file) => `/uploads/${file.filename}`
-//       );
-//     }
-
-//     const ownerPhoto = req.files?.ownerPhoto
-//       ? `/uploads/${req.files.ownerPhoto[0].filename}`
-//       : "";
-
-//     let newUserObj = {
-//       name,
-//       email,
-//       mobileNumber,
-//       address,
-//       pinCode,
-//       mpin,
-//       role,
-//       businessName,
-//       businessType,
-//       shopPhoto: shopPhotoPaths,
-//       ownerPhoto,
-//       status: role === "User" ? true : false,
-//       distributorId: distributorId ? distributorId : adminUser?._id,
-//     };
-
-//     let NewUser = await User.create(newUserObj);
-//     const token = generateJwtToken(
-//       NewUser._id,
-//       NewUser.role,
-//       NewUser.mobileNumber
-//     );
-
-//     // ✅ Lead API call using axios
-//     try {
-//       const leadResponse = await axios.post(
-//         "https://cms.sevenunique.com/apis/leads/set-leads.php",
-//         {
-//           website_id: 6,
-//           name: NewUser.name,
-//           mobile_number: NewUser.mobileNumber,
-//           email: NewUser.email,
-//           address: NewUser.address,
-//           client_type: NewUser.role,
-//           notes: "Lead from FinUnique small private limited",
-//         },
-//         {
-//           headers: {
-//             "Content-Type": "application/json",
-//             Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-//           },
-//         }
-//       );
-
-//       console.log("Lead API Response:", leadResponse.data);
-//     } catch (leadError) {
-//       console.error(
-//         "Error sending lead data:",
-//         leadError.response ? leadError.response.data : leadError.message
-//       );
-//     }
-
-//     return res.status(200).json({
-//       message: "Registration successful",
-//       newUser: NewUser,
-//       token,
-//     });
-//   } catch (error) {
-//     console.error("Error in registerUser controller:", error);
-//     return res.status(500).json({ message: "Internal server error" });
-//   }
-// };
-
-const loginController = async (req, res) => {
-  try {
-    const {
-      mobileNumber,
-      password,
-      otp,
-      lat,
-      long,
-      pincode,
-      ipAddress,
-      deviceLocation,
-    } = req.body;
-    if (!mobileNumber) {
-      return res.status(400).json({ message: "Mobile number is required" });
-    }
-
-    const user = await User.findOne({ mobileNumber });
-    if (!user) {
-      return res.status(404).json({ message: "No user found" });
-    }
-
-    if (user.status === false) {
-      return res
-        .status(403)
-        .json({ message: "Your account is blocked. Please contact support." });
-    }
-
-    // ✅ OTP login
-    if (otp) {
-      const verificationResult = await verifyOtp(mobileNumber, otp);
-      if (!verificationResult.success) {
-        return res.status(400).json({ message: verificationResult.message });
-      }
-    }
-    // ✅ Password login
-    else if (password) {
-      const isMatch = await user.comparePassword(password);
-
-      if (!isMatch)
-        return res.status(400).json({ message: "Invalid password" });
-    } else {
-      return res
-        .status(400)
-        .json({ message: "Password or OTP is required to login" });
-    }
-
-    // ✅ Generate JWT
-    const token = generateJwtToken(user._id, user.role, user.mobileNumber);
-
-    const deviceName = getDeviceName(req.headers["user-agent"]);
-
-    sendLoginEmail(
-      user,
-      lat,
-      long,
-      pincode,
-      ipAddress,
-      deviceLocation,
-      deviceName
-    );
-
-    await LoginHistory.create({
-      userId: user._id ?? null,
-      mobileNumber: user.mobileNumber ?? "",
-      loginTime: new Date() ?? Date.now(),
-      ipAddress: ipAddress ?? req.ip,
-      userAgent: req.headers["user-agent"] ?? "",
-      deviceLocation: deviceLocation ?? "",
-      deviceName: deviceName ?? "",
-      location: {
-        lat: lat ?? "",
-        long: long ?? "",
-        pincode: pincode ?? "",
-      },
-    });
-
-    return res.status(200).json({
-      message: "Login successful",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        mobileNumber: user.mobileNumber,
-        role: user.role,
-        token,
-        ownerPhoto: user.ownerPhoto,
-        isKycVerified: user.isKycVerified,
-        isVideoKyc: user.isVideoKyc,
-        address: user.address,
-        status: user.status,
-      },
-    });
-  } catch (error) {
-    console.error("Error in loginController:", error);
-    return res.status(500).json({ message: "please try again later" });
   }
 };
 
@@ -1891,6 +1781,7 @@ const payInModel = require("../models/payInModel.js");
 const otpModel = require("../models/otpModel.js");
 const LoginHistory = require("../models/LoginHistory.js");
 const userModel = require("../models/userModel.js");
+const { generateToken } = require("./kycController.js");
 
 const updateUserPermissions = async (req, res) => {
   try {
@@ -2006,4 +1897,5 @@ module.exports = {
   getUserId,
   updateProgress,
   getLoginHistory,
+  verifyEmail7Unique,
 };

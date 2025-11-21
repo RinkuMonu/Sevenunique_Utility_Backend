@@ -1,6 +1,8 @@
 // controllers/merchantOnboardingController.js
 const axios = require("axios");
 const crypto = require("crypto");
+const xml2js = require("xml2js");
+const mongoose = require("mongoose");
 
 
 const INSTANTPAY_BASE_URL = "https://api.instantpay.in";
@@ -12,7 +14,6 @@ const getHeaders = () => {
         "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
         "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
         "X-Ipay-Auth-Code": "1",
-        "X-Ipay-Outlet-Id": process.env.IPAY_OUTLET_ID, // ✅ add this
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
         "Content-Type": "application/json",
     };
@@ -30,6 +31,59 @@ function encrypt(text, key) {
     // IV ko bhi attach kar dete hain (Base64 me safe transfer ke liye)
     const encryptedData = Buffer.concat([iv, Buffer.from(encrypted, "base64")]).toString("base64");
     return encryptedData;
+}
+
+async function parsePidXML(pidXml) {
+    return new Promise((resolve, reject) => {
+        xml2js.parseString(pidXml, { explicitArray: true }, (err, result) => {
+            if (err) return reject(err);
+
+            try {
+                const resp = result.PidData.Resp[0];
+                const deviceInfo = result.PidData.DeviceInfo[0];
+                const skey = result.PidData.Skey[0];
+                const hmac = result.PidData.Hmac[0];
+                const data = result.PidData.Data[0];
+
+                // extract additional_info Params
+                let params = {};
+                if (deviceInfo.additional_info && deviceInfo.additional_info[0].Param) {
+                    deviceInfo.additional_info[0].Param.forEach((p) => {
+                        params[p.$.name] = p.$.value;
+                    });
+                }
+
+                resolve({
+                    dc: deviceInfo.$.dc,
+                    dpId: deviceInfo.$.dpId,
+                    rdsId: deviceInfo.$.rdsId,
+                    rdsVer: deviceInfo.$.rdsVer,
+                    mi: deviceInfo.$.mi,
+                    mc: deviceInfo.$.mc,
+                    ci: skey.$.ci,
+                    sessionKey: skey._,
+                    hmac: hmac,
+                    pidDataType: data.$.type,
+                    pidData: data._,
+                    errCode: resp.$.errCode,
+                    errInfo: resp.$.errInfo,
+                    fCount: resp.$.fCount || "0",
+                    fType: resp.$.fType || "0",
+                    iCount: resp.$.iCount || "0",
+                    pCount: resp.$.pCount || "0",
+                    qScore: resp.$.qScore || "",
+                    nmPoints: resp.$.nmPoints || "",
+                    srno: params.srno || "",
+                    sysid: params.sysid || "",
+                    ts: params.ts || "",
+                    // modality_type: params.modality_type || "",
+                    // device_type: params.device_type || "",
+                });
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
 }
 
 
@@ -51,8 +105,6 @@ exports.signupInitiate = async (req, res) => {
             longitude,
             consent,
         } = req.body;
-        console.log(getHeaders());
-        console.log(encrypt(aadhaar, encryptionKey));
 
         const response = await axios.post(
             `${INSTANTPAY_BASE_URL}/user/outlet/signup/initiate`,
@@ -94,6 +146,68 @@ exports.signupValidate = async (req, res) => {
         res.status(200).json(response.data);
     } catch (error) {
         console.error("Signup Validate Error:", error?.response?.data || error.message);
+        res.status(400).json({
+            status: false,
+            message: error?.response?.data || error.message,
+        });
+    }
+};
+// ✅ Merchant Biometric
+exports.MerchantBiometric = async (req, res) => {
+    try {
+        const { outletId } = req.body
+
+
+        const response = await axios.post(
+            `${INSTANTPAY_BASE_URL}/user/outlet/signup/biometricKycStatus`,
+            {spkey:"DMI"},
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": outletId,
+                },
+            }
+        );
+
+        res.status(200).json(response.data);
+    } catch (error) {
+        console.error("Merchant Biometric Error:", error?.response?.data || error.message);
+        res.status(400).json({
+            status: false,
+            message: error?.response?.data || error.message,
+        });
+    }
+};
+exports.MerchantBiometricKyc = async (req, res) => {
+    try {
+        const { outletId, referenceKey, latitude, longitude, pidData, aadhaar } = req.body
+        const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
+        const biometricParsed = await parsePidXML(pidData);
+        const payload = {
+            referenceKey,
+            latitude,
+            longitude,
+            externalRef,
+            biometricData: {
+                // encryptedAadhaar: encrypt(aadhaar, encryptionKey),
+                ...biometricParsed,
+
+            },
+        }
+        const response = await axios.post(
+            `${INSTANTPAY_BASE_URL}/user/outlet/signup/biometricKyc`,
+            payload,
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": outletId,
+                },
+            }
+        );
+
+        res.status(200).json(response.data);
+    } catch (error) {
+        console.error("Merchant Biometric Kyc Error:", error?.response?.data || error.message);
         res.status(400).json({
             status: false,
             message: error?.response?.data || error.message,

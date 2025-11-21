@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const upload = require("../utils/uplods.js");
+
 const {
   sendOtpController,
   verifyOTPController,
@@ -23,6 +23,7 @@ const {
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
+const upload = require("../utils/uplods.js");
 
 router.post("/send-otp", sendOtpController);
 router.post("/verify-otp", verifyOTPController);

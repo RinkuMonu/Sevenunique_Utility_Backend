@@ -9,12 +9,13 @@ const router = express.Router();
 
 // multer config
 const storage = multer.diskStorage({
-  destination: "uploads/",
+  destination: "/var/www/uploads/",
   filename: (req, file, cb) =>
     cb(null, Date.now() + path.extname(file.originalname)),
 });
 const upload = multer({ storage });
 const axios = require("axios");
+const { verifyEmail7Unique } = require("../controllers/authController");
 
 // 1. Request KYC
 // router.post("/request", async (req, res) => {
@@ -52,7 +53,13 @@ router.post("/request", async (req, res) => {
 });
 
 //send KYC approve mail to user
-sendKYCApprovalEmail = async (user, scheduledTime) => {
+const sendKYCApprovalEmail = async (user, scheduledTime) => {
+  const check = await verifyEmail7Unique(user.email || "");
+
+  if (!check.valid) {
+    console.log("Skipping login email. Invalid email:", user.email);
+    return;
+  }
   try {
     const formattedTime = new Date(scheduledTime).toLocaleString("en-IN", {
       day: "2-digit",
@@ -69,8 +76,8 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
           to: [
             {
               name: user?.name || "User",
-              // email: user?.email,
-              email: "niranjan@7unique.in",
+              email: user?.email,
+              // email: "niranjan@7unique.in",
             },
           ],
           variables: {
@@ -86,7 +93,7 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
         email: "info@sevenunique.com",
       },
       domain: "mail.sevenunique.com",
-      template_id: "global_otp",
+      template_id: "kyc_notification_template",
     };
 
     const res = await axios.post(
@@ -96,7 +103,7 @@ sendKYCApprovalEmail = async (user, scheduledTime) => {
         headers: {
           "Content-Type": "application/json",
           accept: "application/json",
-          authkey: "415386Amp14kbEfs65c49c94P1",
+          authkey: process.env.MSG91_AUTH_KEY,
         },
       }
     );
@@ -127,13 +134,12 @@ router.patch("/approve/:id", async (req, res, next) => {
       },
       { new: true }
     );
-    console.log("kyc", kyc);
 
     const user = await User.findById(kyc.user);
     if (user?.email) {
       await sendKYCApprovalEmail(user, scheduledTime);
     }
-    console.log("user user", user);
+    // console.log("user user", user);
     res.json({ success: true, message: "KYC approved and email sent", kyc });
   } catch (Error) {
     console.error("❌ Error approving KYC:", Error);
@@ -167,6 +173,39 @@ router.patch("/verify", async (req, res, next) => {
   }
 });
 
+// location update
+router.post("/update-location", async (req, res) => {
+  try {
+    const { userId, requestId, latitude, longitude, pincode, deviceLocation } = req.body;
+    console.log(req.body)
+    if (!requestId) {
+      return res.status(400).json({ message: "Request ID missing" });
+    }
+
+    await KYCRequest.findByIdAndUpdate(
+      requestId,
+      {
+        videoLocation: {
+          lat: latitude || null,
+          lng: longitude || null,
+          pincode: pincode || null,
+          deviceLocation: deviceLocation || null
+        },
+      },
+      { new: true }
+    );
+
+    res.json({
+      message: "Location updated"
+    });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 // 3. Create room (admin)
 router.patch("/create-room/:id", async (req, res) => {
   const { id } = req.params;
@@ -187,11 +226,12 @@ router.post(
   "/upload-screenshot",
   upload.single("screenshot"),
   async (req, res) => {
+
     const { userId } = req.body;
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const user = await User.findById(userId);
-    user.documents.push(req.file.path);
+    user.documents.push(`uploads/${req.file.filename}`);
     await user.save();
 
     res.json({ message: "Screenshot uploaded", path: req.file.path });
@@ -240,6 +280,22 @@ router.get("/all", async (req, res) => {
         },
       },
       { $unwind: "$user" },
+      {
+        $project: {
+          status: 1,
+          createdAt: 1,
+          scheduledTime: 1,
+          roomLink: 1,
+          user: {
+            _id: 1,
+            UserId: "$user.UserId",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+            role: "$user.role",
+          },
+        },
+      },
       { $match: matchStage },
     ];
 
