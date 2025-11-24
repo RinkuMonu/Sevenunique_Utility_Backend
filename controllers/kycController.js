@@ -404,57 +404,62 @@ const updateBankAccount = async (req, res) => {
 
 const verifyEmail7UniqueVerify = async (req, res) => {
   const { email } = req.body;
+  console.log("📧 Verifying Email:", email);
+
   if (!email) {
     return res
       .status(201)
       .json({ success: false, message: "Email is required" });
   }
+
   try {
-    const payload = {
-      refid: Date.now().toString(),
-      email,
-    };
+    const payload = { email };
 
     const resp = await axios.post(
-      "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+      "https://control.msg91.com/api/v5/email/validate",
       payload,
       {
         headers: {
           "Content-Type": "application/json",
-          authorization: `Bearer ${generateToken()}`,
-          "x-env": "production",
-          "client-id": process.env.SEVEN_CLIENT_ID,
+          accept: "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
         },
       }
     );
 
     const api = resp.data;
-    console.log("✅ Email Verification Response:", api);
+    
+    const result = api?.data;
+    // MSG91 → api.data.valid, api.data.reason, api.data.did_you_mean
+    
+    console.log("✅ MSG91 Verification Response:", result);
+    const normalizedResponse = {
+      emailvalid: result?.result?.result=== "deliverable"? true : false,
+      reason: {
+        valid: result?.valid,
+        valid_syntax: result?.valid_syntax,
+        disposable: result?.disposable,
+        role: result?.role,
+        mx_found: result?.mx_found,
+        smtp_check: result?.smtp_check,
+        catch_all: result?.catch_all,
+        did_you_mean: result?.did_you_mean || null,
+      },
+      message:
+        result?.result?.result=== "deliverable"?
+          "valid Email and deliverable"
+          : "invalid Email or undeliverable",
+    };
 
-    if (api.success === true && api.data) {
-      const inner = api.data.data;
-      console.log("🔍 Email Verification Details:", inner);
-
-      if (inner.valid === true && inner.valid_syntax === true) {
-        return res.status(200).json({
-          emailvalid: true,
-          reason: inner,
-          message: "valid Email and deliverable",
-        });
-      } else {
-        return res.status(200).json({
-          emailvalid: false,
-          reason: inner,
-          message: "invalid Email or undeliverable",
-        });
-      }
-    }
+    return res.status(200).json(normalizedResponse);
   } catch (error) {
-    return res
-      .status(400)
-      .json({ success: false, message: "email verify service on maintenance" });
+    console.error("❌ Email Check Error:", error.response?.data || error);
+
+    return res.status(400).json({
+      success: false,
+      message: "Email verify service on maintenance",
+    });
   }
-  console.error("❌ Email Check Error:", error);
 };
 
 module.exports = {
