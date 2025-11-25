@@ -8,6 +8,7 @@ const { parse } = require("json2csv");
 const Transaction = require("../models/transactionModel.js");
 const payInModel = require("../models/payInModel.js");
 const servicesModal = require("../models/servicesModal.js");
+const { logApiCall } = require("../utils/chargeCaluate.js");
 
 
 const merchant_identifier = "8d3d1d6757f7438cbee31d2489604b27" || "b19e8f103bce406cbd3476431b6b7973"
@@ -367,6 +368,7 @@ exports.generatePayment = async (req, res, next) => {
     await session.commitTransaction();
     transactionCompleted = true;
 
+    logApiCall({ url: "/payin", requestData: { payload2 }, responseData: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}` });
     return res.status(200).json({
       success: true,
       message: "PayIn initiated. Redirect user to complete payment.",
@@ -554,6 +556,7 @@ exports.callbackPayIn = async (req, res) => {
   try {
 
     const data = req.body;
+    logApiCall({ url: "/callback", requestData: {}, responseData: data });
     const responseCode = data?.responseCode?.toString();
     const isSuccess = responseCode === "100";
 
@@ -597,6 +600,7 @@ exports.callbackPayIn = async (req, res) => {
           payment_mode: data?.paymentMode,
           description: data?.responseDescription,
           updatedAt: new Date(),
+          meta: data
         },
       },
       { new: true }

@@ -75,7 +75,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     meta: {
       type: Map,
-      of: String,
+      of: mongoose.Schema.Types.Mixed,
       default: {},
     },
   },
