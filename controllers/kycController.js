@@ -428,13 +428,16 @@ const verifyEmail7UniqueVerify = async (req, res) => {
     );
 
     const api = resp.data;
-    
+
     const result = api?.data;
     // MSG91 → api.data.valid, api.data.reason, api.data.did_you_mean
-    
+
     console.log("✅ MSG91 Verification Response:", result);
     const normalizedResponse = {
-      emailvalid: result?.result?.result=== "deliverable"? true : false,
+      emailvalid:
+        result?.result?.result?.toString().toLowerCase() === "deliverable"
+          ? true
+          : false,
       reason: {
         valid: result?.valid,
         valid_syntax: result?.valid_syntax,
@@ -446,8 +449,8 @@ const verifyEmail7UniqueVerify = async (req, res) => {
         did_you_mean: result?.did_you_mean || null,
       },
       message:
-        result?.result?.result=== "deliverable"?
-          "valid Email and deliverable"
+        result?.result?.result?.toString().toLowerCase()  === "deliverable"
+          ? "valid Email and deliverable"
           : "invalid Email or undeliverable",
     };
 
