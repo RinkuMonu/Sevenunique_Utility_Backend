@@ -107,7 +107,9 @@ exports.signupInitiate = async (req, res) => {
             longitude,
             consent,
         } = req.body;
-
+        const userId = req.user.id;
+        const user = await userModel.findById(userId);
+        if (!user) throw new Error("User not found");
         const response = await axios.post(
             `${INSTANTPAY_BASE_URL}/user/outlet/signup/initiate`,
             {
@@ -123,7 +125,9 @@ exports.signupInitiate = async (req, res) => {
             },
             { headers: getHeaders() }
         );
-
+        user.aepsInstantPayLat = latitude
+        user.aepsInstantPayLng = longitude
+        await user.save();
         res.status(200).json(response.data);
     } catch (error) {
         console.error("Signup Initiate Error:", error?.response?.data || error.message);
@@ -229,7 +233,7 @@ exports.MerchantBiometricKyc = async (req, res) => {
         );
         if (response.data.statuscode == "TXN") {
             user.aepsInstantPayBio = "Progress"
-            user.save();
+            await user.save();
         }
         logApiCall({ url: "/biometricKyc", requestData: { payload }, responseData: response });
         res.status(200).json(response.data);
