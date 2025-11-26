@@ -170,7 +170,7 @@ exports.outletLoginStatus = async (req, res, next) => {
 };
 exports.outletLogin = async (req, res, next) => {
   try {
-    const { outletId, aadhaar, pidData } = req.body;
+    const { outletId, aadhaar, pidData, latitude, longitude } = req.body;
     console.log("📥 Incoming Outlet Login Request:", req.body);
 
     if (!outletId || !aadhaar || !pidData) throw createError(400, "Missing parameters");
@@ -183,9 +183,9 @@ exports.outletLogin = async (req, res, next) => {
 
     const payload = {
       type: "DAILY_LOGIN",
-      latitude: "26.79900",
-      longitude: "75.86500",
-      externalRef: "REF" + Date.now(),
+      latitude,
+      longitude,
+      externalRef: `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar: encrypt(aadhaar, encryptionKey),
