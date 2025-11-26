@@ -24,6 +24,12 @@ const userSchema = new mongoose.Schema(
     outletId: {
       type: String
     },
+    aepsInstantPayBio: {
+      type: String,
+      enum: ["Pending", "Progress", "Success"],
+      default: "Pending"
+    },
+
     callbackUrl: {
       type: String
     },
