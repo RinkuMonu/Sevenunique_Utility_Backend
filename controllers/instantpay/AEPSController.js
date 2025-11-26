@@ -170,6 +170,7 @@ exports.outletLoginStatus = async (req, res, next) => {
 };
 exports.outletLogin = async (req, res, next) => {
   try {
+    const user = await userModel.findById(req.user.id)
     const { outletId, aadhaar, pidData, latitude, longitude } = req.body;
     console.log("📥 Incoming Outlet Login Request:", req.body);
 
@@ -183,8 +184,8 @@ exports.outletLogin = async (req, res, next) => {
 
     const payload = {
       type: "DAILY_LOGIN",
-      latitude,
-      longitude,
+      latitude: user.aepsInstantPayLat || latitude,
+      longitude: user.aepsInstantPayLng || longitude,
       externalRef: `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
       captureType: "FINGER",
       biometricData: {
@@ -309,8 +310,8 @@ exports.cashWithdrawal = async (req, res) => {
     // Call InstantPay API
     const response = await instantpay.post("/fi/aeps/cashWithdrawal", {
       bankiin,
-      latitude,
-      longitude,
+      latitude: user.aepsInstantPayLat || latitude,
+      longitude: user.aepsInstantPayLng || longitude,
       mobile,
       amount: String(amount),
       externalRef,
@@ -434,7 +435,8 @@ exports.balanceEnquiry = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-
+    const user = await userModel.findById(req.user.id).session(session);
+    if (!user) throw new Error("User not found");
     const { aadhaar, bankiin, mobile, pidData, category, latitude, longitude } = req.body;
     if (!aadhaar || !bankiin || !mobile || !pidData || !category || !longitude || !latitude)
       throw createError(400, "Missing required fields");
@@ -446,8 +448,8 @@ exports.balanceEnquiry = async (req, res, next) => {
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
-      latitude,
-      longitude,
+      latitude: user.aepsInstantPayLat || latitude,
+      longitude: user.aepsInstantPayLng || longitude,
       mobile,
       externalRef,
       captureType: "FINGER",
@@ -459,8 +461,7 @@ exports.balanceEnquiry = async (req, res, next) => {
       },
     };
 
-    const user = await userModel.findById(req.user.id).session(session);
-    if (!user) throw new Error("User not found");
+
 
     const { commissions } = await getApplicableServiceCharge(req.user.id, category);
     // const usableBalance = user.eWallet - (user.cappingMoney || 0);
@@ -624,6 +625,9 @@ exports.miniStatement = async (req, res, next) => {
     session.startTransaction();
     const { aadhaar, bankiin, mobile, pidData, category, latitude,
       longitude } = req.body;
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).session(session);
+    if (!user) throw new Error("User not found");
     if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
@@ -631,8 +635,8 @@ exports.miniStatement = async (req, res, next) => {
     const payload = {
       type: "DAILY_LOGIN",
       bankiin,
-      latitude,
-      longitude,
+      latitude: user.aepsInstantPayLat || latitude,
+      longitude: user.aepsInstantPayLng || longitude,
       mobile,
 
       externalRef: externalRef,
@@ -644,9 +648,7 @@ exports.miniStatement = async (req, res, next) => {
         pCount: biometricParsed.pCount || "0",
       },
     };
-    const userId = req.user.id;
-    const user = await userModel.findById(userId).session(session);
-    if (!user) throw new Error("User not found");
+
     const { commissions } = await getApplicableServiceCharge(userId, category);
 
     // const usableBalance = user.eWallet - (user.cappingMoney || 0);
@@ -815,14 +817,17 @@ exports.deposite = async (req, res, next) => {
     session.startTransaction();
     const { aadhaar, bankiin, mobile, amount, pidData, category, latitude,
       longitude } = req.body;
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).session(session);
+    if (!user) throw new Error("User not found");
     if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,
-      latitude,
-      longitude,
+      latitude: user.aepsInstantPayLat || latitude,
+      longitude: user.aepsInstantPayLng || longitude,
       mobile,
       amount,
       externalRef: `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
@@ -835,9 +840,7 @@ exports.deposite = async (req, res, next) => {
       },
     };
 
-    const userId = req.user.id;
-    const user = await userModel.findById(userId).session(session);
-    if (!user) throw new Error("User not found");
+
 
 
 
