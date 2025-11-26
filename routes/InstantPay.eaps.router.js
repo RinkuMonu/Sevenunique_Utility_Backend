@@ -42,7 +42,7 @@ router.post("/payment", authenticateToken, bbpsController.makePayment);
 // 🔹 Outlet related
 router.post("/instantpay/outlet/register", instantpayController.outletRegister);
 router.post("/instantpay/outlet/login-status", instantpayController.outletLoginStatus);
-router.post("/instantpay/outlet/login", instantpayController.outletLogin);
+router.post("/instantpay/outlet/login", authenticateToken, instantpayController.outletLogin);
 
 // 🔹 AEPS transactions
 router.post("/instantpay/withdrawal", authenticateToken, instantpayController.cashWithdrawal);
@@ -51,7 +51,7 @@ router.post("/instantpay/mini-statement", authenticateToken, instantpayControlle
 router.post("/instantpay/deposit", authenticateToken, instantpayController.deposite);
 
 // 🔹 Bank list
-router.get("/instantpay/bank-list", authenticateToken,instantpayController.getBankList);
+router.get("/instantpay/bank-list", authenticateToken, instantpayController.getBankList);
 
 
 module.exports = router;
