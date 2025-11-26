@@ -7,13 +7,13 @@ const authenticateToken = require("../middleware/verifyToken");
 
 
 // Existing routes
-router.post("/signup/initiate", signupInitiate);
-router.post("/signup/validate", signupValidate);
-router.post("/signup/MerchantBiometric", MerchantBiometric);
-router.post("/signup/MerchantBiometricKyc", MerchantBiometricKyc);
-router.post("/mobile/update", mobileChangeInitiate);
-router.post("/mobile/validate", mobileChangeValidate);
-router.post("/list", getMerchantList);
+router.post("/signup/initiate", authenticateToken, signupInitiate);
+router.post("/signup/validate", authenticateToken, signupValidate);
+router.post("/signup/MerchantBiometric", authenticateToken, MerchantBiometric);
+router.post("/signup/MerchantBiometricKyc", authenticateToken, MerchantBiometricKyc);
+router.post("/mobile/update", authenticateToken, mobileChangeInitiate);
+router.post("/mobile/validate", authenticateToken, mobileChangeValidate);
+router.post("/list", authenticateToken, getMerchantList);
 // Circle Lookup
 router.post("/circle", bbpsController.circleLookup);
 

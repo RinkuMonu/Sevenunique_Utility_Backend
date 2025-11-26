@@ -174,7 +174,9 @@ exports.outletLogin = async (req, res, next) => {
     const { outletId, aadhaar, pidData, latitude, longitude } = req.body;
     console.log("📥 Incoming Outlet Login Request:", req.body);
 
-    if (!outletId || !aadhaar || !pidData) throw createError(400, "Missing parameters");
+    if (!outletId) throw createError(400, "Missing outletId");
+    if (!aadhaar) throw createError(400, "Missing aadhaar");
+    if (!pidData) throw createError(400, "Missing pidData");
 
     // Aadhaar encrypt
     // const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
@@ -229,8 +231,15 @@ exports.cashWithdrawal = async (req, res) => {
       category
     } = req.body;
 
-    if (!aadhaar || !bankiin || !mobile || !amount || !pidData || !category) {
-      return res.status(400).json({ status: false, message: "Missing required fields" });
+    const requiredFields = { aadhaar, bankiin, mobile, amount, pidData, category };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        return res.status(400).json({
+          status: false,
+          message: `Missing required field: ${key}`,
+        });
+      }
     }
 
     const userId = req.user.id;
@@ -438,8 +447,18 @@ exports.balanceEnquiry = async (req, res, next) => {
     const user = await userModel.findById(req.user.id).session(session);
     if (!user) throw new Error("User not found");
     const { aadhaar, bankiin, mobile, pidData, category, latitude, longitude } = req.body;
-    if (!aadhaar || !bankiin || !mobile || !pidData || !category || !longitude || !latitude)
-      throw createError(400, "Missing required fields");
+
+
+    const requiredFields = { aadhaar, bankiin, mobile, pidData, category, latitude, longitude };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        return res.status(400).json({
+          status: false,
+          message: `Missing required field: ${key}`,
+        });
+      }
+    }
 
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
@@ -611,6 +630,8 @@ exports.balanceEnquiry = async (req, res, next) => {
     await session.commitTransaction();
     return res.json(apiRes);
   } catch (err) {
+    console.log(err);
+
     await session.abortTransaction();
     console.error("Balance Enquiry Error:", err.response?.data || err.message);
     next(err);
@@ -628,7 +649,22 @@ exports.miniStatement = async (req, res, next) => {
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
     if (!user) throw new Error("User not found");
-    if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
+
+    const requiredFields = {
+      aadhaar, bankiin, mobile, pidData, category, latitude,
+      longitude
+    };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        return res.status(400).json({
+          status: false,
+          message: `Missing required field: ${key}`,
+        });
+      }
+    }
+
+
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
@@ -820,7 +856,21 @@ exports.deposite = async (req, res, next) => {
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
     if (!user) throw new Error("User not found");
-    if (!aadhaar || !bankiin || !mobile || !pidData || !category) throw createError(400, "Missing required fields");
+
+    const requiredFields = {
+      aadhaar, bankiin, mobile, amount, pidData, category, latitude,
+      longitude
+    };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        return res.status(400).json({
+          status: false,
+          message: `Missing required field: ${key}`,
+        });
+      }
+    }
+
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
     const payload = {
