@@ -3,6 +3,8 @@ const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
 const mongoose = require("mongoose");
+const { logApiCall } = require("../utils/chargeCaluate");
+const userModel = require("../models/userModel");
 
 
 const INSTANTPAY_BASE_URL = "https://api.instantpay.in";
@@ -155,12 +157,12 @@ exports.signupValidate = async (req, res) => {
 // ✅ Merchant Biometric
 exports.MerchantBiometric = async (req, res) => {
     try {
-        const { outletId } = req.body
-
+        const user = await userModel.findById(req.user.id);
+        const { outletId } = req.body;
 
         const response = await axios.post(
             `${INSTANTPAY_BASE_URL}/user/outlet/signup/biometricKycStatus`,
-            {spkey:"DMI"},
+            { spkey: "DMI" },
             {
                 headers: {
                     ...getHeaders(),
@@ -168,6 +170,25 @@ exports.MerchantBiometric = async (req, res) => {
                 },
             }
         );
+
+        const action = response?.data?.data?.action;
+        const status = response?.data?.data?.status;
+
+        if (action == "ACTION-REQUIRED") {
+            user.aepsInstantPayBio = "Pending";
+        } else if (action === "NO-ACTION-REQUIRED" && status == "PENDING") {
+            user.aepsInstantPayBio = "Progress";
+        } else if (action == "NO-ACTION-REQUIRED" && status == "APPROVED") {
+            user.aepsInstantPayBio = "Success";
+        }
+
+        await user.save();
+
+        logApiCall({
+            url: "/biometricKycStatus",
+            requestData: { outletId },
+            responseData: response
+        });
 
         res.status(200).json(response.data);
     } catch (error) {
@@ -178,8 +199,10 @@ exports.MerchantBiometric = async (req, res) => {
         });
     }
 };
+
 exports.MerchantBiometricKyc = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { outletId, referenceKey, latitude, longitude, pidData, aadhaar } = req.body
         const externalRef = `ACW-${new mongoose.Types.ObjectId()}`;
         const biometricParsed = await parsePidXML(pidData);
@@ -204,7 +227,11 @@ exports.MerchantBiometricKyc = async (req, res) => {
                 },
             }
         );
-
+        if (response.data.statuscode == "TXN") {
+            user.aepsInstantPayBio = "Progress"
+            user.save();
+        }
+        logApiCall({ url: "/biometricKyc", requestData: { payload }, responseData: response });
         res.status(200).json(response.data);
     } catch (error) {
         console.error("Merchant Biometric Kyc Error:", error?.response?.data || error.message);
