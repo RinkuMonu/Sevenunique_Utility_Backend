@@ -25,6 +25,30 @@ const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
 const upload = require("../utils/uplods.js");
 
+
+const multerErrorHandler = (err, req, res, next) => {
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({
+      success: false,
+      message: "File size should not exceed 10MB.",
+    });
+  }
+
+  if (err.message === "Only image or PDF files are allowed!") {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: err.message || "File upload error",
+  });
+};
+
+
+
 router.post("/send-otp", sendOtpController);
 router.post("/verify-otp", verifyOTPController);
 router.post(
@@ -41,6 +65,7 @@ router.post(
     { name: "panCard", maxCount: 1 },
     { name: "bankDocument", maxCount: 1 },
   ]),
+  multerErrorHandler,
   registerUser
 );
 

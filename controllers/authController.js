@@ -18,35 +18,68 @@ const OTP = require("../models/otpModel");
 
 // utils/getDeviceName.js
 
+// const verifyEmail7Unique = async (email) => {
+//   try {
+//     const res = await axios.post(
+//       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
+//       {
+//         refid: `${Date.now()}`,
+//         email,
+//       },
+//       {
+//         headers: {
+//           "Content-Type": "application/json",
+//           "x-env": "production",
+//           "client-id": "Seven012",
+//           Authorization: `Bearer ${generateToken()}`,
+//         },
+//       }
+//     );
+
+//     const data = res?.data;
+
+//     console.log("Email Verify Cron Response:", data);
+
+//     if (!data) return { valid: false, reason: "no_response" };
+//     return {
+//       valid:
+//         data?.data?.status &&
+//         data?.data?.data?.valid_syntax &&
+//         data?.data?.data?.valid,
+//       reason: data?.data?.data?.status || "unknown",
+//     };
+//   } catch (err) {
+//     console.error("Email Verify Cron Error:", err.message);
+//     return { valid: false, reason: "api_error" };
+//   }
+// };
+
 const verifyEmail7Unique = async (email) => {
   try {
     const res = await axios.post(
-      "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-      {
-        refid: `${Date.now()}`,
-        email,
-      },
+      "https://control.msg91.com/api/v5/email/validate",
+      { email },
       {
         headers: {
           "Content-Type": "application/json",
-          "x-env": "production",
-          "client-id": "Seven012",
-          Authorization: `Bearer ${generateToken()}`,
+          accept: "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
         },
       }
     );
 
-    const data = res?.data;
+    const result = res?.data?.data;
 
-    console.log("Email Verify Cron Response:", data);
+    console.log("Email Verify Cron (MSG91):", result);
 
-    if (!data) return { valid: false, reason: "no_response" };
+    if (!result) return { valid: false, reason: "no_response" };
+
+    const isDeliverable =
+      result?.result?.result?.toString().toLowerCase() === "deliverable";
+
     return {
-      valid:
-        data?.data?.status &&
-        data?.data?.data?.valid_syntax &&
-        data?.data?.data?.valid,
-      reason: data?.data?.data?.status || "unknown",
+      valid: isDeliverable,
+      reason: isDeliverable ? "deliverable" : "undeliverable",
     };
   } catch (err) {
     console.error("Email Verify Cron Error:", err.message);
