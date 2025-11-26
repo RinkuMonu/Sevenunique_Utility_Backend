@@ -511,7 +511,7 @@ exports.makeTransaction = async (req, res) => {
     session.startTransaction();
 
     try {
-        
+
         const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id, category } = req.body;
 
         // 1️⃣ Validate fields
