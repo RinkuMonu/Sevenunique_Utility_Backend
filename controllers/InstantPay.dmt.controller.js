@@ -82,7 +82,7 @@ async function parsePidXML(pidXml) {
 // 1️⃣ Get Bank List
 exports.getBankList = async (req, res) => {
     try {
-        const user = await userModel.findById(req.user.id).session(session);
+        const user = await userModel.findById(req.user.id);
         const outletId = user.outletId ? user.outletId : "581738";
         const response = await axios.post(`${BASE_URL}/fi/remit/out/domestic/v2/banks`, {}, {
             headers: {
