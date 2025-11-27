@@ -7,6 +7,9 @@ const roleController = require("../controllers/permissionByRoleController");
 // 🔹 Role-based permissions
 router.post("/add/role", roleController.createPermissionByRole);
 router.get("/allrole", roleController.getAllPermissionsByRole);
+
+router.get("/singleuser/:id", roleController.getUserPermissions);
+
 router.get("/:role", roleController.getPermissionByRole);
 router.put("/:role", roleController.updatePermissionByRole);
 router.delete("/:role", roleController.deletePermissionByRole);
