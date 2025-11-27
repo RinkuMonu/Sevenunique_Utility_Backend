@@ -19,7 +19,6 @@ const getHeaders = () => {
         "X-Ipay-Auth-Code": "1",
         "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
         "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
-        "X-Ipay-Outlet-Id": '561894', // ✅ add this
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:5938:ee58:67d7:cde7",
         // "Content-Type": "application/json",
     };
@@ -83,7 +82,14 @@ async function parsePidXML(pidXml) {
 // 1️⃣ Get Bank List
 exports.getBankList = async (req, res) => {
     try {
-        const response = await axios.post(`${BASE_URL}/fi/remit/out/domestic/v2/banks`, {}, { headers: getHeaders() });
+        const user = await userModel.findById(req.user.id);
+        const outletId = user.outletId ? user.outletId : "581738";
+        const response = await axios.post(`${BASE_URL}/fi/remit/out/domestic/v2/banks`, {}, {
+            headers: {
+                ...getHeaders(),
+                "X-Ipay-Outlet-Id": outletId,
+            }
+        });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -93,15 +99,21 @@ exports.getBankList = async (req, res) => {
 // 2️⃣ Remitter Profile
 exports.getRemitterProfile = async (req, res) => {
     try {
-        const { mobileNumber } = req.body;
+        const user = await userModel.findById(req.user.id)
+        const { mobileNumber, txnMode } = req.body;
         if (!mobileNumber) {
             return res.status(400).json({ message: "mobileNumber is required" });
         }
 
         const response = await axios.post(
             `${BASE_URL}/fi/remit/out/domestic/v2/remitterProfile`,
-            { mobileNumber },
-            { headers: getHeaders() }
+            { mobileNumber, txnMode },
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.json(response.data);
@@ -113,17 +125,22 @@ exports.getRemitterProfile = async (req, res) => {
 // 3️⃣ Remitter Registration
 exports.registerRemitter = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { mobileNumber, encryptedAadhaar, referenceKey } = req.body;
         if (!mobileNumber || !encryptedAadhaar || !referenceKey) {
             return res.status(400).json({ message: "mobileNumber, encryptedAadhaar, and referenceKey are required" });
         }
         console.log("Aadhar data encrypt----", encrypt(encryptedAadhaar, encryptionKey));
         // return
-
         const response = await axios.post(
             `${BASE_URL}/fi/remit/out/domestic/v2/remitterRegistration`,
             { mobileNumber, encryptedAadhaar: encrypt(encryptedAadhaar, encryptionKey), referenceKey },
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.json(response.data);
@@ -135,6 +152,7 @@ exports.registerRemitter = async (req, res) => {
 // 4️⃣ Remitter Registration Verify
 exports.verifyRemitterRegistration = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { mobileNumber, otp, referenceKey } = req.body;
         if (!mobileNumber || !otp || !referenceKey) {
             return res.status(400).json({ message: "mobileNumber, otp, and referenceKey are required" });
@@ -143,7 +161,12 @@ exports.verifyRemitterRegistration = async (req, res) => {
         const response = await axios.post(
             `${BASE_URL}/fi/remit/out/domestic/v2/remitterRegistrationVerify`,
             { mobileNumber, otp, referenceKey },
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.json(response.data);
@@ -155,6 +178,7 @@ exports.verifyRemitterRegistration = async (req, res) => {
 
 exports.remitterKyc = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const {
             mobileNumber,
             latitude,
@@ -209,7 +233,12 @@ exports.remitterKyc = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/remitterKyc",
             payload,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.status(200).json({
@@ -232,6 +261,7 @@ exports.remitterKyc = async (req, res) => {
 
 exports.beneficiaryRegistration = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const {
             beneficiaryMobileNumber,
             remitterMobileNumber,
@@ -271,7 +301,12 @@ exports.beneficiaryRegistration = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/beneficiaryRegistration",
             body,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.status(200).json({
@@ -293,6 +328,7 @@ exports.beneficiaryRegistration = async (req, res) => {
 
 exports.beneficiaryRegistrationVerify = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { remitterMobileNumber, otp, beneficiaryId, referenceKey } = req.body;
 
         // Validate inputs
@@ -314,7 +350,12 @@ exports.beneficiaryRegistrationVerify = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/beneficiaryRegistrationVerify",
             body,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.status(200).json({
@@ -334,6 +375,7 @@ exports.beneficiaryRegistrationVerify = async (req, res) => {
 
 exports.beneficiaryDelete = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { remitterMobileNumber, beneficiaryId } = req.body;
 
         if (!remitterMobileNumber || !beneficiaryId) {
@@ -348,7 +390,12 @@ exports.beneficiaryDelete = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/beneficiaryDelete",
             body,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
 
         );
 
@@ -371,6 +418,7 @@ exports.beneficiaryDelete = async (req, res) => {
 
 exports.beneficiaryDeleteVerify = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { remitterMobileNumber, beneficiaryId, otp, referenceKey } = req.body;
 
         if (!remitterMobileNumber || !beneficiaryId || !otp || !referenceKey) {
@@ -391,7 +439,12 @@ exports.beneficiaryDeleteVerify = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/beneficiaryDeleteVerify",
             body,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
 
         );
 
@@ -413,6 +466,7 @@ exports.beneficiaryDeleteVerify = async (req, res) => {
 
 exports.generateTransactionOtp = async (req, res) => {
     try {
+        const user = await userModel.findById(req.user.id)
         const { remitterMobileNumber, amount, referenceKey } = req.body;
 
         if (!remitterMobileNumber || !amount || !referenceKey) {
@@ -427,7 +481,12 @@ exports.generateTransactionOtp = async (req, res) => {
         const response = await axios.post(
             "https://api.instantpay.in/fi/remit/out/domestic/v2/generateTransactionOtp",
             body,
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         res.status(200).json({
@@ -452,6 +511,7 @@ exports.makeTransaction = async (req, res) => {
     session.startTransaction();
 
     try {
+
         const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id, category } = req.body;
 
         // 1️⃣ Validate fields
