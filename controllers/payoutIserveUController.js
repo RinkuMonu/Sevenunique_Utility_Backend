@@ -114,7 +114,8 @@ exports.initiatePayout = async (req, res) => {
       latlong,
       paramA,
       paramB,
-      type = "690314decc20a7e1a531cd05",
+      category,
+      mpin
     } = req.body;
 
     const userId = req.user.id;
@@ -128,14 +129,21 @@ exports.initiatePayout = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found or inactive" });
     }
 
+    
+    if (user.mpin != mpin) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ success: false, message: "Please enter a vaild mpin" });
+    }
+
     if (!beneName || !beneAccountNo || !beneifsc || !amount) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({ success: false, message: "Missing required payout details" });
+      return res.status(400).json({ success: false, message: "Missing required details" });
     }
 
     // Get charges
-    const { commissions, service } = await getApplicableServiceCharge(userId, type);
+    const { commissions, service } = await getApplicableServiceCharge(userId, category);
     let commission = commissions?.slabs?.length
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
@@ -186,7 +194,7 @@ exports.initiatePayout = async (req, res) => {
           user_id: userId,
           transaction_type: "debit",
           amount,
-          type: service?._id || type,
+          type: service?._id || category,
           gst: commission.gst,
           tds: commission.tds,
           charge: commission.charge,
@@ -303,7 +311,7 @@ exports.initiatePayout = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Payout Error:", error);
+    console.error("Error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
