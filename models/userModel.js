@@ -329,7 +329,7 @@ const userSchema = new mongoose.Schema(
     },
     cappingMoney: {
       type: Number,
-      default: 1000,
+      default: 500,
     },
     mainWallet: {
       type: Number,
