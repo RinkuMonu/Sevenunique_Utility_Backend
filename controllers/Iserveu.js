@@ -106,12 +106,15 @@ exports.aepsCallback = async (req, res) => {
 
     let required = 0;
 
-
     const { commissions, service } = await getApplicableServiceCharge(userId, category);
 
-    commission = commissions
-      ? calculateCommissionFromSlabs(txnAmount, commissions)
-      : commission;
+    if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
+
+
+      commission = commissions
+        ? calculateCommissionFromSlabs(txnAmount, commissions)
+        : commission;
+    }
 
     required =
       Number(txnAmount) +
@@ -155,43 +158,49 @@ exports.aepsCallback = async (req, res) => {
 
     if (txnType === "AEPS_MINI_STATEMENT" || txnType === "AEPS_BALANCE_ENQUIRY") {
 
-      const rewardAmount =
+      const rewardAmount = Number(
         txnType === "AEPS_MINI_STATEMENT"
-          ? commissions.aepsMiniStatement
-          : commissions.aepsBalanceEnquiry;
+          ? commissions?.aepsMiniStatement
+          : commissions?.aepsBalanceEnquiry
+      ) || 0;
 
-      // Wallet reward credit
-      if (status === "SUCCESS") {
-        user.eWallet += Number(rewardAmount);
-        await user.save({ session });
+      if (Number(rewardAmount) > 0) {
+
+        // Wallet reward credit
+        if (status === "SUCCESS") {
+          user.eWallet += Number(rewardAmount);
+          await user.save({ session });
+        }
+
+        // Create reward transaction
+        await Transaction.create([{
+          user_id: userId,
+          transaction_type: "credit",
+          type: service._id,
+          amount: 0,
+          totalCredit: rewardAmount,
+          balance_after: user.eWallet,
+          description: `${txnType} Reward`,
+          status,
+          transaction_reference_id: clientRefID
+        }], { session });
       }
-
-      await Transaction.create([{
-        user_id: userId,
-        transaction_type: "credit",
-        type: commissions.service,
-        amount: 0,
-        totalCredit: rewardAmount,
-        balance_after: user.eWallet,
-        description: `${txnType} Reward`,
-        status,
-        transaction_reference_id: clientRefID
-      }], { session });
-
 
       await session.commitTransaction();
       return res.status(200).json({
         status: true,
         message: `${txnType} processed`,
+        rewardGiven: Number(rewardAmount) > 0 ? rewardAmount : 0
       });
     }
+
 
     if (status !== "SUCCESS") {
 
       await Transaction.create([{
         user_id: userId,
         transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
-        type: commissions.service,
+        type: service._id,
         amount: txnAmount,
         balance_after: user.eWallet,
         status: status,
@@ -207,7 +216,7 @@ exports.aepsCallback = async (req, res) => {
     }
 
     if (txnType === "AEPS_CASH_WITHDRAWAL") {
-      user.eWallet += Number(txnAmount);
+      user.eWallet += Number(required);
       await user.save({ session });
     }
 
@@ -220,7 +229,7 @@ exports.aepsCallback = async (req, res) => {
     await Transaction.create([{
       user_id: userId,
       transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
-      type: commissions.service,
+      type: service._id,
       amount: txnAmount,
       totalCredit: Number(commissions.retailer || 0),
       totalDebit: required,
