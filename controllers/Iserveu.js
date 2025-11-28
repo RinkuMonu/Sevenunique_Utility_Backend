@@ -10,6 +10,7 @@ const Transaction = require("../models/transactionModel");
 const payInModel = require("../models/payInModel");
 const { distributeCommission } = require("../utils/distributerCommission");
 const CommissionTransaction = require("../models/CommissionTransaction");
+const matmModel = require("../models/matm.model");
 
 
 const { AEPS_PASS_KEY, AEPS_CLIENT_ID, AEPS_CLIENT_SECRET, AEPS_ENCR_KEY } =
@@ -79,9 +80,7 @@ exports.aepsCallback = async (req, res) => {
       clientRefID
     } = req.body;
 
-    const userId = req.user.id;
-
-    const user = await userModel.findOne({ _id: userId, UserId: username }).session(session);
+    const user = await userModel.findOne({ UserId: username }).session(session);
     if (!user) throw new Error("User not found");
 
     let category = null;
@@ -106,10 +105,9 @@ exports.aepsCallback = async (req, res) => {
 
     let required = 0;
 
-    const { commissions, service } = await getApplicableServiceCharge(userId, category);
+    const { commissions, service } = await getApplicableServiceCharge(user._id, category);
 
     if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
-
 
       commission = commissions
         ? calculateCommissionFromSlabs(txnAmount, commissions)
@@ -138,7 +136,7 @@ exports.aepsCallback = async (req, res) => {
 
 
     await AEPSTransaction.create([{
-      userId,
+      userId: user._id,
       balance_after: user.eWallet,
       type: txnType,
       mobilenumber: user.mobileNumber,
@@ -175,7 +173,7 @@ exports.aepsCallback = async (req, res) => {
 
         // Create reward transaction
         await Transaction.create([{
-          user_id: userId,
+          user_id: user._id,
           transaction_type: "credit",
           type: service._id,
           amount: 0,
@@ -199,7 +197,7 @@ exports.aepsCallback = async (req, res) => {
     if (status !== "SUCCESS") {
 
       await Transaction.create([{
-        user_id: userId,
+        user_id: user._id,
         transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
         type: service._id,
         amount: txnAmount,
@@ -228,7 +226,7 @@ exports.aepsCallback = async (req, res) => {
 
     // Transaction Entry
     await Transaction.create([{
-      user_id: userId,
+      user_id: user._id,
       transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
       type: service._id,
       amount: txnAmount,
@@ -245,7 +243,7 @@ exports.aepsCallback = async (req, res) => {
 
     if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
       await distributeCommission({
-        user: userId,
+        user: user._id,
         distributer: user.distributorId,
         service,
         transferAmount: txnAmount,
@@ -270,38 +268,140 @@ exports.aepsCallback = async (req, res) => {
 
 // 🔹 Callback Handler
 exports.matmCallback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    console.log("matm Callback Data:", req.body);
+    console.log("mATM Callback Data:", req.body);
 
-    const { amount, status, txnId, retailerId } = req.body;
+    const data = req.body;
 
-    if (status !== "SUCCESS") {
-      return res.json({ status: 0, statusDesc: "Transaction Failed" });
-    }
-
-    // Example: Commission calculation (backend me slab ke hisaab se lagana)
-    const commissionSlab = {
-      retailer: 0.5,
-      distributor: 0.2,
-      admin: 0.3,
-      type: "percent",
-    };
-
-    let retailerComm = (amount * commissionSlab.retailer) / 100;
-    let distributorComm = (amount * commissionSlab.distributor) / 100;
-    let adminComm = (amount * commissionSlab.admin) / 100;
-
-    // TODO: DB me transaction save + wallet update logic
-    console.log("Commission:", {
-      retailerComm,
-      distributorComm,
-      adminComm,
+    // Save raw callback
+    await MatmCallback.create({
+      statusDesc: data.statusDesc,
+      productCode: data.productCode,
+      txnType: data.txnType,
+      txnAmount: Number(data.txnAmount || 0),
+      txnDateTime: data.txnDateTime || "",
+      customerIdentification: data.customeridentIfication,
+      status: data.status,
+      rrn: data.rrn,
+      txnId: data.txnId,
+      username: data.username,
+      clientRefID: data.clientRefID,
+      param_b: data.param_b,
+      param_c: data.param_c,
+      deviceSerialNo: data.device_serial_no,
+      mobileNumber: data.mobile_number,
+      balanceAmount: data.balance_amount,
+      rawData: data
     });
 
-    res.json({ status: 1, statusDesc: "Success" });
+    const user = await userModel.findOne({
+      UserId: data.username
+    }).session(session);
+
+    if (!user) {
+      throw new Error("User not found for this Outlet ID");
+    }
+
+    const userId = user._id;
+
+
+    let txnAmount = Number(data.txnAmount || 0);
+
+    // SUCCESS CHECK
+    if (data.status !== "AUTH_SUCCESS") {
+      await matmModel.create({
+        userId,
+        txnType: data.txnType,
+        productCode: data.productCode,
+        amount: txnAmount,
+        mobile: data.mobile,
+        rrn: data.rrn,
+        customeridentIfication: customeridentIfication.rrn,
+        clientRefID: data.clientRefID,
+        txnId: data.txnId,
+        status: data.status,
+        balance_after: user.eWallet,
+        description: data.statusDesc || "mATM Transaction Failed"
+      });
+
+      await session.commitTransaction();
+      return res.json({ status: 0, message: "Transaction Failed" });
+    }
+
+    // Get mATM commission slab
+    const categoryId = "6918432258971284f348b5c8";
+    const { commissions, service } = await getApplicableServiceCharge(userId, categoryId);
+
+    const commission =
+      commissions ? calculateCommissionFromSlabs(txnAmount, commissions) : {
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+        charge: 0,
+        tds: 0,
+        gst: 0
+      };
+
+    const required = Number((Number(data.txnAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+
+    user.eWallet += Number(commission.required || 0);
+    await user.save({ session });
+
+    // Save wallet transaction entry
+    await Transaction.create([{
+      user_id: userId,
+      transaction_type: "credit",
+      type: service?._id,
+      amount: txnAmount,
+      totalCredit: required,
+      totalDebit: Number(commission.charge || 0) + Number(commission.tds || 0) + Number(commission.gst || 0),
+      charge: commission.charge,
+      gst: commission.gst,
+      tds: commission.tds,
+      balance_after: user.eWallet,
+      description: data.statusDesc || "mATM Transaction Reward",
+      transaction_reference_id: data.clientRefID,
+      status: data.status
+    }], { session });
+
+    // Save mATM transaction report
+    await matmModel.create({
+      userId,
+      txnType: data.txnType,
+      amount: txnAmount,
+      rrn: data.rrn,
+      clientRefID: data.clientRefID,
+      status: data.status,
+      balance_after: user.eWallet,
+      retailerCommission: commission.retailer,
+      distributorCommission: commission.distributor,
+      adminCommission: commission.admin,
+      description: data.statusDesc || "mATM Transaction Successful"
+    });
+
+    await distributeCommission({
+      user: userId,
+      distributer: user.distributorId,
+      service,
+      transferAmount: txnAmount,
+      commission,
+      reference: externalRef,
+      description: data.statusDesc || "Commission for AEPS Cash Withdrawal",
+      session
+    });
+
+    await session.commitTransaction();
+    res.json({ status: 1, message: "Success" });
+
   } catch (err) {
-    console.error("Callback Error:", err);
-    res.status(500).json({ status: 1, statusDesc: "Internal Server Error" });
+    console.error("mATM Callback Error:", err);
+    await session.abortTransaction();
+    res.status(500).json({ status: 0, message: err.message });
+  } finally {
+    session.endSession();
   }
 };
 
