@@ -302,25 +302,6 @@ exports.matmCallback = async (req, res) => {
     const data = req.body;
 
     // Save raw callback
-    await MatmCallback.create({
-      statusDesc: data.statusDesc,
-      productCode: data.productCode,
-      txnType: data.txnType,
-      txnAmount: Number(data.txnAmount || 0),
-      txnDateTime: data.txnDateTime || "",
-      customerIdentification: data.customeridentIfication,
-      status: data.status,
-      rrn: data.rrn,
-      txnId: data.txnId,
-      username: data.username,
-      clientRefID: data.clientRefID,
-      param_b: data.param_b,
-      param_c: data.param_c,
-      deviceSerialNo: data.device_serial_no,
-      mobileNumber: data.mobile_number,
-      balanceAmount: data.balance_amount,
-      rawData: data
-    });
 
     const user = await userModel.findOne({
       UserId: data.username
