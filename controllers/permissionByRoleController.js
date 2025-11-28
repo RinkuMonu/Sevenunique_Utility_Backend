@@ -1,5 +1,6 @@
 const PermissionByRole = require("../models/PermissionByRole");
 const Permission = require("../models/Permission");
+const userModel = require("../models/userModel");
 
 // 🔹 Create role permissions
 exports.createPermissionByRole = async (req, res) => {
@@ -52,10 +53,11 @@ exports.getPermissionByRole = async (req, res) => {
     res.json({ success: true, data: perm });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+    console.log("qqqqqqqqqqqqqqqqqqq", error);
   }
 };
 
-// 🔹 Update role permissions
+// 🔹 Update role permissions role per
 exports.updatePermissionByRole = async (req, res) => {
   try {
     const { permissions } = req.body;
@@ -74,6 +76,7 @@ exports.updatePermissionByRole = async (req, res) => {
     res.json({ success: true, data: updated });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+    console.log(error);
   }
 };
 
@@ -135,6 +138,14 @@ exports.createPermission = async (req, res) => {
     res.status(201).json({ success: true, data: perm });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: `This Permission already exist`,
+        field: field[0],
+        value: value,
+      });
+    }
   }
 };
 
@@ -228,5 +239,71 @@ exports.deletePermission = async (req, res) => {
     res.json({ success: true, message: "Permission deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+// 🔹 Get user permissions (rolePer + extraPer - restrictedPer)
+
+exports.getUserPermissions = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    console.log("Fetching permissions for user ID:", userId);
+
+    const user = await userModel
+      .findById(userId)
+      .populate("extraPermissions")
+      .populate("restrictedPermissions")
+      .populate({
+        path: "rolePermissions",
+        populate: { path: "permissions" },
+      });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // 👉 Extract all permissions
+    const rolePerms = user.rolePermissions?.permissions || [];
+    const extraPerms = user.extraPermissions || [];
+    const restrictedPerms = user.restrictedPermissions || [];
+
+    // 👉 Convert to sets of keys
+    let finalSet = new Set();
+
+    // 1️⃣ Add role permissions
+    rolePerms.forEach((p) => finalSet.add(p.key));
+
+    // 2️⃣ Add extra permissions (override role-based)
+    extraPerms.forEach((p) => finalSet.add(p.key));
+
+    // 3️⃣ Remove restricted permissions
+    restrictedPerms.forEach((p) => finalSet.delete(p.key));
+
+    // 👉 Convert back to array
+    const effectivePermissions = Array.from(finalSet);
+
+    // 👉 Send full response
+    res.json({
+      success: true,
+      role: user.role,
+
+      rolePermissions: rolePerms,
+      extraPermissions: extraPerms,
+      restrictedPermissions: restrictedPerms,
+
+      effectivePermissions, // 🔥 final permissions (role + extra - restricted)
+
+      totalRolePermissions: rolePerms.length,
+      totalExtraPermissions: extraPerms.length,
+      totalRestrictedPermissions: restrictedPerms.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+    console.log("eeeeeeeeeeeeeeeeeeeee", error);
   }
 };

@@ -2,14 +2,15 @@ const { default: axios } = require("axios");
 const CryptoJS = require("crypto-js");
 require("dotenv").config();
 const XLSX = require("xlsx");
-const mongoose = require("mongoose");
+const ExcelJS = require("exceljs");
+const nodemailer = require("nodemailer");
+const path = require("path");
 const userModel = require("../models/userModel");
+const mongoose = require("mongoose");
 const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../utils/chargeCaluate");
 const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 const Transaction = require("../models/transactionModel");
-const payInModel = require("../models/payInModel");
 const { distributeCommission } = require("../utils/distributerCommission");
-const CommissionTransaction = require("../models/CommissionTransaction");
 const matmModel = require("../models/matm.model");
 
 
@@ -89,7 +90,6 @@ exports.aepsCallback = async (req, res) => {
     };
 
     const finalType = txnTypeMap[txnType] || "Unknown";
-
 
 
     const statusMap = {
@@ -302,25 +302,6 @@ exports.matmCallback = async (req, res) => {
     const data = req.body;
 
     // Save raw callback
-    await MatmCallback.create({
-      statusDesc: data.statusDesc,
-      productCode: data.productCode,
-      txnType: data.txnType,
-      txnAmount: Number(data.txnAmount || 0),
-      txnDateTime: data.txnDateTime || "",
-      customerIdentification: data.customeridentIfication,
-      status: data.status,
-      rrn: data.rrn,
-      txnId: data.txnId,
-      username: data.username,
-      clientRefID: data.clientRefID,
-      param_b: data.param_b,
-      param_c: data.param_c,
-      deviceSerialNo: data.device_serial_no,
-      mobileNumber: data.mobile_number,
-      balanceAmount: data.balance_amount,
-      rawData: data
-    });
 
     const user = await userModel.findOne({
       UserId: data.username
@@ -431,115 +412,268 @@ exports.matmCallback = async (req, res) => {
 };
 
 // Excel Mapping Function
-const mapUserToExcel = ({ ...user }) => {
-  return {
-    bcagentid: user?.UserId || "",
-    bcagentname: user?.name || "",
-    lastname: user?.name?.split(" ").slice(-1)[0] || "",
-    companyname: user?.shopName || "",
-    address: user?.address?.block || "",
-    area: user?.address?.block || "",
-    pincode: user?.pinCode || "",
-    mobilenumber: user.mobileNumber || "",
-    shopname: user.shopName || "",
-    shopaddress: user?.address?.block || "",
-    shopstate: user?.address?.state || "",
-    shopcity: user.address?.city || "",
-    shopdistrict: user?.aadharDetails?.data?.address?.dist || "",
-    shoppincode: user.pincode || "",
-    pancard: user.panDetails?.pan_number || "",
-    email: user.email || "",
-    aadhaar: user?.aadharDetails?.data?.aadhaar_number || "",
-    lat: user.latitude || "",
-    long: user.longitude || "",
-    apiusername: user.apiUsername || "",
-  };
-};
 
 exports.sendAepsExcelMail = async (req, res) => {
   try {
-    const { user } = req.body;
-
-    if (!user) {
-      return res.status(400).json({ message: "User data missing" });
+    // ✅ 1. SAFE BODY PARSING
+    const formData = req.body?.formData;
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
     }
-    // console.log("User Data for AEPS Excel Mail:", user);
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).select("isOnBoardEmailSend");
+    console.log(user);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+    if (user.isOnBoardEmailSend === true) {
+      return res.status(400).json({
+        success: false,
+        message: "Onboarding mail already sent",
+      });
+    }
+    if (!formData || typeof formData !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Unknown/Missing data",
+      });
+    }
 
-    // 1️⃣ Excel Row
-    const excelData = [mapUserToExcel(user)];
-    // console.log("Mapped Excel Data:", excelData);
-    // return;
+    // ✅ 2. REQUIRED FIELD VALIDATION
+    const requiredFields = [
+      "bcagentid",
+      "bcagentname",
+      "companyname",
+      "mobilenumber",
+      "email",
+      "lat",
+      "long",
+    ];
 
-    // 2️⃣ Excel Sheet
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "AEPS_DATA");
+    for (let field of requiredFields) {
+      if (!formData[field] || String(formData[field]).trim() === "") {
+        return res.status(400).json({
+          success: false,
+          message: `Missing required field: ${field}`,
+        });
+      }
+    }
 
-    // 3️⃣ Excel buffer → base64 convert
-    const excelBuffer = XLSX.write(wb, {
-      type: "buffer",
-      bookType: "xlsx",
+    const safeData = Object.fromEntries(
+      Object.entries(formData).map(([key, value]) => [
+        key,
+        String(value || "")
+          .toString()
+          .trim(),
+      ])
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("BC Agent Data");
+
+    worksheet.columns = [
+      { header: "bcagentid", key: "bcagentid" },
+      { header: "bcagentname", key: "bcagentname" },
+      { header: "lastname", key: "lastname" },
+      { header: "companyname", key: "companyname" },
+      { header: "address", key: "address" },
+      { header: "area", key: "area" },
+      { header: "pincode", key: "pincode" },
+      { header: "mobilenumber", key: "mobilenumber" },
+      { header: "shopname", key: "shopname" },
+      { header: "shopaddress", key: "shopaddress" },
+      { header: "shopstate", key: "shopstate" },
+      { header: "shopcity", key: "shopcity" },
+      { header: "shopdistrict", key: "shopdistrict" },
+      { header: "shoparea", key: "shoparea" },
+      { header: "shoppincode", key: "shoppincode" },
+      { header: "pancard", key: "pancard" },
+      { header: "email", key: "email" },
+      { header: "AADHAAR", key: "AADHAAR" },
+      { header: "lat", key: "lat" },
+      { header: "long", key: "long" },
+      { header: "apiusername", key: "apiusername" },
+    ];
+
+    worksheet.addRow({
+      bcagentid: safeData.bcagentid,
+      bcagentname: safeData.bcagentname,
+      lastname: safeData.lastname,
+      companyname: safeData.companyname,
+      address: safeData.address,
+      area: safeData.area,
+      pincode: safeData.pincode,
+      mobilenumber: safeData.mobilenumber,
+      shopname: safeData.shopname,
+      shopaddress: safeData.shopaddress,
+      shopstate: safeData.shopstate,
+      shopcity: safeData.shopcity,
+      shopdistrict: safeData.shopdistrict,
+      shoparea: safeData.shoparea,
+      shoppincode: safeData.shoppincode,
+      pancard: safeData.pancard,
+      email: safeData.email,
+      AADHAAR: safeData.AADHAAR,
+      lat: safeData.lat,
+      long: safeData.long,
+      apiusername: safeData.apiusername,
     });
 
-    const excelBase64 = excelBuffer.toString("base64");
+    const buffer = await workbook.xlsx.writeBuffer();
 
-    // 4️⃣ Prepare Msg91 Payload
-    const payload = {
-      recipients: [
-        {
-          to: [
-            {
-              name: "Admin",
-              email: "niranjan@7unique.in",
-            },
-          ],
-          variables: {
-            company_name: "SevenUnique Tech Solutions Pvt Ltd",
-            name: user.name,
-            login_time: new Date().toISOString(),
-          },
-        },
-      ],
-      from: {
-        name: "SevenUnique",
-        email: "info@sevenunique.com",
+    // ✅ 5. SAFE SMTP CONFIG (NO HARDCODED CREDENTIALS)
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
-      domain: "mail.sevenunique.com",
-      // template_id: "global_otp",
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+    });
 
+    await transporter.verify();
+
+    // ✅ 7. SEND EMAIL SAFELY
+    await transporter.sendMail({
+      from: `"SevenUnique" <info@sevenunique.com>`,
+      to: process.env.RECEIVER_EMAIL,
+      subject: "BC Agent Excel Data",
+      html: `
+    <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+      <p>Hi Team,</p>
+
+      <p>
+        Please find the attached data for the 
+        <strong>AEPS</strong> and <strong>MATM</strong> services required for the onboarding process.
+      </p>
+
+      <p>
+        If you require any further information, please feel free to reach out.
+      </p>
+
+      <br/>
+
+      <p>
+        Thanks & Regards,<br/>
+        <strong>Seven Tech Solutions Pvt. Ltd.</strong>
+      </p>
+    </div>
+  `,
       attachments: [
         {
-          name: "AEPS_User_onboarding_Data.xlsx",
-          content: excelBase64,
-          mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          filename: `bc-agent-${Date.now()}.xlsx`,
+          content: buffer,
         },
       ],
-    };
+    });
+    await userModel.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          isOnBoardEmailSend: true,
+        },
+      }
+    );
 
-    // 5️⃣ Send Email via Msg91
-    try {
-      const response = await axios.post(
-        "https://control.msg91.com/api/v5/email/send",
-        payload,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            accept: "application/json",
-            authkey: "415386Amp14kbEfs65c49c94P1",
-          },
-        }
-      );
+    return res.json({
+      success: true,
+      message: "Onboarding mail sent successfully Thank You!",
+    });
+  } catch (error) {
+    console.error("SECURE SMTP ERROR:", error.message);
 
-      return res.json({
-        message: "AEPS Excel Email Sent!",
-        response: response.data,
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while sending email",
+    });
+  }
+};
+
+exports.updateIsOnBoardStatus = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
       });
-    } catch (error) {
-      console.error("Error sending AEPS Excel Mail:", error);
-      return res.status(500).json({ message: "sending AEPS Excel Mail" });
     }
-  } catch (err) {
-    console.log("Failed to send AEPS mail", err);
-    res.status(500).json({ message: "Failed to send AEPS mail" });
+
+    if (req.user.role !== "Admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update onboarding status",
+      });
+    }
+
+    const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    const { isOnBoard } = req.body;
+
+    if (typeof isOnBoard !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "isOnBoard must be a boolean (true/false)",
+      });
+    }
+
+    const user = await userModel.findById(userId).select("_id isOnBoard");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (user.isOnBoard === isOnBoard) {
+      return res.status(400).json({
+        success: false,
+        message: `User is already ${isOnBoard ? "onboarded" : "not onboarded"}`,
+      });
+    }
+
+    const updatedUser = await userModel
+      .findByIdAndUpdate(
+        userId,
+        {
+          $set: {
+            isOnBoard,
+          },
+        },
+        { new: true }
+      )
+      .select("_id name email isOnBoard");
+
+    return res.status(200).json({
+      success: true,
+      message: `User successfully ${
+        isOnBoard ? "onboarded" : "deactivated from onboarding"
+      }`,
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("ERROR in updateIsOnBoardStatus:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating onboarding status",
+    });
   }
 };
