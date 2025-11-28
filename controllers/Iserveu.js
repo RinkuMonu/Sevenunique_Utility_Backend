@@ -61,11 +61,10 @@ exports.getToken = (req, res) => {
 
 // 🔹 Callback Handler
 exports.aepsCallback = async (req, res) => {
+  console.log("AEPS Callback Data:", req.body);
   const session = await mongoose.startSession();
   session.startTransaction();
-
   try {
-    console.log("AEPS Callback Data:", req.body);
 
     const {
       statusDesc,
@@ -90,10 +89,11 @@ exports.aepsCallback = async (req, res) => {
     // Category mapping
     if (txnType === "AEPS_CASH_WITHDRAWAL") {
       category = "6918314027e9c0be214ff15d";
-    }
-    if (txnType === "AEPS_CASH_DEPOSIT") {
+    } else {
       category = "68c9369d8fa1dda33eb541b6";
     }
+
+
 
     let commission = {
       charge: 0,
