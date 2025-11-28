@@ -22,22 +22,22 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     outletId: {
-      type: String
+      type: String,
     },
     aepsInstantPayLat: {
-      type: String
+      type: String,
     },
     aepsInstantPayLng: {
-      type: String
+      type: String,
     },
     aepsInstantPayBio: {
       type: String,
       enum: ["Pending", "Progress", "Success"],
-      default: "Pending"
+      default: "Pending",
     },
 
     callbackUrl: {
-      type: String
+      type: String,
     },
 
     email: {
@@ -80,19 +80,19 @@ const userSchema = new mongoose.Schema(
 
     aadhaarFront: {
       type: String,
-      default: null
+      default: null,
     },
     aadhaarBack: {
       type: String,
-      default: null
+      default: null,
     },
     panCard: {
       type: String,
-      default: null
+      default: null,
     },
     bankDocument: {
       type: String,
-      default: null
+      default: null,
     },
     /** ---------------- DISTRIBUTOR SPECIFIC FIELDS ---------------- **/
     officeAddressProof: {
@@ -351,6 +351,14 @@ const userSchema = new mongoose.Schema(
       of: String,
       default: {},
     },
+    isOnBoardEmailSend: {
+      type: Boolean,
+      default: false,
+    },
+    isOnBoard: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
@@ -366,30 +374,36 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-// ✅ isliye method use karte hain
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
   const PermissionByRole = mongoose.model("PermissionByRole");
 
   let perms = new Set();
 
-  // 1️⃣ superAdmin → sabhi permissions
+  // 1️⃣ superAdmin
   if (this.role === "superAdmin") {
     const all = await Permission.find({});
     return all.map((p) => p.key);
   }
+  if (this.role === "Admin") {
+    const all = await Permission.find({});
+    return all.map((p) => p.key);
+  }
 
-  // 2️⃣ rolePermissions (ID ke base par)
+  // 2️⃣ GET ROLE PERMISSIONS BY ID (CORRECT)
+  // console.log("Role Permissions ID:", this.rolePermissions);
   if (this.rolePermissions) {
-    const rolePerms = await PermissionByRole.findById(
+    const rolePermDoc = await PermissionByRole.findById(
       this.rolePermissions
     ).populate("permissions", "key");
-    if (rolePerms?.permissions?.length) {
-      rolePerms.permissions.forEach((p) => perms.add(p.key));
+
+    if (rolePermDoc?.permissions?.length) {
+      rolePermDoc.permissions.forEach((p) => perms.add(p.key));
     }
   }
 
-  // 3️⃣ extraPermissions add
+  // 3️⃣ Add extraPermissions
+  // console.log("Extra Permissions IDs:", this.extraPermissions);
   if (this.extraPermissions?.length) {
     const extras = await Permission.find({
       _id: { $in: this.extraPermissions },
@@ -397,7 +411,7 @@ userSchema.methods.getEffectivePermissions = async function () {
     extras.forEach((p) => perms.add(p.key));
   }
 
-  // 4️⃣ restrictedPermissions remove
+  // 4️⃣ Remove restrictedPermissions
   if (this.restrictedPermissions?.length) {
     const restricted = await Permission.find({
       _id: { $in: this.restrictedPermissions },
