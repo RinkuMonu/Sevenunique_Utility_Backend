@@ -80,6 +80,31 @@ exports.aepsCallback = async (req, res) => {
       clientRefID
     } = req.body;
 
+
+    const txnTypeMap = {
+      AEPS_CASH_WITHDRAWAL: "Withdrawal",
+      AEPS_CASH_DEPOSIT: "Deposit",
+      AEPS_BALANCE_ENQUIRY: "BalanceEnquiry",
+      AEPS_MINI_STATEMENT: "MiniStatement",
+    };
+
+    const finalType = txnTypeMap[txnType] || "Unknown";
+
+
+
+    const statusMap = {
+      SUCCESS: "Success",
+      AUTH_SUCCESS: "Success",
+      TXN: "Success",
+      FAILED: "Failed",
+      AUTH_FAILED: "Failed",
+      FAILURE: "Failed",
+    };
+
+
+    const finalStatus = statusMap[status] || "Pending";
+
+
     const user = await userModel.findOne({ UserId: username }).session(session);
     if (!user) throw new Error("User not found");
 
@@ -138,13 +163,13 @@ exports.aepsCallback = async (req, res) => {
     await AEPSTransaction.create([{
       userId: user._id,
       balance_after: user.eWallet,
-      type: txnType,
+      type: finalType,
       mobilenumber: user.mobileNumber,
       adhaarnumber: customeridentIfication,
       amount: txnAmount,
       clientrefno: clientRefID,
       bankrrn: rrn,
-      status,
+      status: finalStatus,
       charges: commission.charge,
       gst: commission.gst,
       tds: commission.tds,
@@ -180,7 +205,7 @@ exports.aepsCallback = async (req, res) => {
           totalCredit: rewardAmount,
           balance_after: user.eWallet,
           description: `${txnType} Reward`,
-          status,
+          status: finalStatus,
           transaction_reference_id: clientRefID
         }], { session });
       }
@@ -202,7 +227,7 @@ exports.aepsCallback = async (req, res) => {
         type: service._id,
         amount: txnAmount,
         balance_after: user.eWallet,
-        status: status,
+        status: finalStatus,
         description: `AEPS ${txnType} Failed`,
         transaction_reference_id: clientRefID
       }], { session });
@@ -238,7 +263,7 @@ exports.aepsCallback = async (req, res) => {
       tds: commission.tds,
       transaction_reference_id: clientRefID,
       description: `AEPS ${txnType}`,
-      status
+      status: finalStatus
     }], { session });
 
     if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
@@ -364,7 +389,7 @@ exports.matmCallback = async (req, res) => {
       balance_after: user.eWallet,
       description: data.statusDesc || "mATM Transaction Reward",
       transaction_reference_id: data.clientRefID,
-      status: data.status
+      status: "Success"
     }], { session });
 
     // Save mATM transaction report
