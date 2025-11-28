@@ -141,6 +141,7 @@ exports.aepsCallback = async (req, res) => {
       userId,
       balance_after: user.eWallet,
       type: txnType,
+      mobilenumber: user.mobileNumber,
       adhaarnumber: customeridentIfication,
       amount: txnAmount,
       clientrefno: clientRefID,
