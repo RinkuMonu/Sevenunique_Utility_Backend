@@ -436,7 +436,6 @@ exports.matmCallback = async (req, res) => {
 
 exports.sendAepsExcelMail = async (req, res) => {
   try {
-    // ✅ 1. SAFE BODY PARSING
     const formData = req.body?.formData;
     if (!req.user || !req.user.id) {
       return res.status(401).json({
@@ -466,7 +465,6 @@ exports.sendAepsExcelMail = async (req, res) => {
       });
     }
 
-    // ✅ 2. REQUIRED FIELD VALIDATION
     const requiredFields = [
       "bcagentid",
       "bcagentname",
@@ -548,7 +546,6 @@ exports.sendAepsExcelMail = async (req, res) => {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // ✅ 5. SAFE SMTP CONFIG (NO HARDCODED CREDENTIALS)
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -566,9 +563,8 @@ exports.sendAepsExcelMail = async (req, res) => {
 
     await transporter.verify();
 
-    // ✅ 7. SEND EMAIL SAFELY
     await transporter.sendMail({
-      from: `"SevenUnique" <info@sevenunique.com>`,
+      from: `"SevenUnique" <info@7unique.in>`,
       to: process.env.RECEIVER_EMAIL,
       subject: "BC Agent Excel Data",
       html: `

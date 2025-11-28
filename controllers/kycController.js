@@ -243,61 +243,61 @@ const userVerify = async (req, res) => {
       user?.bankDetails?.account_name || ""
     );
 
-    if (
-      normalizedAadharName === normalizedPanName &&
-      normalizedPanName === normalizedBankName
-    ) {
-      user.isKycVerified = true;
-      await user.save();
-
-      const responseUser = {
-        id: user._id,
-        name: user.name,
-        mobile: user.mobile,
-        email: user.email,
-        isKycVerified: user.isKycVerified,
-        kycStatus: "Verified",
-        bankName: user?.bankDetails?.account_name,
-        panName: user?.panDetails?.full_name,
-        aadharName: user?.aadharDetails?.data?.full_name,
-      };
-
-      if (fromApp) {
-        return res.status(200).json({
-          success: true,
-          message: "User verified successfully",
-          user: responseUser,
-        });
-      } else {
-        return res.status(200).send("User verified successfully");
-      }
-    }
-
-    user.isKycVerified = false;
+    // if (
+    //   normalizedAadharName === normalizedPanName &&
+    //   normalizedPanName === normalizedBankName
+    // ) {
+    user.isKycVerified = true;
     await user.save();
 
     const responseUser = {
       id: user._id,
       name: user.name,
       mobile: user.mobile,
+      email: user.email,
       isKycVerified: user.isKycVerified,
-      kycStatus: "Mismatch in details",
+      kycStatus: "Verified",
       bankName: user?.bankDetails?.account_name,
       panName: user?.panDetails?.full_name,
       aadharName: user?.aadharDetails?.data?.full_name,
     };
 
     if (fromApp) {
-      return res.status(400).json({
-        success: false,
-        message: "Dismatched User details. Please correct the information.",
+      return res.status(200).json({
+        success: true,
+        message: "User verified successfully",
         user: responseUser,
       });
     } else {
-      return res
-        .status(400)
-        .send("Dismatched User details. Please correct the information.");
+      return res.status(200).send("User verified successfully");
     }
+    // }
+
+    // user.isKycVerified = false;
+    // await user.save();
+
+    // const responseUser = {
+    //   id: user._id,
+    //   name: user.name,
+    //   mobile: user.mobile,
+    //   isKycVerified: user.isKycVerified,
+    //   kycStatus: "Mismatch in details",
+    //   bankName: user?.bankDetails?.account_name,
+    //   panName: user?.panDetails?.full_name,
+    //   aadharName: user?.aadharDetails?.data?.full_name,
+    // };
+
+    // if (fromApp) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Dismatched User details. Please correct the information.",
+    //     user: responseUser,
+    //   });
+    // } else {
+    //   return res
+    //     .status(400)
+    //     .send("Dismatched User details. Please correct the information.");
+    // }
   } catch (err) {
     console.error("Error in userVerify:", err);
     return res
@@ -449,7 +449,7 @@ const verifyEmail7UniqueVerify = async (req, res) => {
         did_you_mean: result?.did_you_mean || null,
       },
       message:
-        result?.result?.result?.toString().toLowerCase()  === "deliverable"
+        result?.result?.result?.toString().toLowerCase() === "deliverable"
           ? "valid Email and deliverable"
           : "invalid Email or undeliverable",
     };
