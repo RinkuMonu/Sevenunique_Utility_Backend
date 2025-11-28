@@ -273,8 +273,14 @@ const buyPlan = async (req, res) => {
         },
       });
     }
+
+    const cappingMoney = userfind.cappingMoney || 500;
+
     const updatedUser = await userModel.findOneAndUpdate(
-      { _id: userId, eWallet: { $gte: planPrice } },
+      {
+        _id: userId,
+        eWallet: { $gte: planPrice + cappingMoney }, 
+      },
       { $inc: { eWallet: -planPrice } },
       { new: true, session }
     );
@@ -282,10 +288,12 @@ const buyPlan = async (req, res) => {
     if (!updatedUser) {
       await session.abortTransaction();
       session.endSession();
-      return res
-        .status(400)
-        .json({ success: false, message: "Insufficient wallet balance" });
+      return res.status(400).json({
+        success: false,
+        message: `Minimum wallet balance ₹${cappingMoney} required as security. Please add funds.`,
+      });
     }
+
     // 6. Plan dates calculate
     const startDate = new Date();
     let endDate = new Date(startDate);
