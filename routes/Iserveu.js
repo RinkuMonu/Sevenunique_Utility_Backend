@@ -9,9 +9,9 @@ const authenticateToken = require("../middleware/verifyToken");
 const router = express.Router();
 
 // 🔹 AEPS Routes
-router.get("/get-token", authenticateToken, getToken);
-router.post("/callback", authenticateToken, aepsCallback);
-router.post("/matm/callback", authenticateToken, matmCallback);
+router.get("/get-token", getToken);
+router.post("/callback", aepsCallback);
+router.post("/matm/callback", matmCallback);
 router.post("/send-email-log", sendAepsExcelMail);
 
 module.exports = router;
