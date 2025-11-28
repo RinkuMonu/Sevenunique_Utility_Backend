@@ -339,6 +339,9 @@ exports.matmCallback = async (req, res) => {
         txnType: finalType,
         productCode: data.productCode,
         amount: 0,
+        charge: 0,
+        tds: 0,
+        gst: 0,
         mobile: data.mobile_number,
         rrn: data.rrn,
         customeridentIfication: data.customeridentIfication,
@@ -360,6 +363,9 @@ exports.matmCallback = async (req, res) => {
         txnType: finalType,
         productCode: data.productCode,
         amount: txnAmount,
+        charge: commission.charge,
+        gst: commission.gst,
+        tds: commission.tds,
         mobile: data.mobile_number,
         rrn: data.rrn,
         customeridentIfication: data.customeridentIfication,
@@ -368,6 +374,9 @@ exports.matmCallback = async (req, res) => {
         status: finalStatus,
         balance_after: user.eWallet,
         description: data.statusDesc || "mATM Cash Withdrawal Failed",
+        retailerCommission: commission.retailer,
+        distributorCommission: commission.distributor,
+        adminCommission: commission.admin,
       });
 
       await session.commitTransaction();
@@ -411,8 +420,15 @@ exports.matmCallback = async (req, res) => {
     await matmModel.create({
       userId,
       txnType: finalType,
+      productCode: data.productCode,
+      mobile: data.mobile_number,
       amount: txnAmount,
+      charge: commission.charge,
+      txnId: data.txnId,
+      gst: commission.gst,
+      tds: commission.tds,
       rrn: data.rrn,
+      customeridentIfication: data.customeridentIfication,
       clientRefID: data.clientRefID,
       status: finalStatus,
       balance_after: user.eWallet,
@@ -447,11 +463,53 @@ exports.matmCallback = async (req, res) => {
 
 exports.getMatmReports = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = "", status, txnType, startDate, endDate } = req.query;
+    const {
+      page = 1,
+      limit = 20,
+      search = "",
+      status,
+      txnType,
+      startDate,
+      endDate
+    } = req.query;
 
     const query = {};
+    const skip = (page - 1) * limit;
 
-    // search by rrn, clientRefID, mobile, txnId
+    const userId = req.user.id;
+    const loggedInUser = await userModel.findById(userId);
+    if (!loggedInUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (loggedInUser.role === "Retailer") {
+      query.userId = loggedInUser._id;
+
+    } else if (loggedInUser.role === "Distributor") {
+      const retailers = await userModel.find(
+        { distributorId: loggedInUser._id },
+        "_id"
+      );
+
+      const retailerIds = retailers.map(r => r._id);
+
+      if (retailerIds.length === 0) {
+        return res.json({
+          status: true,
+          page: Number(page),
+          limit: Number(limit),
+          total: 0,
+          data: []
+        });
+      }
+
+      query.userId = { $in: retailerIds };
+
+    }
+
     if (search) {
       query.$or = [
         { rrn: new RegExp(search, "i") },
@@ -464,18 +522,23 @@ exports.getMatmReports = async (req, res) => {
     if (status) query.status = status;
     if (txnType) query.txnType = txnType;
 
+    // Date Filter
     if (startDate && endDate) {
-      query.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
+      query.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
     }
 
-    const skip = (page - 1) * limit;
-
     const [data, total] = await Promise.all([
-      matmModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      matmModel.countDocuments(query),
+      matmModel.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      matmModel.countDocuments(query)
     ]);
 
-    res.json({
+    return res.json({
       status: true,
       page: Number(page),
       limit: Number(limit),
@@ -484,16 +547,17 @@ exports.getMatmReports = async (req, res) => {
     });
 
   } catch (err) {
+    console.error("Error in getMatmReports:", err);
     res.status(500).json({ status: false, message: err.message });
   }
 };
+
 
 
 // Excel Mapping Function
 
 exports.sendAepsExcelMail = async (req, res) => {
   try {
-    // ✅ 1. SAFE BODY PARSING
     const formData = req.body?.formData;
     if (!req.user || !req.user.id) {
       return res.status(401).json({
@@ -523,7 +587,6 @@ exports.sendAepsExcelMail = async (req, res) => {
       });
     }
 
-    // ✅ 2. REQUIRED FIELD VALIDATION
     const requiredFields = [
       "bcagentid",
       "bcagentname",
@@ -605,7 +668,6 @@ exports.sendAepsExcelMail = async (req, res) => {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // ✅ 5. SAFE SMTP CONFIG (NO HARDCODED CREDENTIALS)
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -623,9 +685,8 @@ exports.sendAepsExcelMail = async (req, res) => {
 
     await transporter.verify();
 
-    // ✅ 7. SEND EMAIL SAFELY
     await transporter.sendMail({
-      from: `"SevenUnique" <info@sevenunique.com>`,
+      from: `"SevenUnique" <info@7unique.in>`,
       to: process.env.RECEIVER_EMAIL,
       subject: "BC Agent Excel Data",
       html: `
