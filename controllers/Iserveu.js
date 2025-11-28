@@ -7,7 +7,6 @@ const nodemailer = require("nodemailer");
 const path = require("path");
 const userModel = require("../models/userModel");
 const mongoose = require("mongoose");
-const userModel = require("../models/userModel");
 const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../utils/chargeCaluate");
 const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 const Transaction = require("../models/transactionModel");
