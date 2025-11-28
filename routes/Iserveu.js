@@ -4,6 +4,7 @@ const {
   aepsCallback,
   matmCallback,
   sendAepsExcelMail,
+  updateIsOnBoardStatus,
 } = require("../controllers/Iserveu");
 const authenticateToken = require("../middleware/verifyToken");
 const router = express.Router();
@@ -12,6 +13,7 @@ const router = express.Router();
 router.get("/get-token", getToken);
 router.post("/callback", aepsCallback);
 router.post("/matm/callback", matmCallback);
-router.post("/send-email-log", sendAepsExcelMail);
+router.post("/send-email-log",authenticateToken, sendAepsExcelMail);
+router.put("/onboard-status/:userId",authenticateToken, updateIsOnBoardStatus);
 
 module.exports = router;
