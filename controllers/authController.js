@@ -806,15 +806,17 @@ const getUserController = async (req, res) => {
   try {
     let userDoc = await User.findById(
       req.user.id,
-      "-mpin -commissionPackage -meta -password -extraPermissions"
+      "-mpin -commissionPackage -meta -password"
     )
       .populate("role")
       .populate({
         path: "plan.planId",
         populate: { path: "services", model: "Service" },
       })
-      .populate("distributorId");
-    // .populate("extraPermissions");
+      .populate({
+        path: "distributorId",
+        select: "id name",
+      });
 
     if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
@@ -1816,26 +1818,58 @@ const LoginHistory = require("../models/LoginHistory.js");
 const userModel = require("../models/userModel.js");
 const { generateToken } = require("./kycController.js");
 
+// const updateUserPermissions = async (req, res) => {
+//   try {
+//     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
+
+//     const Permission = mongoose.model("Permission");
+
+//     const resolveIdsFromKeys = async (items) => {
+//       // Agar item string aur ObjectId valid nahi hai, assume it's a key
+//       const docs = await Permission.find({
+//         $or: [
+//           { _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } },
+//           { key: { $in: items } },
+//         ],
+//       });
+
+//       return docs.map((p) => p._id.toString());
+//     };
+
+//     extraPermissions = await resolveIdsFromKeys(extraPermissions);
+//     restrictedPermissions = await resolveIdsFromKeys(restrictedPermissions);
+
+//     const user = await User.findByIdAndUpdate(
+//       req.params.id,
+//       { extraPermissions, restrictedPermissions },
+//       { new: true }
+//     );
+
+//     if (!user) return res.status(404).json({ message: "User not found" });
+
+//     res.json({
+//       ...user.toObject(),
+//       effectivePermissions: await user.getEffectivePermissions(),
+//     });
+//   } catch (err) {
+//     console.error("Error in updateUserPermissions:", err);
+//     return res.status(500).json({ message: err.message });
+//   }
+// };
+
+// GET /users/:id/permissions
+
 const updateUserPermissions = async (req, res) => {
   try {
     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
 
-    const Permission = mongoose.model("Permission");
-
-    const resolveIdsFromKeys = async (items) => {
-      // Agar item string aur ObjectId valid nahi hai, assume it's a key
-      const docs = await Permission.find({
-        $or: [
-          { _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } },
-          { key: { $in: items } },
-        ],
-      });
-
-      return docs.map((p) => p._id.toString());
-    };
-
-    extraPermissions = await resolveIdsFromKeys(extraPermissions);
-    restrictedPermissions = await resolveIdsFromKeys(restrictedPermissions);
+    // 👉 Only keep valid ObjectIds
+    extraPermissions = extraPermissions.filter((id) =>
+      mongoose.Types.ObjectId.isValid(id)
+    );
+    restrictedPermissions = restrictedPermissions.filter((id) =>
+      mongoose.Types.ObjectId.isValid(id)
+    );
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
@@ -1846,8 +1880,12 @@ const updateUserPermissions = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     res.json({
+      success: true,
       ...user.toObject(),
       effectivePermissions: await user.getEffectivePermissions(),
+      totalRolePermissions: user.rolePermissions?.permissions?.length || 0,
+      totalExtraPermissions: extraPermissions.length,
+      totalRestrictedPermissions: restrictedPermissions.length,
     });
   } catch (err) {
     console.error("Error in updateUserPermissions:", err);
@@ -1855,7 +1893,6 @@ const updateUserPermissions = async (req, res) => {
   }
 };
 
-// GET /users/:id/permissions
 const getUserPermissions = async (req, res) => {
   try {
     // 1️⃣ DB se user nikal lo
@@ -1873,6 +1910,7 @@ const getUserPermissions = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+    comssole.log("Error in getUserPermissions:", error);
   }
 };
 
