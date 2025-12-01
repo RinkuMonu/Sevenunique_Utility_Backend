@@ -3,7 +3,7 @@ name: Deploy Node.js Backend to CWP Server
 on:
   push:
     branches:
-      - main
+      - dev
 
 jobs:
   deploy:
