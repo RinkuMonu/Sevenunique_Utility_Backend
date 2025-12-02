@@ -256,7 +256,7 @@ exports.cashWithdrawal = async (req, res) => {
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
 
-    const required = Number(amount) + Number(commission.charge || 0) + Number(commission.tds || 0) + Number(commission.gst || 0) - Number(commission.retailer || 0);
+    const required = Number(amount) - Number(commission.charge || 0) - Number(commission.tds || 0) - Number(commission.gst || 0) + Number(commission.retailer || 0);
 
     // Create AEPS Report (Pending)
     const aepsReport = await AEPSTransaction.create([{
@@ -299,7 +299,7 @@ exports.cashWithdrawal = async (req, res) => {
     }], { session });
 
     // Create payout record
-    await new payInModel({
+    await payInModel.create([{
       userId,
       amount: required,
       reference: externalRef,
@@ -314,7 +314,7 @@ exports.cashWithdrawal = async (req, res) => {
       gst: commission.gst,
       tds: commission.tds,
       remark: `AEPS Cash Withdrawal for mobile ${mobile}`
-    }).save({ session });
+    }], { session });
 
     // Call InstantPay API
     const response = await instantpay.post("/fi/aeps/cashWithdrawal", {
@@ -342,8 +342,15 @@ exports.cashWithdrawal = async (req, res) => {
     // ✅ API Success
     if (result.statuscode === "TXN") {
       // ✅ Update user's wallet
-      user.eWallet = (user.eWallet || 0) + required;
-      await user.save({ session });
+      const updatedUser = await userModel.findOneAndUpdate(
+        {
+          _id: userId
+        },
+        {
+          $inc: { eWallet: +required }
+        },
+        { new: true, session }
+      );
 
       // ✅ Update Transaction
       await Transaction.updateOne(
@@ -351,7 +358,7 @@ exports.cashWithdrawal = async (req, res) => {
         {
           $set: {
             status: "Success",
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
           },
         },
         { session }
@@ -374,7 +381,7 @@ exports.cashWithdrawal = async (req, res) => {
         {
           $set: {
             status: "Success",
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
             apiResponse: result,
           },
         },
@@ -980,14 +987,18 @@ exports.deposite = async (req, res, next) => {
     });
     const result = response.data;
     if (result.statuscode === "TXN") {
-      user.eWallet = (user.eWallet || 0) - Number(required);
-      await user.save({ session });
 
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success", balance_after: user.eWallet, } }, { session });
+      const updatedUser = await userModel.findOneAndUpdate(
+        { _id: userId },
+        { $inc: { eWallet: -Number(required) } },
+        { new: true, session }
+      );
+
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success", balance_after: updatedUser.eWallet, } }, { session });
       await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Success", apiResponse: result, balance_after: user.eWallet, },
+        { status: "Success", apiResponse: result, balance_after: updatedUser.eWallet, },
         { session }
       );
 
@@ -1051,6 +1062,7 @@ exports.deposite = async (req, res, next) => {
     session.endSession();
   }
 };
+
 exports.getBankList = async (req, res, next) => {
   try {
     const userId = req.user.id;
