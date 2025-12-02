@@ -514,19 +514,39 @@ exports.makeTransaction = async (req, res) => {
 
         const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id, category } = req.body;
 
-        // 1️⃣ Validate fields
-        if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid || !bene_id) {
-            return res.status(400).json({ status: false, message: "Missing required fields." });
+        const requiredFields = {
+            remitterMobileNumber,
+            accountNumber,
+            ifsc,
+            transferMode,
+            transferAmount,
+            latitude,
+            longitude,
+            referenceKey,
+            otp,
+            externalRef,
+            referenceid,
+            bene_id
+        };
+
+        for (const key in requiredFields) {
+            if (requiredFields[key] === undefined || requiredFields[key] === null || requiredFields[key] === "") {
+                return res.status(400).json({
+                    status: false,
+                    message: `Missing required field: ${key}`,
+                });
+            }
         }
 
-        const { commissions, service } = await getApplicableServiceCharge(req.user.id, category);
+
         const userId = req.user.id;
-        const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
+        const { commissions, service } = await getApplicableServiceCharge(userId, category);
+        const commission = calculateCommissionFromSlabs(transferAmount, commissions);
         const user = await userModel.findById(userId).session(session);
         if (!user) throw new Error("User not found");
 
         const usableBalance = user.eWallet - (user.cappingMoney || 0);
-        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
 
         if (usableBalance < required) {
             return res.status(400).json({
@@ -534,8 +554,23 @@ exports.makeTransaction = async (req, res) => {
             });
         }
 
-        user.eWallet -= required;
-        await user.save({ session });
+        const updatedUser = await userModel.findOneAndUpdate(
+            {
+                _id: userId,
+                eWallet: { $gte: required + (user.cappingMoney || 0) }
+            },
+            {
+                $inc: { eWallet: -required }
+            },
+            { new: true, session }
+        );
+
+        if (!updatedUser) {
+            return res.status(400).json({
+                status: false,
+                message: `Insufficient wallet balance. Need ₹${required}`
+            });
+        }
 
         // 2️⃣ Create debit transaction
         const [debitTxn] = await Transaction.create([{
@@ -548,7 +583,7 @@ exports.makeTransaction = async (req, res) => {
             charge: commission.charge,
             totalDebit: required,
             totalCredit: Number(commission.retailer || 0),
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
             description: "DMT Transfer",
@@ -556,7 +591,7 @@ exports.makeTransaction = async (req, res) => {
         }], { session });
 
         // 3️⃣ Create payout record
-        await new payOutModel({
+        await payOutModel.create([{
             userId,
             amount: transferAmount,
             reference: referenceid,
@@ -571,7 +606,7 @@ exports.makeTransaction = async (req, res) => {
             tds: commission.tds,
             totalDebit: required,
             remark: `Money Transfer for beneficiary ID ${bene_id}`
-        }).save({ session });
+        }], { session });
 
         // 4️⃣ Call API
         const response = await axios.post(
@@ -579,7 +614,12 @@ exports.makeTransaction = async (req, res) => {
             {
                 remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef
             },
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         const result = response.data;
@@ -637,7 +677,7 @@ exports.makeTransaction = async (req, res) => {
 
             await CommissionTransaction.create([{
                 referenceId: referenceid,
-                service: commissions.service,
+                service: service._id,
                 baseAmount: transferAmount,
                 charge: commission.charge + commission.gst,
                 netAmount: required,
@@ -653,8 +693,12 @@ exports.makeTransaction = async (req, res) => {
 
         } else {
             // Failed transaction: rollback
-            user.eWallet += required;
-            await user.save({ session });
+            await userModel.updateOne(
+                { _id: userId },
+                { $inc: { eWallet: required } },
+                { session }
+            );
+
             await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }, { session });
             await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }, { session });
             throw new Error(result.status || "Transaction failed at provider");

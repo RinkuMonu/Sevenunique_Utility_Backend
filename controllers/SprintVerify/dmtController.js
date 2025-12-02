@@ -512,9 +512,6 @@ exports.performTransaction = async (req, res, next) => {
             category
         } = req.body;
 
-        const { commissions, service } = await getApplicableServiceCharge(req.user.id, category);
-
-        let userId = req.user.id;
 
         const missingFields = [];
         if (!mobile) missingFields.push('mobile');
@@ -528,8 +525,10 @@ exports.performTransaction = async (req, res, next) => {
         if (missingFields.length > 0) {
             return res.status(400).json({ error: true, message: `Missing required fields: ${missingFields.join(', ')}` });
         }
+        let userId = req.user.id;
+        const { commissions, service } = await getApplicableServiceCharge(userId, category);
 
-        let commission = calculateCommissionFromSlabs(amount, commissions || [])
+        let commission = calculateCommissionFromSlabs(amount, commissions)
         console.log(commission);
 
 
@@ -544,7 +543,6 @@ exports.performTransaction = async (req, res, next) => {
             Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)
         ).toFixed(2));
 
-        console.log(required);
         if (usableBalance < required) {
             return res.status(400).json({
                 error: true,
@@ -554,9 +552,23 @@ exports.performTransaction = async (req, res, next) => {
         }
 
 
-        user.eWallet -= required;
+        const updatedUser = await userModel.findOneAndUpdate(
+            {
+                _id: userId,
+                eWallet: { $gte: required + (user.cappingMoney || 0) }
+            },
+            {
+                $inc: { eWallet: -required }
+            },
+            { new: true, session }
+        );
 
-        await user.save({ session });
+        if (!updatedUser) {
+            return res.status(400).json({
+                status: false,
+                message: `Insufficient wallet balance. Need ₹${required}`
+            });
+        }
 
         const [debitTxn] = await Transaction.create([{
             user_id: userId,
@@ -568,14 +580,14 @@ exports.performTransaction = async (req, res, next) => {
             charge: Number(commission.charge),
             totalDebit: Number(required),
             totalCredit: Number(commission.retailer || 0),
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
             description: "DMT Transfer",
             status: "Pending"
         }], { session });
 
-        await new PayOut({
+        await PayOut.create([{
             userId,
             amount: Number(amount),
             type: service._id,
@@ -590,7 +602,7 @@ exports.performTransaction = async (req, res, next) => {
             tds: commission.tds || 0,
             totalDebit: required,
             remark: `Money Transfer for beneficiary ID ${bene_id}`
-        }).save({ session });
+        }], { session });
 
         const payload = {
             mobile, referenceid, bene_id, txntype, amount,
@@ -648,10 +660,10 @@ exports.performTransaction = async (req, res, next) => {
                 bank_status: result.bank_status || ''
             }], { session });
 
-            await Promise.all([
-                PayOut.updateOne({ reference: referenceid }, { $set: { status: "Success" } }).session(session),
-                Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }).session(session),
-                distributeCommission({
+
+            await PayOut.updateOne({ reference: referenceid }, { $set: { status: "Success" } }, { session }),
+                await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Success" } }, { session }),
+                await distributeCommission({
                     user: userId,
                     distributer: user.distributorId,
                     service: service,
@@ -659,17 +671,18 @@ exports.performTransaction = async (req, res, next) => {
                     commission,
                     reference: referenceid,
                     description: "Commission for DMT Transaction",
+                    session
                 })
-            ]);
+
 
             debitTxn.status = "Success";
             await debitTxn.save({ session });
 
             await CommissionTransaction.create([{
                 referenceId: referenceid,
-                service: commissions.service,
+                service: service._id,
                 baseAmount: Number(amount),
-                charge: commission.charge + commission.gst,
+                charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds),
                 netAmount: required,
                 roles: [
                     {
@@ -690,12 +703,16 @@ exports.performTransaction = async (req, res, next) => {
 
 
         } else {
-            user.eWallet += Number(required);
-            await user.save({ session });
+            await userModel.updateOne(
+                { _id: userId },
+                { $inc: { eWallet: required } },
+                { session }
+            );
+
 
             await Promise.all([
-                Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }).session(session),
-                PayOut.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }).session(session)
+                Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }, { session }),
+                PayOut.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }, { session })
             ]);
 
             throw new Error(result.message || result.remarks || "Transaction failed at provider");
