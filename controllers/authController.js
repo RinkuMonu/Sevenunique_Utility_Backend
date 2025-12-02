@@ -95,24 +95,24 @@ const getDeviceName = (userAgent = "") => {
   browser = ua.includes("Chrome")
     ? "Chrome"
     : ua.includes("Firefox")
-    ? "Firefox"
-    : ua.includes("Safari") && !ua.includes("Chrome")
-    ? "Safari"
-    : ua.includes("Edg")
-    ? "Edge"
-    : "Unknown Browser";
+      ? "Firefox"
+      : ua.includes("Safari") && !ua.includes("Chrome")
+        ? "Safari"
+        : ua.includes("Edg")
+          ? "Edge"
+          : "Unknown Browser";
 
   // Detect OS
   let os = "Unknown OS/device";
   os = ua.includes("Windows")
     ? "Windows"
     : ua.includes("Android")
-    ? "Android"
-    : ua.includes("iPhone")
-    ? "iPhone"
-    : ua.includes("Mac")
-    ? "MacOS"
-    : "Unknown OS";
+      ? "Android"
+      : ua.includes("iPhone")
+        ? "iPhone"
+        : ua.includes("Mac")
+          ? "MacOS"
+          : "Unknown OS";
 
   return `${browser} on ${os}`;
 };
@@ -342,6 +342,11 @@ const loginController = async (req, res) => {
       return res
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
+    }
+    if (user.isKycVerified === false) {
+      return res
+        .status(403)
+        .json({ message: "Your KYC is not verified. Please complete KYC to continue." });
     }
 
     // ✅ OTP login
