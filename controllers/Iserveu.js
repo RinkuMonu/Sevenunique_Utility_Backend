@@ -101,6 +101,7 @@ exports.aepsCallback = async (req, res) => {
       FAILED: "Failed",
       AUTH_FAILED: "Failed",
       FAILURE: "Failed",
+      AUTH_DECLINE: "Failed"
     };
 
 
@@ -373,7 +374,8 @@ exports.matmCallback = async (req, res) => {
       AUTH_SUCCESS: "Success",
       SUCCESS: "Success",
       FAILED: "Failed",
-      AUTH_FAILED: "Failed"
+      AUTH_FAILED: "Failed",
+      AUTH_DECLINE: "Failed"
     };
     const finalStatus = statusMap[data.status] || "Pending";
 
@@ -385,20 +387,6 @@ exports.matmCallback = async (req, res) => {
     const finalType = txnTypeMap[data.txnType] || "Unknown";
 
     const categoryId = "6918432258971284f348b5c8";
-    const { commissions, service } = await getApplicableServiceCharge(userId, categoryId);
-
-    const commission = commissions
-      ? calculateCommissionFromSlabs(txnAmount, commissions)
-      : {
-        retailer: 0,
-        distributor: 0,
-        admin: 0,
-        charge: 0,
-        gst: 0,
-        tds: 0
-      };
-
-
 
     if (data.txnType === "mATM_BALANCE_ENQUIRY") {
 
@@ -424,6 +412,18 @@ exports.matmCallback = async (req, res) => {
       return res.json({ status: 1, message: "Balance Enquiry Saved" });
     }
 
+    const { commissions, service } = await getApplicableServiceCharge(userId, categoryId);
+
+    const commission = commissions
+      ? calculateCommissionFromSlabs(txnAmount, commissions)
+      : {
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+        charge: 0,
+        gst: 0,
+        tds: 0
+      };
 
     if (finalStatus !== "Success") {
       await matmModel.create([{
