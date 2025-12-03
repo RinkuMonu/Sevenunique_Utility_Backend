@@ -9,6 +9,10 @@ const payOutModel = require("../models/payOutModel");
 const DmtReport = require('../models/dmtTransactionModel');
 const { distributeCommission } = require("../utils/distributerCommission");
 const CommissionTransaction = require("../models/CommissionTransaction");
+const bbpsModel = require("../models/bbpsModel");
+const matmModel = require("../models/matm.model");
+const payInModel = require("../models/payInModel");
+const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
@@ -78,6 +82,28 @@ async function parsePidXML(pidXml) {
         throw new Error("Failed to parse PID XML: " + err.message);
     }
 }
+
+
+async function findReportByRef(externalRef, session) {
+    const allReports = [
+        { model: AEPSTransaction, service: "AEPS" },
+        { model: DmtReport, service: "DMT" },
+        { model: bbpsModel, service: "BBPS" },
+        { model: matmModel, service: "MATM" },
+        { model: payInModel, service: "PAYIN" },
+        { model: payOutModel, service: "PAYOUT" },
+        { model: Transaction, service: "Transaction" }
+    ];
+
+    for (const item of allReports) {
+        const report = await item.model.findOne({ externalRef }).session(session);
+        if (report) {
+            return { report, service: item.service };
+        }
+    }
+    return null;
+}
+
 
 // 1️⃣ Get Bank List
 exports.getBankList = async (req, res) => {
@@ -711,6 +737,152 @@ exports.makeTransaction = async (req, res) => {
         await session.abortTransaction();
         console.error("💥 Transaction Error:", err);
         res.status(500).json({ status: false, message: err.message || "Transaction failed", error: err.response?.data || err.message });
+    } finally {
+        session.endSession();
+    }
+};
+
+// Transaction Status
+exports.TransactionStatus = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { externalRef, transactionDate } = req.body;
+
+        if (!externalRef) {
+            return res.status(400).json({
+                status: false,
+                message: "externalRef are required!",
+            });
+        }
+        if (!transactionDate) {
+            return res.status(400).json({
+                status: false,
+                message: "transactionDate are required!",
+            });
+        }
+
+        const user = await userModel.findById(req.user.id).session(session);
+        if (!user) throw new Error("User not found");
+
+        // ❇️ FIND REPORT FROM ANY SERVICE
+        const result = await findReportByRef(externalRef, session);
+        if (!result) throw new Error("No matching report found!");
+
+        console.log(result);
+        return;
+
+
+        const report = result.report;
+        const serviceType = result.service;
+
+        // 🟡 Only pending allowed
+        if (!["Pending", "TUP", "pending"].includes(report.status)) {
+            return res.status(400).json({
+                status: false,
+                message: `Status check allowed only for PENDING/TUP transactions.`,
+                currentStatus: report.status,
+                serviceType,
+            });
+        }
+
+        // 📦 Payload
+        const payload = {
+            transactionDate,
+            externalRef,
+            source: serviceType === "AEPS" ? "ORDER" : undefined,
+        };
+
+        // 🌐 Hit API
+        const ipayRes = await axios.post(`${BASE_URL}/reports/txnStatus`, payload, {
+            headers: {
+                ...getHeaders(),
+                "X-Ipay-Outlet-Id": user.outletId,
+            }
+        });
+
+        const resp = ipayRes.data;
+        const txnStatus = resp?.data?.transactionStatusCode;
+
+        // 🔄 Still pending
+        if (txnStatus === "TUP") {
+            report.status = "Pending";
+            await report.save({ session });
+            await session.commitTransaction();
+
+            return res.json({
+                status: true,
+                message: "Transaction still pending.",
+                data: resp,
+                serviceType,
+            });
+        }
+
+        // ✔ SUCCESS CASE
+        if (txnStatus === "TXN") {
+            report.status = "Success";
+            report.gatewayResponse = resp;
+
+            await report.save({ session });
+
+
+            await Transaction.updateOne(
+                { externalRef },
+                { status: "Success", gatewayResponse: resp },
+                { session }
+            );
+
+            await session.commitTransaction();
+            return res.json({
+                status: true,
+                message: "Transaction successful",
+                data: resp,
+                serviceType,
+            });
+        }
+
+        // ❌ FAILED → REFUND
+        const refundAmount = Number(report.amount);
+
+        const updatedUser = await userModel.findOneAndUpdate(
+            {
+                _id: req.user.id,
+            },
+            {
+                $inc: { eWallet: -report.amount }
+            },
+            { new: true, session }
+        );
+
+        report.status = "Failed";
+        report.gatewayResponse = resp;
+        report.refunded = true;
+        await report.save({ session });
+
+
+        // Transaction Report Update
+        await Transaction.updateOne(
+            { externalRef },
+            { status: "Failed", refunded: true },
+            { session }
+        );
+
+        await session.commitTransaction();
+
+        return res.json({
+            status: true,
+            message: `${serviceType} Transaction failed & refund processed.`,
+            data: resp,
+        });
+
+    } catch (err) {
+        await session.abortTransaction();
+        return res.status(500).json({
+            status: false,
+            message: err.message,
+            error: err.response?.data || err.message
+        });
     } finally {
         session.endSession();
     }
