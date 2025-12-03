@@ -115,9 +115,9 @@ exports.aepsCallback = async (req, res) => {
 
     // Category mapping
     if (txnType === "AEPS_CASH_WITHDRAWAL") {
-      category = "6918314027e9c0be214ff15d";
-    } else {
       category = "68c9369d8fa1dda33eb541b6";
+    } else {
+      category = "6918314027e9c0be214ff15d";
     }
 
 
