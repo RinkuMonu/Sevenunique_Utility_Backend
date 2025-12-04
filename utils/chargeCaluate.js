@@ -98,7 +98,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
       if (matchedSlab.commissionType === "flat") return val;
       if (matchedSlab.commissionType === "percentage") return (val * amount) / 100;
     }
-    
+
     return 0;
   };
 
@@ -129,12 +129,12 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     commissionMethod: matchedSlab.commissionMethod,
     commissionType: matchedSlab.commissionType,
 
-    retailer: retailerAmt.toFixed(2),
-    distributor: distributorAmt.toFixed(2),
-    admin: adminAmt.toFixed(2),
-    gst: gst.toFixed(2),
-    tds: tds.toFixed(2),
-    charge: +chargeAmount.toFixed(2),
+    retailer: Number(retailerAmt.toFixed(2)),
+    distributor: Number(distributorAmt.toFixed(2)),
+    admin: Number(adminAmt.toFixed(2)),
+    gst: Number(gst.toFixed(2)),
+    tds: Number(tds.toFixed(2)),
+    charge: +Number(chargeAmount.toFixed(2)),
     totalCommission: (retailerAmt + distributorAmt + adminAmt).toFixed(2),
   };
 }

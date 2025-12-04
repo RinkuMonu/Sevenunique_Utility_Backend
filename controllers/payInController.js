@@ -556,7 +556,7 @@ exports.callbackPayIn = async (req, res) => {
   try {
 
     const data = req.body;
-    logApiCall({ url: "/callback", requestData: {}, responseData: data });
+    logApiCall({ url: "/callback", requestData: "", responseData: data });
     const responseCode = data?.responseCode?.toString();
     const isSuccess = responseCode === "100";
 
@@ -577,16 +577,22 @@ exports.callbackPayIn = async (req, res) => {
       { new: true }
     );
 
-    // 👤 Find the related user
-    let user = null;
-    if (payIn && payIn.userId) {
-      user = await User.findById(payIn.userId);
+    if (!payIn) {
+      return res.status(404).send("Invalid callback reference");
     }
 
-    if (isSuccess && user) {
+    // 👤 Find the related user
+    let user = null;
+    if (isSuccess && payIn && payIn.userId) {
       const amount = Number(data?.amount) / 100 || 0;
-      user.eWallet += amount;
-      await user.save();
+
+      user = await User.findOneAndUpdate(
+        { _id: payIn.userId },
+        { $inc: { eWallet: amount } },
+        { new: true }
+      );
+    } else {
+      user = await User.findById(payIn.userId)
     }
 
     // 💳 Update Transaction report
@@ -678,14 +684,13 @@ exports.callbackPayIn = async (req, res) => {
 
     if (user && user.callbackUrl) {
       try {
-        const res = await axios.post(user.callbackUrl, data, {
+        const response = await axios.post(user.callbackUrl, data, {
           headers: { "Content-Type": "application/json" }
         });
         console.log("Callback sent to merchant successfully");
 
-        return ({
-          message: "Callback sent to merchant successfully",
-        });
+        return res.status(200).send(isSuccess ? successHTML : failureHTML);
+
       } catch (callbackErr) {
         console.error("⚠️ Error sending callback to user:", callbackErr);
         return res.status(200).send(isSuccess ? successHTML : failureHTML);
