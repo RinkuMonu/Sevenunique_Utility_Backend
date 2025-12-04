@@ -46,10 +46,10 @@ jobs:
       - name: 🔐 SSH Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.BACKEND_SSH_HOST }}
-          username: ${{ secrets.BACKEND_SSH_USERNAME }}
-          password: ${{ secrets.BACKEND_SSH_PASSWORD }}
-          port: ${{ secrets.BACKEND_SSH_PORT }}
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USERNAME }}
+          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             echo "📁 Creating backend folder if missing"
             mkdir -p /home/devserve/public_html/Bbbps_Backend
@@ -82,8 +82,8 @@ jobs:
             npm install --legacy-peer-deps --production
 
             echo "🚀 Restarting PM2 app"
-            pm2 delete Bbbps_Backend || true
-            pm2 start devserver.js --name "Bbbps_Backend"
+            pm2 delete Dev_Bbbps_Backend || true
+            pm2 start devserver.js --name "Dev_Bbbps_Backend"
             pm2 save
 
             echo "✅ Deployment complete!"
