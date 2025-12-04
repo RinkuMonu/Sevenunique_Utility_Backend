@@ -1,5 +1,5 @@
 const express = require("express");
-const { getBankList, registerRemitter, verifyRemitterRegistration, remitterKyc, beneficiaryRegistration, beneficiaryRegistrationVerify, beneficiaryDelete, beneficiaryDeleteVerify, generateTransactionOtp, makeTransaction, getRemitterProfile } = require("../controllers/InstantPay.dmt.controller");
+const { getBankList, registerRemitter, verifyRemitterRegistration, remitterKyc, beneficiaryRegistration, beneficiaryRegistrationVerify, beneficiaryDelete, beneficiaryDeleteVerify, generateTransactionOtp, makeTransaction, getRemitterProfile, TransactionStatus } = require("../controllers/InstantPay.dmt.controller");
 const authenticateToken = require("../middleware/verifyToken");
 const router = express.Router();
 
@@ -29,5 +29,8 @@ router.post("/beneficiary/delete-verify", authenticateToken, beneficiaryDeleteVe
 router.post("/generate-otp", authenticateToken, generateTransactionOtp);
 
 router.post("/", authenticateToken, makeTransaction);
+
+// Transaction Status
+router.post("/transactionStatus", authenticateToken, TransactionStatus);
 
 module.exports = router;
