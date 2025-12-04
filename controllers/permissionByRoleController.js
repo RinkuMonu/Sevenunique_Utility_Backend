@@ -58,27 +58,58 @@ exports.getPermissionByRole = async (req, res) => {
 };
 
 // 🔹 Update role permissions role per
+// exports.updatePermissionByRole = async (req, res) => {
+//   try {
+//     const { permissions } = req.body;
+
+//     const updated = await PermissionByRole.findOneAndUpdate(
+//       { role: req.params.role },
+//       { permissions: permissions || [] },
+//       { new: true }
+//     ).populate("permissions");
+
+//     if (!updated)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Role not found" });
+
+//     res.json({ success: true, data: updated });
+//   } catch (error) {
+//     res.status(500).json({ success: false, message: error.message });
+//     console.log(error);
+//   }
+// };
 exports.updatePermissionByRole = async (req, res) => {
   try {
     const { permissions } = req.body;
+    const roleName = req.params.role;
 
+    // 1️⃣ Role document update
     const updated = await PermissionByRole.findOneAndUpdate(
-      { role: req.params.role },
+      { role: roleName },
       { permissions: permissions || [] },
       { new: true }
     ).populate("permissions");
 
-    if (!updated)
+    if (!updated) {
       return res
         .status(404)
         .json({ success: false, message: "Role not found" });
+    }
+
+    // 2️⃣ Sab users jinke paas ye role hai, unko link karo
+    await userModel.updateMany(
+      { role: roleName },
+      { rolePermissions: updated._id }
+    );
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
     console.log(error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 // 🔹 Update role name
 exports.updateRoleName = async (req, res) => {
@@ -123,7 +154,7 @@ exports.deletePermissionByRole = async (req, res) => {
 // 🔹 Create new global permission
 exports.createPermission = async (req, res) => {
   try {
-    const { key, description } = req.body;
+    const { key, description ,parentKey} = req.body;
 
     const existing = await Permission.findOne({ key });
     if (existing) {
@@ -132,7 +163,7 @@ exports.createPermission = async (req, res) => {
         .json({ success: false, message: "Permission already exists" });
     }
 
-    const perm = new Permission({ key, description });
+    const perm = new Permission({ key, description , parentKey: parentKey || null,});
     await perm.save();
 
     res.status(201).json({ success: true, data: perm });
@@ -142,7 +173,7 @@ exports.createPermission = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `This Permission already exist`,
-        field: field[0],
+        field: field[0] ?? null,
         value: value,
       });
     }
@@ -244,47 +275,64 @@ exports.deletePermission = async (req, res) => {
 // 🔹 Get user permissions (rolePer + extraPer - restrictedPer)
 
 exports.getUserPermissions = async (req, res) => {
-  try {
+   try {
     const userId = req.params.id;
-    console.log("Fetching permissions for user ID:", userId);
 
+    // ✅ 1. USER FETCH
     const user = await userModel
       .findById(userId)
       .populate("extraPermissions")
       .populate("restrictedPermissions")
-      .populate({
-        path: "rolePermissions",
-        populate: { path: "permissions" },
-      });
+      .populate("rolePermissions");
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // 👉 Extract all permissions
-    const rolePerms = user.rolePermissions?.permissions || [];
+    // ✅ 2. ROLE SE PERMISSIONS NIKALO
+    let rolePerms = [];
+
+    if (user.rolePermissions) {
+      const roleData = await PermissionByRole.findById(
+        user.rolePermissions
+      ).populate("permissions");
+
+      rolePerms = roleData?.permissions || [];
+    }
+
     const extraPerms = user.extraPermissions || [];
     const restrictedPerms = user.restrictedPermissions || [];
 
-    // 👉 Convert to sets of keys
-    let finalSet = new Set();
+    // ✅ 3. FINAL EFFECTIVE IDS
+    let finalIdSet = new Set();
 
-    // 1️⃣ Add role permissions
-    rolePerms.forEach((p) => finalSet.add(p.key));
+    rolePerms.forEach((p) => finalIdSet.add(p._id.toString()));
+    extraPerms.forEach((p) => finalIdSet.add(p._id.toString()));
+    restrictedPerms.forEach((p) => finalIdSet.delete(p._id.toString()));
 
-    // 2️⃣ Add extra permissions (override role-based)
-    extraPerms.forEach((p) => finalSet.add(p.key));
+    const effectivePermissionIds = Array.from(finalIdSet);
 
-    // 3️⃣ Remove restricted permissions
-    restrictedPerms.forEach((p) => finalSet.delete(p.key));
+    // ✅ 4. GROUPED PERMISSIONS
+    const all = await Permission.find().lean();
 
-    // 👉 Convert back to array
-    const effectivePermissions = Array.from(finalSet);
+    const grouped = {};
 
-    // 👉 Send full response
+    all.forEach((perm) => {
+      if (!perm.parentKey) {
+        grouped[perm.key] = {
+          parent: perm,
+          children: [],
+        };
+      }
+    });
+
+    all.forEach((perm) => {
+      if (perm.parentKey && grouped[perm.parentKey]) {
+        grouped[perm.parentKey].children.push(perm);
+      }
+    });
+
+    // ✅ 5. RESPONSE (USER + GROUP SATH ME)
     res.json({
       success: true,
       role: user.role,
@@ -293,17 +341,54 @@ exports.getUserPermissions = async (req, res) => {
       extraPermissions: extraPerms,
       restrictedPermissions: restrictedPerms,
 
-      effectivePermissions, // 🔥 final permissions (role + extra - restricted)
+      effectivePermissionIds, // ✅ checkbox ke liye
+      groupedPermissions: grouped, // ✅ menu + sub menu ke liye
 
       totalRolePermissions: rolePerms.length,
       totalExtraPermissions: extraPerms.length,
       totalRestrictedPermissions: restrictedPerms.length,
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
+  } catch (err) {
+    console.log("Permission API Error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+
+};
+
+//get all permissions by group
+
+exports.getGroupedPermissions = async (req, res) => {
+  try {
+    const all = await Permission.find().lean();
+
+    const grouped = {};
+
+    // ✅ STEP 1: Sab unique parentKey ko parent banao
+    all.forEach((perm) => {
+      if (perm.parentKey && !grouped[perm.parentKey]) {
+        grouped[perm.parentKey] = {
+          parent: {
+            key: perm.parentKey,
+            _id: null,            // jab parent record alag ho to yaha _id aa jayega
+            description: perm.parentKey,
+          },
+          children: [],
+        };
+      }
     });
-    console.log("eeeeeeeeeeeeeeeeeeeee", error);
+
+    // ✅ STEP 2: Children attach karo
+    all.forEach((perm) => {
+      if (perm.parentKey && grouped[perm.parentKey]) {
+        grouped[perm.parentKey].children.push(perm);
+      }
+    });
+
+    res.json({
+      success: true,
+      data: grouped,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };

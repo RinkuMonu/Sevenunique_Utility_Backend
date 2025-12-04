@@ -263,7 +263,7 @@ const sendOtpController = async (req, res) => {
 
 const verifyOTPController = async (req, res) => {
   try {
-    const { mobileNumber, otp } = req.body;
+    const { mobileNumber, otp, outerRegister } = req.body;
 
     // ✅ Validation
     if (!mobileNumber || !otp) {
@@ -284,19 +284,20 @@ const verifyOTPController = async (req, res) => {
     }
     let user = await User.findOne({ mobileNumber });
 
-    let nextStep = 2;
+    let nextStep = outerRegister ? 3 : 2;
 
     if (user) {
-      if (user.name && user.email && user.password) nextStep = 3;
+      if (user.name && user.email && user.password)
+        nextStep = outerRegister ? 4 : 3;
 
       if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-        nextStep = 4;
+        nextStep = outerRegister ? 5 : 4;
 
       if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-        nextStep = 5;
+        nextStep = outerRegister ? 6 : 5;
 
       if (user.panDetails && Object.keys(user.panDetails).length > 0)
-        nextStep = 6;
+        nextStep = outerRegister ? 7 : 6;
     }
 
     // ✅ Success
@@ -342,6 +343,11 @@ const loginController = async (req, res) => {
       return res
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
+    }
+    if (user.isKycVerified === false) {
+      return res.status(403).json({
+        message: "Your KYC is not verified. Please complete KYC to continue.",
+      });
     }
 
     // ✅ OTP login
@@ -739,7 +745,7 @@ const registerUser = async (req, res) => {
   } catch (error) {
     console.log("eeeeeeeeeeeeeee", error);
     console.error("Error in registerUser controller:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
 

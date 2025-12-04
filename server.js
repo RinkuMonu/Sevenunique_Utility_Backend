@@ -30,6 +30,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://utility.finuniques.in",
+  "https://dev.finuniques.in",
 ];
 
 app.use(
