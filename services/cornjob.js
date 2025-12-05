@@ -2,11 +2,10 @@ import cron from "node-cron";
 import userModel from "../models/userModel.js";
 import payInModel from "../models/payInModel.js";
 import Transaction from "../models/transactionModel.js";
-
+import { sendBatchOnboardingMail } from "../controllers/Iserveu.js";
 
 // Every day at midnight
 export const planCheckCronJob = () => {
-
   // cron.schedule("*/30 * * * * *", async () => {
   cron.schedule("0 0 * * *", async () => {
     console.log("🔄 Running daily plan expiry check...");
@@ -64,15 +63,24 @@ export const planCheckCronJob = () => {
           {
             $set: {
               status: "Failed",
-              description: "User left payment page without completing transaction",
+              description:
+                "User left payment page without completing transaction",
             },
           }
         );
 
-        console.log(`❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`);
+        console.log(
+          `❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`
+        );
       }
     } catch (err) {
       console.error("❌ [ERROR] Auto-fail PayIn CRON:", err.message);
     }
   });
+
+  // cron.schedule("*/15 * * * * *", async () => {
+  //   // cron.schedule("*/2 * * * *", async () => {
+  //   console.log("⏱ Cron Running — Checking onboarding queue...");
+  //   await sendBatchOnboardingMail(false);
+  // });
 };
