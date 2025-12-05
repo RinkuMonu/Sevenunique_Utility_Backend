@@ -9,7 +9,7 @@ const PASS_KEY = process.env.AEPS_PASS_KEY;
 const API_BASE = process.env.ISU_BASE_URL;
 
 // Decode Base64 AES key from env
-const AES_KEY = Buffer.from(process.env.ISU_AES_KEY_BASE64, "base64");
+const AES_KEY = Buffer.from(process.env.AEPS_ENCR_KEY, "base64");
 
 // ========================
 // 🔐 AES ENCRYPT/DECRYPT
