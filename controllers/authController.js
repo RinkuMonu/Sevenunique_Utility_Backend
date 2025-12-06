@@ -1476,10 +1476,18 @@ const getDashboardStats = async (req, res, next) => {
         ]),
         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
         Transaction.countDocuments({ ...matchToday, status: "Success" }),
-        User.countDocuments({ status: true }),
+        User.countDocuments({ status: true, isKycVerified: true }),
         servicesModal.countDocuments({ isActive: true }),
-        User.countDocuments({ role: "Retailer", status: true }),
-        User.countDocuments({ role: "Distributor", status: true }),
+        User.countDocuments({
+          role: "Retailer",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "Distributor",
+          status: true,
+          isKycVerified: true,
+        }),
       ]);
 
       const successRate =
