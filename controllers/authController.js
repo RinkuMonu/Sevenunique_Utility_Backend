@@ -620,41 +620,9 @@ const registerUser = async (req, res) => {
         userData.distributorId = adminUser._id;
       }
     }
-    // ✅ Email verify karne ka step
-    // if (userData.email) {
-    //   try {
-    //     const verifyEmailRes = await axios.post(
-    //       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-    //       { email: userData.email },
-    //       {
-    //         headers: {
-    //           Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
-    //           "x-env": "production",
-    //           "client-id": "Seven012",
-    //           "Content-Type": "application/json",
-    //         },
-    //       }
-    //     );
 
-    //     const result = verifyEmailRes.data;
-    //     console.log("📧 Email verify response:", result);
 
-    //     if (result?.status && result.status.toLowerCase() !== "valid") {
-    //       return res
-    //         .status(400)
-    //         .json({ message: "Invalid or undeliverable email address." });
-    //     }
-    //   } catch (err) {
-    //     console.error(
-    //       "❌ Email verify API fail hui:",
-    //       err.response?.data || err.message
-    //     );
-    //     return res.status(400).json({
-    //       message: "Email verify karne me problem aayi, dubara try karo.",
-    //     });
-    //   }
-    // }
-
+    
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
         (file) => `/uploads/${file.filename}`
@@ -711,31 +679,31 @@ const registerUser = async (req, res) => {
     );
 
     // ✅ Send lead to external API
-    try {
-      await axios.post(
-        "https://cms.sevenunique.com/apis/leads/set-leads.php",
-        {
-          website_id: 6,
-          name: NewUser.name,
-          mobile_number: NewUser.mobileNumber,
-          email: NewUser.email,
-          address: NewUser.address,
-          client_type: NewUser.role,
-          notes: "Lead from FinUnique small private limited",
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-          },
-        }
-      );
-    } catch (leadError) {
-      console.error(
-        "Error sending lead data:",
-        leadError.response ? leadError.response.data : leadError.message
-      );
-    }
+    // try {
+    //   await axios.post(
+    //     "https://cms.sevenunique.com/apis/leads/set-leads.php",
+    //     {
+    //       website_id: 6,
+    //       name: NewUser.name,
+    //       mobile_number: NewUser.mobileNumber,
+    //       email: NewUser.email,
+    //       address: NewUser.address,
+    //       client_type: NewUser.role,
+    //       notes: "Lead from FinUnique small private limited",
+    //     },
+    //     {
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
+    //       },
+    //     }
+    //   );
+    // } catch (leadError) {
+    //   console.error(
+    //     "Error sending lead data:",
+    //     leadError.response ? leadError.response.data : leadError.message
+    //   );
+    // }
 
     return res.status(200).json({
       message: "Registration successful",
@@ -1963,6 +1931,93 @@ const updateProgress = async (req, res) => {
   }
 };
 
+const updateUserDocs = async (req, res) => {
+  try {
+    const role = req.user.role;
+
+    // 🛑 Only admin / superAdmin can update
+    if (role !== "Admin" && role !== "superAdmin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update documents",
+      });
+    }
+
+    const userId = req.params.id;
+
+    let user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const files = req.files || {};
+
+    // helper to return `/uploads/filename`
+    const getFile = (fieldName, oldValue) => {
+      return files[fieldName]
+        ? `/uploads/${files[fieldName][0].filename}`
+        : oldValue;
+    };
+
+    // SHOP PHOTO ARRAY (MULTIPLE APPEND)
+    let newShopPhotos = user.shopPhoto || [];
+    if (files.shopPhoto) {
+      const uploadedShopPhotos = files.shopPhoto.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newShopPhotos = [...newShopPhotos, ...uploadedShopPhotos];
+    }
+
+    // DIRECTOR KYC FILES (MULTIPLE)
+    let newDirectorKyc = user.directorKycFiles || [];
+    if (files.directorKycFiles) {
+      const uploadedKyc = files.directorKycFiles.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newDirectorKyc = [...newDirectorKyc, ...uploadedKyc];
+    }
+
+    const updateData = {
+      aadhaarFront: getFile("aadhaarFront", user.aadhaarFront),
+      aadhaarBack: getFile("aadhaarBack", user.aadhaarBack),
+      panCard: getFile("panCard", user.panCard),
+      bankDocument: getFile("bankDocument", user.bankDocument),
+      ownerPhoto: getFile("ownerPhoto", user.ownerPhoto),
+      shopAddressProof: getFile("shopAddressProof", user.shopAddressProof),
+      officeAddressProof: getFile(
+        "officeAddressProof",
+        user.officeAddressProof
+      ),
+      boardResolution: getFile("boardResolution", user.boardResolution),
+
+      // arrays
+      shopPhoto: newShopPhotos,
+      directorKycFiles: newDirectorKyc,
+    };
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Documents updated successfully",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Document update error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Try again later",
+    });
+  }
+};
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
@@ -1983,4 +2038,5 @@ module.exports = {
   updateProgress,
   getLoginHistory,
   verifyEmail7Unique,
+  updateUserDocs,
 };
