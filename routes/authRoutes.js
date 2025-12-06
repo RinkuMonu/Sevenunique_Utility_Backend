@@ -20,11 +20,11 @@ const {
   updateCredential,
   updateProgress,
   getLoginHistory,
+  updateUserDocs,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
 const upload = require("../utils/uplods.js");
-
 
 const multerErrorHandler = (err, req, res, next) => {
   if (err.code === "LIMIT_FILE_SIZE") {
@@ -47,8 +47,6 @@ const multerErrorHandler = (err, req, res, next) => {
   });
 };
 
-
-
 router.post("/send-otp", sendOtpController);
 router.post("/verify-otp", verifyOTPController);
 router.post(
@@ -67,6 +65,24 @@ router.post(
   ]),
   multerErrorHandler,
   registerUser
+);
+router.put(
+  "/update-docs/:id",
+  upload.fields([
+    { name: "shopPhoto", maxCount: 6 },
+    { name: "ownerPhoto", maxCount: 1 },
+    { name: "shopAddressProof", maxCount: 1 },
+    { name: "officeAddressProof", maxCount: 1 },
+    { name: "directorKycFiles", maxCount: 4 },
+    { name: "boardResolution", maxCount: 1 },
+    { name: "aadhaarFront", maxCount: 1 },
+    { name: "aadhaarBack", maxCount: 1 },
+    { name: "panCard", maxCount: 1 },
+    { name: "bankDocument", maxCount: 1 },
+  ]),
+  multerErrorHandler,
+  authenticateToken,
+  updateUserDocs
 );
 
 router.post("/login", loginController);
