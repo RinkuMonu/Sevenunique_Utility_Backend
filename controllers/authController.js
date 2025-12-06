@@ -299,6 +299,9 @@ const verifyOTPController = async (req, res) => {
       if (user.panDetails && Object.keys(user.panDetails).length > 0)
         nextStep = outerRegister ? 7 : 6;
     }
+    const token = user
+      ? generateJwtToken(user._id, user.role, user.mobileNumber)
+      : null;
 
     // ✅ Success
     return res.status(200).json({
@@ -307,6 +310,8 @@ const verifyOTPController = async (req, res) => {
       userId: user ? user._id : null,
       nextStep,
       isExistingUser: !!user,
+      token: token ? token : null,
+      role: user ? user.role : null,
     });
   } catch (error) {
     console.error("❌ Error in verifyOTPController:", error);
@@ -621,8 +626,6 @@ const registerUser = async (req, res) => {
       }
     }
 
-
-    
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
         (file) => `/uploads/${file.filename}`
