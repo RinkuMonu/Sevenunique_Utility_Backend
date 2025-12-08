@@ -244,6 +244,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayIn across all users
     const totalPayInAgg = await payInModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -254,6 +255,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayOut across all users
     const totalPayOutAgg = await payOutModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -265,7 +267,7 @@ exports.getAdminSummary = async (req, res) => {
     const totalPayIn = totalPayInAgg[0]?.totalPayIn || 0;
     const totalPayOut = totalPayOutAgg[0]?.totalPayOut || 0;
 
-    const currentBalance = admin.eWallet || 0; // Admin’s own balance
+    const currentBalance = admin.eWallet || 0;
 
     res.json({
       success: true,
