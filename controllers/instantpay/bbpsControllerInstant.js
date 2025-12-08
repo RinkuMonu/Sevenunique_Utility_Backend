@@ -357,7 +357,7 @@ exports.makePayment = async (req, res, next) => {
         charge: Number(commission.charge || 0),
         netAmount: Number(required),
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0  || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
