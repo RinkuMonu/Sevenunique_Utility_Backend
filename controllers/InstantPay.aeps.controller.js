@@ -296,7 +296,12 @@ exports.mobileChangeValidate = async (req, res) => {
 
 exports.getMerchantList = async (req, res) => {
     try {
-        const { pageNumber, recordsPerPage, outletId, mobile, pan } = req.body;
+        let { pageNumber, recordsPerPage, search } = req.body;
+        const isPAN = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i.test(search);
+        const isMobile = /^[0-9]{10}$/.test(search);
+        const isOutletId = /^[0-9]+$/.test(search) && !isMobile;  
+
+
 
         const requestBody = {
             pagination: {
@@ -304,10 +309,10 @@ exports.getMerchantList = async (req, res) => {
                 recordsPerPage: recordsPerPage || 10,
             },
             filters: {
-                outletId: outletId || 0,
-                mobile: mobile || "",
-                pan: pan || "",
-            },
+                outletId: isOutletId ? Number(search) : 0,
+                mobile: isMobile ? search : "",
+                pan: isPAN ? search.toUpperCase() : "",
+            }
         };
 
         const response = await axios.post(
@@ -325,3 +330,4 @@ exports.getMerchantList = async (req, res) => {
         });
     }
 };
+
