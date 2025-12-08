@@ -408,7 +408,7 @@ exports.cashWithdrawal = async (req, res) => {
         charge: commission.charge + commission.gst + commission.tds,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -1022,7 +1022,7 @@ exports.deposite = async (req, res, next) => {
         charge: commission.charge + commission.gst,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],

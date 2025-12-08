@@ -424,7 +424,7 @@ export const makeTransaction = async (req, res) => {
             charge: commission.charge + commission.gst,
             netAmount: required,
             roles: [
-                { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
                 { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
                 { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
             ],
