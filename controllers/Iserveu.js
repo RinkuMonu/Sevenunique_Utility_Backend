@@ -17,6 +17,7 @@ const Transaction = require("../models/transactionModel");
 const { distributeCommission } = require("../utils/distributerCommission");
 const matmModel = require("../models/matm.model");
 const onboardSendEmail = require("../models/onboardSendEmail");
+const CommissionTransaction = require("../models/CommissionTransaction");
 
 const { AEPS_PASS_KEY, AEPS_CLIENT_ID, AEPS_CLIENT_SECRET, AEPS_ENCR_KEY } =
   process.env;
@@ -319,8 +320,8 @@ exports.aepsCallback = async (req, res) => {
             txnType === "AEPS_CASH_DEPOSIT"
               ? Number(required)
               : Number(commission.charge || 0) +
-                Number(commission.gst || 0) +
-                Number(commission.tds || 0),
+              Number(commission.gst || 0) +
+              Number(commission.tds || 0),
           charge: commission.charge,
           balance_after: updatedUser.eWallet,
           gst: commission.gst,
@@ -368,6 +369,24 @@ exports.aepsCallback = async (req, res) => {
         description: "AEPS Commission",
         session,
       });
+
+      await CommissionTransaction.create([{
+        referenceId: clientRefID,
+        service: service._id,
+        baseAmount: txnAmount,
+        charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+        netAmount: required,
+        roles: [
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+        ],
+        type: "credit",
+        status: "Success",
+        sourceRetailerId: user._id
+      }], { session });
+
+
     }
 
     await session.commitTransaction();
@@ -463,13 +482,13 @@ exports.matmCallback = async (req, res) => {
     const commission = commissions
       ? calculateCommissionFromSlabs(txnAmount, commissions)
       : {
-          retailer: 0,
-          distributor: 0,
-          admin: 0,
-          charge: 0,
-          gst: 0,
-          tds: 0,
-        };
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+        charge: 0,
+        gst: 0,
+        tds: 0,
+      };
 
     if (finalStatus !== "Success") {
       await matmModel.create(
@@ -589,6 +608,22 @@ exports.matmCallback = async (req, res) => {
       description: data.statusDesc || "mATM Cash Withdrawal Commission",
       session,
     });
+
+    await CommissionTransaction.create([{
+      referenceId: data.clientRefID,
+      service: service._id,
+      baseAmount: txnAmount,
+      charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+      netAmount: required,
+      roles: [
+        { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+        { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+        { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+      ],
+      type: "credit",
+      status: "Success",
+      sourceRetailerId: userId
+    }], { session });
 
     await session.commitTransaction();
     return res.json({ status: 1, message: "Cash Withdrawal Success" });
@@ -1200,9 +1235,8 @@ exports.updateIsOnBoardStatus = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `User successfully ${
-        isOnBoard ? "onboarded" : "deactivated from onboarding"
-      }`,
+      message: `User successfully ${isOnBoard ? "onboarded" : "deactivated from onboarding"
+        }`,
       user: updatedUser,
     });
   } catch (error) {
