@@ -1389,8 +1389,10 @@ const getDashboardStats = async (req, res, next) => {
         totalAepsTxns,
         totalDmtTxns,
         totalBbpsTxns,
+
         totalPayouts,
         totalPayIn,
+
         totalWalletBalance,
         todayPayins,
         todayPayouts,
@@ -1409,9 +1411,11 @@ const getDashboardStats = async (req, res, next) => {
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
         PayOut.aggregate([
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PayIn.aggregate([
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         User.aggregate([
@@ -1420,7 +1424,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startOfToday },status:"Success" } },
           {
             $facet: {
               byType: [
