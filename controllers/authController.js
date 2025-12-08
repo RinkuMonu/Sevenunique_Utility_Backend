@@ -898,7 +898,6 @@ const getUsersWithFilters = async (req, res) => {
       district,
       distributorId,
     } = req.query;
-    // console.log("query...", req.query);
 
     const andConditions = [];
     if (state) {
@@ -969,6 +968,7 @@ const getUsersWithFilters = async (req, res) => {
     const skip = (page - 1) * limit;
 
     let users = await User.find(filter)
+      .select("-mpin")
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));

@@ -758,6 +758,7 @@ exports.getOnboardingList = async (req, res) => {
     if (search.trim() !== "") {
       match.$or = [
         { "formData.bcagentname": { $regex: search, $options: "i" } },
+        { "formData.lastname": { $regex: search, $options: "i" } },
         { "formData.email": { $regex: search, $options: "i" } },
         { "formData.bcagentid": { $regex: search, $options: "i" } },
       ];
