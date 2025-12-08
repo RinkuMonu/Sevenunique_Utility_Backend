@@ -307,8 +307,8 @@ const userVerify = async (req, res) => {
 };
 
 const updateBankAccount = async (req, res) => {
-  const { id_number, ifsc } = req.body;
-  console.log("🔄 Updating Bank Account:", id_number, ifsc);
+  const { id_number, ifsc, userId } = req.body;
+  console.log("🔄 Updating Bank Account:", req.body);
 
   if (!id_number || !ifsc) {
     return res.status(400).json({
@@ -317,7 +317,7 @@ const updateBankAccount = async (req, res) => {
     });
   }
 
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(userId);
   if (!user)
     return res.status(404).json({ success: false, message: "User not found" });
 
@@ -369,27 +369,27 @@ const updateBankAccount = async (req, res) => {
     const nameFromBank = bankData.account_name || "";
     const normalizedBankName = normalizeName(nameFromBank);
 
-    if (
-      normalizedAadharName === normalizedBankName &&
-      normalizedPanName === normalizedBankName
-    ) {
-      user.bankDetails = bankData;
-      await user.save();
+    // if (
+    //   normalizedAadharName === normalizedBankName &&
+    //   normalizedPanName === normalizedBankName
+    // ) {
+    user.bankDetails = bankData;
+    await user.save();
 
-      return res.status(200).json({
-        success: true,
-        message: "Bank details updated successfully",
-        bankDetails: bankData,
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: "Bank name mismatch with Aadhaar & PAN",
-      aadharName: user?.aadharDetails?.data?.full_name,
-      panName: user?.panDetails?.full_name,
-      bankName: nameFromBank,
+    return res.status(200).json({
+      success: true,
+      message: "Bank details updated successfully",
+      bankDetails: bankData,
     });
+    // }
+
+    // return res.status(400).json({
+    //   success: false,
+    //   message: "Bank name mismatch with Aadhaar & PAN",
+    //   aadharName: user?.aadharDetails?.data?.full_name,
+    //   panName: user?.panDetails?.full_name,
+    //   bankName: nameFromBank,
+    // });
   } catch (error) {
     console.error(
       "Error updating bank account:",
