@@ -169,5 +169,15 @@ router.post(
   authenticateToken,
   busController.cancelTicket
 );
+router.post(
+  "/generate-url",
+  // authenticateToken,
+  busController.busbookingDirectUrl
+);
+router.post(
+  "/callback",
+  // authenticateToken,
+  busController.busbookingDirectUrlCallback
+);
 
 module.exports = router;

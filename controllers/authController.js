@@ -1424,7 +1424,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday },status:"Success" } },
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           {
             $facet: {
               byType: [
