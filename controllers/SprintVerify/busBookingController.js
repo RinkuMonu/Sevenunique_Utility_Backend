@@ -18,6 +18,11 @@ function getPaysprintHeaders() {
   };
 }
 
+
+
+
+
+
 const generateReferenceId = () => {
   const timestamp = Date.now().toString(36); // Short base36 timestamp
   const randomStr = Math.random().toString(36).substring(2, 8); // Random string
@@ -571,6 +576,112 @@ const paysprintCallback = async (req, res) => {
   }
 };
 
+///*********** */
+// routes/bus.js
+// POST /api/bus/generate-url
+const busbookingDirectUrl = async (req, res) => {
+  try {
+    const refid = "PS" + Date.now();
+
+    if (!refid) {
+      return res.status(400).json({
+        success: false,
+        message: "refid is required",
+      });
+    }
+    const token = generatePaysprintJWT()
+    console.log("generatePaysprintJWT>>>>>>", token)
+
+    const PAYSPRINT_GENERATE_URL =
+      "https://sit.paysprint.in/service-api/api/v1/service/bus/generateurl";
+
+    const redirect_url = "https://server.finuniques.in/api/v1/s3/callback";
+    // const redirect_url = "https://vmm9pgj8-8080.inc1.devtunnels.ms/api/v1/s3/callback";
+
+    const psResponse = await axios.post(
+      PAYSPRINT_GENERATE_URL,
+      {
+        refid,
+        redirect_url,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          Token: token,
+        },
+      }
+    );
+
+    // assume response.data me encdata & url hai
+    console.log("Paysprint Response:", psResponse.data);
+    const { encdata, url } = psResponse.data || {};
+
+    if (!encdata || !url) {
+      return res.status(500).json({
+        success: false,
+        message: "Invalid response from Paysprint",
+        data: psResponse.data,
+      });
+    }
+
+    // Frontend ko bhej do
+    return res.json({
+      success: true,
+      encdata,
+      url,
+      refid: refid
+
+    });
+  } catch (err) {
+    console.error("Error in generate-url:", err.response?.data || err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate bus url",
+      error: err.response?.data || err.message,
+    });
+  }
+}
+
+// routes/bus.js me hi
+const jwt = require("jsonwebtoken");
+
+// POST /api/bus/callback
+const busbookingDirectUrlCallback = async (req, res) => {
+  try {
+    const encryptedData = req.body.data;
+
+    if (!encryptedData) {
+      return res.status(400).json({ success: false, message: "No data received" });
+    }
+
+    console.log("Encrypted Callback Data:", encryptedData);
+
+    const secretKey = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
+    const actualSecret = Buffer.from(secretKey, "base64").toString("utf8");
+
+    // Decrypt JWT sent by Paysprint
+    const decrypted = jwt.verify(encryptedData, actualSecret);
+
+    console.log("Decrypted Callback:", decrypted);
+
+    // Store decrypted data in DB if required...
+
+    return res.json({ success: true, data: decrypted });
+  } catch (err) {
+    console.error("Callback Error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to decrypt callback data",
+      error: err.message,
+    });
+  }
+}
+
+
+
+
+
 // Helper function to get userId from refid (dummy logic, modify as per your system)
 async function getUserIdFromRefid(refid) {
   const booking = await bbpsModel.findOne({ transactionId: refid });
@@ -590,4 +701,6 @@ module.exports = {
   getCancellationData,
   cancelTicket,
   paysprintCallback,
+  busbookingDirectUrl,
+  busbookingDirectUrlCallback
 };
