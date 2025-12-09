@@ -11,6 +11,7 @@ function generatePaysprintJWT() {
     // partnerId: 'PS001792',
     partnerId: "PS006226",
     reqid: requestId,
+    product: "BUS"
   };
   const token = jwt.sign(payload, jwtKey, {
     algorithm: "HS256",
