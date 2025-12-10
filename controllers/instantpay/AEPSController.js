@@ -20,9 +20,9 @@ const instantpay = axios.create({
   // timeout: 20000,
   headers: {
     "Content-Type": "application/json",
-    "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
-    "X-Ipay-Auth-Code": "1",
+    "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
+    "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
+    "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
@@ -58,7 +58,7 @@ function normalizePayloadForPayment(body) {
   };
 }
 
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey = process.env.INSTANTPAY_AES_KEY
 // Helper function (normal bana do)
 async function parsePidXML(pidXml) {
   return new Promise((resolve, reject) => {
@@ -179,7 +179,7 @@ exports.outletLogin = async (req, res, next) => {
     if (!pidData) throw createError(400, "Missing pidData");
 
     // Aadhaar encrypt
-    // const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    // const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
 
     // Parse PID XML to biometricData object
     const biometricParsed = await parsePidXML(pidData);
@@ -254,7 +254,7 @@ exports.cashWithdrawal = async (req, res) => {
 
     const externalRef = `ACW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
 
     const required = Number(amount) - Number(commission.charge || 0) - Number(commission.tds || 0) - Number(commission.gst || 0) + Number(commission.retailer || 0);
 
@@ -468,7 +468,7 @@ exports.balanceEnquiry = async (req, res, next) => {
     }
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
     const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
     const payload = {
@@ -673,7 +673,7 @@ exports.miniStatement = async (req, res, next) => {
 
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
     const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const payload = {
       type: "DAILY_LOGIN",
@@ -879,7 +879,7 @@ exports.deposite = async (req, res, next) => {
     }
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,

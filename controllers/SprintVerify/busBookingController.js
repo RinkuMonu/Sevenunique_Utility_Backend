@@ -1,3 +1,4 @@
+require("dotenv").config();
 const axios = require("axios");
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate");
 const { startSession } = require("mongoose");
@@ -14,7 +15,7 @@ function getPaysprintHeaders() {
   return {
     Token: generatePaysprintJWT(),
     // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
-    Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+    Authorisedkey: process.env.PAYSPRINT_AUTH_KEY,
   };
 }
 
@@ -684,7 +685,7 @@ const busbookingDirectUrlCallback = async (req, res) => {
 
     console.log("Encrypted Callback Data:", encryptedData);
 
-    const secretKey = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
+    const secretKey = process.env.PAYSPRINT_JWT_SECRET;
     const actualSecret = Buffer.from(secretKey, "base64").toString("utf8");
 
     // Decrypt JWT sent by Paysprint

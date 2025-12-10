@@ -1,3 +1,4 @@
+require("dotenv").config();
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
@@ -22,17 +23,17 @@ const { promises } = require("dns");
 
 const headers = {
   Token: generatePaysprintJWT(),
-  Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+  Authorisedkey: process.env.PAYSPRINT_AUTH_KEY,
 };
 
 const BASE_URL =
   "https://sit.paysprint.in/service-api/api/v1/service/onboard/onboardnew/getonboardurl";
-const JWT_SECRET = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
+const JWT_SECRET = process.env.PAYSPRINT_JWT_SECRET;
 
-const AES_KEY = "557aefe5593170ad"; // Must be 16 characters
-const AES_IV = "7c4851aad3e91b9c"; // Must be 16 characters
+const AES_KEY = process.env.PAYSPRINT_AES_KEY; 
+const AES_IV = process.env.PAYSPRINT_AES_IV; 
 
-const WADH = "18f4CEiXeXcfGXvgWA/blxD+w2pw7hfQPY45JMytkPw=";
+const WADH = process.env.PAYSPRINT_WADH;
 
 const decryptJWT = (token, secretKey) => {
   try {
