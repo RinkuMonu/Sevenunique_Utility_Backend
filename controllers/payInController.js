@@ -1,3 +1,4 @@
+require("dotenv").config();
 const crypto = require("crypto");
 const qs = require("qs");
 const User = require("../models/userModel.js");
@@ -11,8 +12,8 @@ const servicesModal = require("../models/servicesModal.js");
 const { logApiCall } = require("../utils/chargeCaluate.js");
 
 
-const merchant_identifier = "8d3d1d6757f7438cbee31d2489604b27" || "b19e8f103bce406cbd3476431b6b7973"
-const secretKey = "1f610c38b36547b1b73fc4445b6ee078" || "0678056d96914a8583fb518caf42828a";
+const merchant_identifier = process.env.ZAAKPAY_MERCHANT_CODE || "b19e8f103bce406cbd3476431b6b7973"
+const secretKey = process.env.ZAAKPAY_SECRET_KEY || "0678056d96914a8583fb518caf42828a";
 
 
 function generateZaakpayChecksum(params, secretKey) {

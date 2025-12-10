@@ -14,7 +14,7 @@ const CommissionTransaction = require("../../models/CommissionTransaction.js");
 function getPaysprintHeaders() {
   return {
     Token: generatePaysprintJWT(),
-    Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=" // apna actual key
+    Authorisedkey:  process.env.PAYSPRINT_AUTH_KEY_P
   };
 }
 

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import generatePaysprintJWT from "../../services/Dmt&Aeps/TokenGenrate.js";
@@ -10,8 +11,7 @@ function getPaysprintHeaders() {
     Authorization: `Bearer ${jwtToken}`,
     Token: `${jwtToken}`,
     "Content-Type": "application/json",
-    // authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
-    authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+    authorisedkey:  process.env.PAYSPRINT_AUTH_KEY,
   };
 }
 
@@ -20,7 +20,7 @@ export const creditCard = async (req, res) => {
   console.log("Generated JWT headers:", headers);
   try {
     const refid = uuidv4();
-    const merchantcode = "SEVEN0001";
+    const merchantcode = process.env.PAYSPRINT_MERCHANT_CODE;
     const data = {
       refid,
       merchantcode,
