@@ -6,7 +6,7 @@ require("dotenv").config();
 function generateToken() {
   const token = jwt.sign(
     {},
-    "18fc02b675bfa38fbb3350b18e0fc45cf3740bd3be6104e4d310188943d09535",
+    process.env.SEVEN_AUTH_KEY,
     {
       algorithm: "HS256",
     }
@@ -28,7 +28,7 @@ const aadhaarVerify = async (req, res, next) => {
       { id_number },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
           "Content-Type": "application/json",
@@ -66,7 +66,7 @@ const submitAadharOTP = async (req, res) => {
       requestData,
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -134,7 +134,7 @@ const verifyBank = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -182,7 +182,7 @@ const verifyPAN = async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${generateToken()}`,
-          "Client-id": "Seven012",
+          "Client-id": process.env.SEVEN_CLIENT_ID,
           "x-env": "production",
         },
       }
@@ -336,7 +336,7 @@ const updateBankAccount = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },

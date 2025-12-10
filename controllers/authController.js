@@ -1,3 +1,4 @@
+require("dotenv").config();
 const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
 const { generateOtp, verifyOtp } = require("../services/otpService");

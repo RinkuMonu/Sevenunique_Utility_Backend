@@ -65,7 +65,7 @@ function buildHeaders({ withOutlet = false } = {}) {
     "Content-Type": "application/json",
     "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE || "1",
     "X-Ipay-Client-Id": process.env.IPAY_CLIENT_ID,
-    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+    "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
     "X-Ipay-Endpoint-Ip": process.env.IPAY_ENDPOINT_IP,
   };
   if (withOutlet) headers["X-Ipay-Outlet-Id"] = process.env.IPAY_OUTLET_ID;

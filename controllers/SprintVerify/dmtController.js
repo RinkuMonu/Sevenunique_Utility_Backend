@@ -1,5 +1,5 @@
-const axios = require('axios');
 require("dotenv").config();
+const axios = require('axios');
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate");
 const { encryptPidData } = require('../../services/jwtService');
 const crypto = require('crypto');
@@ -23,8 +23,8 @@ const CommissionTransaction = require('../../models/CommissionTransaction.js');
 function getPaysprintHeaders() {
     return {
         'Token': generatePaysprintJWT(),
-        Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
-        // Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE="
+        // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
+     Authorisedkey: process.env.PAYSPRINT_AUTH_KEY
     };
 }
 
