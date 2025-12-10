@@ -580,6 +580,27 @@ const paysprintCallback = async (req, res) => {
 ///*********** */
 // routes/bus.js
 // POST /api/bus/generate-url
+function generatePaysprintJWTDirect() {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const secretKey = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
+  const payload = {
+    timestamp: timestamp,
+    partnerId: "PS006226",
+    reqid: timestamp,
+    product: "BUS"
+  };
+  return jwt.sign(payload, secretKey, { algorithm: "HS256" });
+}
+function getPaysprintHeadersDirect() {
+  return {
+    Token: generatePaysprintJWTDirect(),
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+  };
+}
+
+
 const busbookingDirectUrl = async (req, res) => {
   try {
     const refid = "PS" + Date.now();
@@ -590,8 +611,10 @@ const busbookingDirectUrl = async (req, res) => {
         message: "refid is required",
       });
     }
-    const token = generatePaysprintJWT()
-    console.log("generatePaysprintJWT>>>>>>", token)
+    console.log(refid)
+    const headers = getPaysprintHeadersDirect()
+    console.log("generatePaysprintJWT>>>>>>", headers)
+    // return;
 
     const PAYSPRINT_GENERATE_URL =
       "https://sit.paysprint.in/service-api/api/v1/service/bus/generateurl";
@@ -606,22 +629,27 @@ const busbookingDirectUrl = async (req, res) => {
         redirect_url,
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-          accept: "application/json",
-          Token: token,
-        },
+        headers: headers,
       }
     );
 
+
     // assume response.data me encdata & url hai
     console.log("Paysprint Response:", psResponse.data);
-    const { encdata, url } = psResponse.data || {};
+    const lastres = psResponse.data || {};
+    logApiCall({
+      url: "/v1/s3/generate-url",
+      requestData: {
+        refid,
+        redirect_url,
+      },
+      responseData: lastres,
+    });
 
-    if (!encdata || !url) {
-      return res.status(500).json({
+    if (!(lastres.status === true && lastres.response_code === 1)) {
+      return res.status(403).json({
         success: false,
-        message: "Invalid response from Paysprint",
+        message: "Invalid response from Service's",
         data: psResponse.data,
       });
     }
@@ -629,13 +657,12 @@ const busbookingDirectUrl = async (req, res) => {
     // Frontend ko bhej do
     return res.json({
       success: true,
-      encdata,
-      url,
-      refid: refid
-
+      data: lastres ? lastres.data : null,
+      refid: refid,
+      message: lastres ? lastres.message : "Data Successfully Generated"
     });
   } catch (err) {
-    console.error("Error in generate-url:", err.response?.data || err.message);
+    console.error("Error in generate-url:", err.response);
     return res.status(500).json({
       success: false,
       message: "Failed to generate bus url",
