@@ -18,13 +18,13 @@ const CommissionTransaction = require('../../models/CommissionTransaction.js');
 
 // const headers = {
 //     'Token': generatePaysprintJWT(),
-//     'Authorisedkey': 'MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=',
+    //  Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_p
+
 // }
 function getPaysprintHeaders() {
     return {
         'Token': generatePaysprintJWT(),
-        // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
-     Authorisedkey: process.env.PAYSPRINT_AUTH_KEY
+     Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_p
     };
 }
 
