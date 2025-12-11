@@ -678,6 +678,7 @@ const jwt = require("jsonwebtoken");
 // POST /api/bus/callback
 const busbookingDirectUrlCallback = async (req, res) => {
   try {
+    console.log("bus booking response", req)
     const encryptedData = req.body.data;
 
     if (!encryptedData) {
