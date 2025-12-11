@@ -582,10 +582,10 @@ const paysprintCallback = async (req, res) => {
 // POST /api/bus/generate-url
 function generatePaysprintJWTDirect() {
   const timestamp = Math.floor(Date.now() / 1000);
-  const secretKey = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
+  const secretKey = process.env.PAYSPRINT_JWT_SECRET_P;
   const payload = {
     timestamp: timestamp,
-    partnerId: "PS006226",
+    partnerId: process.env.PAYSPRINT_PARTNER_ID,
     reqid: timestamp,
     product: "BUS"
   };
@@ -596,14 +596,15 @@ function getPaysprintHeadersDirect() {
     Token: generatePaysprintJWTDirect(),
     "Content-Type": "application/json",
     Accept: "application/json",
-    Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+    Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P,
   };
 }
 
 
 const busbookingDirectUrl = async (req, res) => {
   try {
-    const refid = "PS" + Date.now();
+    const refid = `TB${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+
 
     if (!refid) {
       return res.status(400).json({
@@ -617,7 +618,7 @@ const busbookingDirectUrl = async (req, res) => {
     // return;
 
     const PAYSPRINT_GENERATE_URL =
-      "https://sit.paysprint.in/service-api/api/v1/service/bus/generateurl";
+      "https://api.paysprint.in/api/v1/service/bus/generateurl";
 
     const redirect_url = "https://server.finuniques.in/api/v1/s3/callback";
     // const redirect_url = "https://vmm9pgj8-8080.inc1.devtunnels.ms/api/v1/s3/callback";
@@ -685,7 +686,7 @@ const busbookingDirectUrlCallback = async (req, res) => {
 
     console.log("Encrypted Callback Data:", encryptedData);
 
-    const secretKey = process.env.PAYSPRINT_JWT_SECRET;
+    const secretKey = process.env.PAYSPRINT_JWT_SECRET_P;
     const actualSecret = Buffer.from(secretKey, "base64").toString("utf8");
 
     // Decrypt JWT sent by Paysprint
