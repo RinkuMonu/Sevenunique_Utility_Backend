@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], // ✅ Array of strings now
+      type: [String], 
       trim: true,
     },
 
