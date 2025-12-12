@@ -270,9 +270,11 @@ exports.makePayment = async (req, res, next) => {
     }
 
     // ✅ Deduct wallet
-    user.eWallet -= required;
-    await user.save({ session });
-
+    const updateUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: -required } },
+      { new: true, session }
+    );
     // ✅ Create debit transaction
     const [debitTxn] = await Transaction.create([{
       user_id: userId,
@@ -284,7 +286,7 @@ exports.makePayment = async (req, res, next) => {
       charge: Number(commission.charge || 0),
       totalDebit: Number(required),
       totalCredit: Number(commission.retailer || 0),
-      balance_after: user.eWallet,
+      balance_after: updateUser.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
@@ -357,7 +359,7 @@ exports.makePayment = async (req, res, next) => {
         charge: Number(commission.charge || 0),
         netAmount: Number(required),
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0  || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -378,8 +380,12 @@ exports.makePayment = async (req, res, next) => {
       });
     } else if (statusUpdate === "Failed") {
       // ✅ Refund wallet if failed
-      user.eWallet += required;
-      await user.save({ session });
+      await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { session }
+      );
+
     }
 
     // ✅ Update BBPS & Transaction reports
