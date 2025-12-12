@@ -17,7 +17,7 @@ const secretKey = process.env.ZAAKPAY_SECRET_KEY || "0678056d96914a8583fb518caf4
 
 
 function generateZaakpayChecksum(dataObject, secretKey) {
-  // Zaakpay requires checksum on full JSON string
+
   const dataString = JSON.stringify(dataObject);
 
   console.log("🔥 Checksum Raw String:", dataString);
@@ -569,7 +569,9 @@ exports.generatePayment = async (req, res, next) => {
 exports.callbackPayIn = async (req, res) => {
   try {
 
-    const data = req.body;
+    const txnData = JSON.parse(req.body.txnData);
+    const data = txnData.txns[0];
+    console.log("callback data", data);
     logApiCall({ url: "/callback", requestData: "", responseData: data });
     const responseCode = data?.responseCode?.toString();
     const isSuccess = responseCode === "100";
@@ -620,7 +622,7 @@ exports.callbackPayIn = async (req, res) => {
           payment_mode: data?.paymentMode,
           description: data?.responseDescription,
           updatedAt: new Date(),
-          meta: data
+          "meta.apiResponse": data
         },
       },
       { new: true }
