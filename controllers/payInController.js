@@ -574,7 +574,7 @@ exports.callbackPayIn = async (req, res) => {
     console.log("callback data", data);
     logApiCall({ url: "/callback", requestData: "", responseData: data });
     const responseCode = data?.responseCode?.toString();
-    const isSuccess = responseCode === "100";
+    const isSuccess = responseCode == "100";
 
     // 🧾 Update PayIn record
     const payIn = await PayIn.findOneAndUpdate(
