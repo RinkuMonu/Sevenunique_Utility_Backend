@@ -23,8 +23,10 @@ const { default: router } = require("./routes/instantpayPpiRoutes.js");
 
 const bannerRoutes = require("./routes/bannerRoutes.js");
 const panroute = require("./routes/pan.routes.js");
+// const redisRateLimit = require("./middleware/ratelimiter.js");
 const app = express();
 planCheckCronJob();
+
 
 const allowedOrigins = [
   "http://localhost:3000",
@@ -40,6 +42,8 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
 );
+
+// app.use(redisRateLimit)
 
 app.use(bodyParser.json());
 app.use("/uploads", express.static("/var/www/uploads"));

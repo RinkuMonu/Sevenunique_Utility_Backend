@@ -96,24 +96,24 @@ const getDeviceName = (userAgent = "") => {
   browser = ua.includes("Chrome")
     ? "Chrome"
     : ua.includes("Firefox")
-    ? "Firefox"
-    : ua.includes("Safari") && !ua.includes("Chrome")
-    ? "Safari"
-    : ua.includes("Edg")
-    ? "Edge"
-    : "Unknown Browser";
+      ? "Firefox"
+      : ua.includes("Safari") && !ua.includes("Chrome")
+        ? "Safari"
+        : ua.includes("Edg")
+          ? "Edge"
+          : "Unknown Browser";
 
   // Detect OS
   let os = "Unknown OS/device";
   os = ua.includes("Windows")
     ? "Windows"
     : ua.includes("Android")
-    ? "Android"
-    : ua.includes("iPhone")
-    ? "iPhone"
-    : ua.includes("Mac")
-    ? "MacOS"
-    : "Unknown OS";
+      ? "Android"
+      : ua.includes("iPhone")
+        ? "iPhone"
+        : ua.includes("Mac")
+          ? "MacOS"
+          : "Unknown OS";
 
   return `${browser} on ${os}`;
 };
@@ -1196,6 +1196,7 @@ const updateUserDetails = async (req, res) => {
       callbackUrl,
     } = req.body;
 
+
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
     }
@@ -1215,7 +1216,7 @@ const updateUserDetails = async (req, res) => {
     if (password) user.password = password;
     if (mpin) user.mpin = mpin;
     if (outletId) user.outletId = outletId;
-    if (callbackUrl) user.callbackUrl = callbackUrl;
+    if (callbackUrl || callbackUrl == "") user.callbackUrl = callbackUrl;
 
     await user.save();
     return res.status(200).json({
