@@ -346,7 +346,7 @@ exports.generatePayment = async (req, res, next) => {
       mode: "0",
       returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback",
       orderDetail: {
-        orderId: referenceId,
+        orderId: reference || referenceId,
         amount: (amount * 100).toString(),
         currency: "INR",
         productDescription: "Wallet Topup",
