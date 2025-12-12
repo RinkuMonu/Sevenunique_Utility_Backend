@@ -16,25 +16,22 @@ const merchant_identifier = process.env.ZAAKPAY_MERCHANT_CODE || "b19e8f103bce40
 const secretKey = process.env.ZAAKPAY_SECRET_KEY || "0678056d96914a8583fb518caf42828a";
 
 
-function generateZaakpayChecksum(params, secretKey) {
-  // 1️⃣ Filter out null, undefined, or empty values
-  const filteredParams = Object.keys(params)
-    .filter((key) => params[key] !== null && params[key] !== undefined && params[key] !== "")
-    .sort() // 2️⃣ Sort alphabetically
-    .map((key) => `${key}=${params[key]}`) // 3️⃣ Combine key=value
-    .join("&") + "&"; // 4️⃣ Append & at end
+function generateZaakpayChecksum(dataObject, secretKey) {
+  // Zaakpay requires checksum on full JSON string
+  const dataString = JSON.stringify(dataObject);
 
-  console.log("✅ String used for checksum:", filteredParams);
+  console.log("🔥 Checksum Raw String:", dataString);
 
-  // 5️⃣ Generate HMAC SHA256
   const checksum = crypto
     .createHmac("sha256", secretKey)
-    .update(filteredParams)
+    .update(dataString)
     .digest("hex");
 
-  console.log("✅ Generated Checksum:", checksum);
+  console.log("🔥 Generated Checksum:", checksum);
+
   return checksum;
 }
+
 
 
 
@@ -344,21 +341,37 @@ exports.generatePayment = async (req, res, next) => {
 
     // 🔹 Prepare Zaakpay payload
     const payload = {
-      amount: (amount * 100).toString(),
-      buyerEmail: email,
-      currency: "INR",
       merchantIdentifier: merchant_identifier,
-      orderId: reference || referenceId,
-      returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
-      // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
+      showMobile: "true",
+      mode: "0",
+      returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback",
+      orderDetail: {
+        orderId: referenceId,
+        amount: (amount * 100).toString(),
+        currency: "INR",
+        productDescription: "Wallet Topup",
+        email: email,
+      },
+      paymentInstrument: {
+        paymentMode: "UPIAPP",
+        netbanking: { bankid: "" }
+      }
     };
+
     const checksum = generateZaakpayChecksum(payload, secretKey);
 
-    const payload2 = {
-      ...payload,
-      checksum,
-    };
-    // return
+    // Final request
+    const response = await axios.post(
+      "https://api.zaakpay.com/transactU?v=8",
+      qs.stringify({
+        data: JSON.stringify(payload),
+        checksum: checksum
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
+
+
+    console.log(response.data);
     payIn.remark = "Redirect to Zaakpay for payment";
     transaction.description = "Redirect to Zaakpay for payment";
 
@@ -369,13 +382,13 @@ exports.generatePayment = async (req, res, next) => {
     await session.commitTransaction();
     transactionCompleted = true;
 
-    logApiCall({ url: "/payin", requestData: { payload2 }, responseData: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}` });
+    logApiCall({ url: "/payin", requestData: { payload }, responseData: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload)}` });
     return res.status(200).json({
       success: true,
       message: "PayIn initiated. Redirect user to complete payment.",
       data: {
-        redirectURL: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`,
-      },
+        redirectURL: response.data.bankPostData.androidIntentUrl
+      }
     });
   } catch (error) {
     if (!transactionCompleted) {
