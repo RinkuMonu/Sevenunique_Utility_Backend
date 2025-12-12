@@ -576,6 +576,14 @@ exports.callbackPayIn = async (req, res) => {
     const responseCode = data?.responseCode?.toString();
     const isSuccess = responseCode == "100";
 
+
+
+    const response = await axios.post("https://instantpayco.com/api/bbpszackpaypayin", data, {
+      headers: { "Content-Type": "application/json" }
+    });
+    console.log("Callback sent to merchant successfully");
+
+
     // 🧾 Update PayIn record
     const payIn = await PayIn.findOneAndUpdate(
       { reference: data?.orderId },
