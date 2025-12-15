@@ -636,10 +636,11 @@ exports.callbackPayIn = async (req, res) => {
 
 
 
-    const response = await axios.post("https://instantpayco.com/api/bbpszackpaypayin", data, {
-      headers: { "Content-Type": "application/json" }
-    });
-    console.log("Callback sent to merchant successfully");
+
+    // const response = await axios.post("https://instantpayco.com/api/bbpszackpaypayin", data, {
+    //   headers: { "Content-Type": "application/json" }
+    // });
+    // console.log("Callback sent to merchant successfully");
 
 
     // 🧾 Update PayIn record
@@ -658,6 +659,7 @@ exports.callbackPayIn = async (req, res) => {
       },
       { new: true }
     );
+    console.log("payIn found", payIn);
 
     if (!payIn) {
       return res.status(404).send("Invalid callback reference");
