@@ -16,6 +16,8 @@ const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
+const { getISTDayRange } = require("../services/timeZone.js");
+
 
 // utils/getDeviceName.js
 
@@ -1263,8 +1265,7 @@ const updateCredential = async (req, res) => {
 const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 
-const startOfToday = new Date();
-startOfToday.setHours(0, 0, 0, 0);
+
 
 const getDashboardStats = async (req, res, next) => {
   try {
@@ -1280,28 +1281,22 @@ const getDashboardStats = async (req, res, next) => {
         wallet: user.eWallet,
       },
     };
+    const { startUTC, endUTC } = getISTDayRange();
 
     const matchToday = {
-      createdAt: { $gte: startOfToday },
+      createdAt: { $gte: startUTC, $lte: endUTC }
     };
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
       [field]: user.id,
-      createdAt: { $gte: startOfToday },
+      createdAt: { $gte: startUTC, $lte: endUTC }
     });
 
     let todayEarning = 0;
     let todayCharges = 0;
 
     if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      // Today’s start and end
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-
       // Today Earnings
       const earningResult = await CommissionTransaction.aggregate([
         { $unwind: "$roles" },
@@ -1310,7 +1305,7 @@ const getDashboardStats = async (req, res, next) => {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
+            createdAt: { $gte: startUTC, $lte: endUTC },
           },
         },
         {
@@ -1331,7 +1326,7 @@ const getDashboardStats = async (req, res, next) => {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
+            createdAt: { $gte: startUTC, $lte: endUTC },
           },
         },
         {
@@ -1413,11 +1408,11 @@ const getDashboardStats = async (req, res, next) => {
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
         PayOut.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PayIn.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         User.aggregate([
@@ -1426,7 +1421,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1524,7 +1519,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC } } },
           {
             $facet: {
               byType: [
@@ -1610,7 +1605,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC } } },
           {
             $facet: {
               byType: [

@@ -113,7 +113,7 @@ router.put(
 router.get(
   "/dashboard",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin", "Sales"),
   getDashboardStats
 );
 router.get(
