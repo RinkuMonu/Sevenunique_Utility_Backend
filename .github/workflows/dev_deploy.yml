@@ -1,4 +1,4 @@
-name: Deploy Node.js Backend to CWP Server
+name: Deploy Node.js Backend to CWP Server (DEV)
 
 on:
   push:
@@ -14,36 +14,14 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node.js
+      # 2️⃣ Setup Node.js (only for lint/build if needed)
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (skip uploads & node_modules)
-      - name: 📦 Compress Backend Code
-        run: |
-          echo "🧳 Compressing backend files safely..."
-          tar --exclude='./uploads' \
-              --exclude='./storage' \
-              --exclude='./node_modules' \
-              --exclude='.DS_Store' \
-              --exclude='.git' \
-              -czvf backend.tar.gz . 2> /dev/null || true
-
-      # 4️⃣ Upload to Server
-      - name: 🚀 Upload to Server via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          source: "backend.tar.gz"
-          target: "/home/devserve/"
-
-      # 5️⃣ SSH Deploy, Install, Restart
-      - name: 🔐 SSH Deploy & Restart via PM2
+      # 3️⃣ Deploy Backend using RSYNC over SSH
+      - name: 🚀 Deploy Backend via rsync
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
@@ -51,39 +29,64 @@ jobs:
           password: ${{ secrets.DEV_SSH_PASSWORD }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            echo "📁 Creating backend folder if missing"
-            mkdir -p /home/devserve/public_html/Bbbps_Backend
+            echo "=============================="
+            echo "🚀 STARTING BACKEND DEPLOYMENT"
+            echo "=============================="
 
-            echo "🔐 Backing up existing .env"
-            if [ -f /home/devserve/public_html/Bbbps_Backend/.env ]; then
-              cp /home/devserve/public_html/Bbbps_Backend/.env /home/devserve/.env_backup
+            APP_DIR="/home/devserve/public_html/Bbbps_Backend"
+            BACKUP_DIR="/home/devserve/backup_backend"
+            TMP_DIR="/home/devserve/tmp_backend"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+            echo "📁 Creating required directories"
+            mkdir -p $APP_DIR
+            mkdir -p $BACKUP_DIR
+            mkdir -p $TMP_DIR
+
+            echo "🛡️ Backup existing backend"
+            if [ "$(ls -A $APP_DIR 2>/dev/null)" ]; then
+              cp -r $APP_DIR $BACKUP_DIR/backup_$TIMESTAMP
             fi
-
-            echo "🛡️ Taking full project backup"
-            timestamp=$(date +%Y%m%d_%H%M%S)
-            mkdir -p /home/devserve/backup_backend
-            cp -r /home/devserve/public_html/Bbbps_Backend /home/devserve/backup_backend/backup_$timestamp
 
             echo "🧹 Cleaning old backups (older than 10 days)"
-            find /home/devserve/backup_backend -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
+            find $BACKUP_DIR -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
-            echo "📦 Extracting new backend files"
-            rm -rf /home/devserve/public_html/Bbbps_Backend/*
-            tar -xzvf /home/devserve/backend.tar.gz -C /home/devserve/public_html/Bbbps_Backend
-            rm /home/devserve/backend.tar.gz
+            echo "📤 Syncing new code to temp directory"
+            rsync -av --delete \
+              --exclude node_modules \
+              --exclude uploads \
+              --exclude storage \
+              --exclude .git \
+              --exclude .github \
+              --exclude "*.log" \
+              --exclude "*.tar.gz" \
+              $GITHUB_WORKSPACE/ \
+              $TMP_DIR/
 
-            echo "♻️ Restoring .env file"
-            if [ -f /home/devserve/.env_backup ]; then
-              mv /home/devserve/.env_backup /home/devserve/public_html/Bbbps_Backend/.env
+            echo "🔐 Preserving existing .env file"
+            if [ -f "$APP_DIR/.env" ]; then
+              cp $APP_DIR/.env /home/devserve/.env_backup
             fi
 
-            echo "📦 Installing dependencies"
-            cd /home/devserve/public_html/Bbbps_Backend
-            npm install --legacy-peer-deps --production
+            echo "🚚 Replacing backend with new code"
+            rm -rf $APP_DIR/*
+            cp -r $TMP_DIR/* $APP_DIR/
+            rm -rf $TMP_DIR
 
-            echo "🚀 Restarting PM2 app"
+            echo "♻️ Restoring .env"
+            if [ -f "/home/devserve/.env_backup" ]; then
+              mv /home/devserve/.env_backup $APP_DIR/.env
+            fi
+
+            echo "📦 Installing production dependencies"
+            cd $APP_DIR
+            npm install --production --legacy-peer-deps
+
+            echo "🚀 Restarting PM2 process"
             pm2 delete Dev_Bbbps_Backend || true
             pm2 start server.js --name "Dev_Bbbps_Backend"
             pm2 save
 
-            echo "✅ Deployment complete!"
+            echo "=============================="
+            echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY"
+            echo "=============================="
