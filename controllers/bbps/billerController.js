@@ -1,3 +1,4 @@
+require("dotenv").config();
 const axios = require("axios");
 const { encrypt, decrypt } = require("../../utils/encryption");
 const crypto = require("crypto");

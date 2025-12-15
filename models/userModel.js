@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], // ✅ Array of strings now
+      type: [String], 
       trim: true,
     },
 
@@ -329,7 +329,7 @@ const userSchema = new mongoose.Schema(
     },
     cappingMoney: {
       type: Number,
-      default: 500,
+      default: 0,
     },
     mainWallet: {
       type: Number,
@@ -380,47 +380,54 @@ userSchema.methods.getEffectivePermissions = async function () {
 
   let perms = new Set();
 
-  // 1️⃣ superAdmin
+  // ✅ 1️⃣ SUPERADMIN → pehle sab permissions lo (but flat return mat karo)
   if (this.role === "superAdmin") {
     const all = await Permission.find({});
-    return all.map((p) => p.key);
-  }
-  if (this.role === "Admin") {
-    const all = await Permission.find({});
-    return all.map((p) => p.key);
+    all.forEach(p => perms.add(p.key));
   }
 
-  // 2️⃣ GET ROLE PERMISSIONS BY ID (CORRECT)
-  // console.log("Role Permissions ID:", this.rolePermissions);
+  // ✅ 2️⃣ ADMIN / RETAILER → Role based permissions
   if (this.rolePermissions) {
-    const rolePermDoc = await PermissionByRole.findById(
-      this.rolePermissions
-    ).populate("permissions", "key");
+    const rolePermDoc = await PermissionByRole
+      .findById(this.rolePermissions)
+      .populate("permissions");
 
     if (rolePermDoc?.permissions?.length) {
-      rolePermDoc.permissions.forEach((p) => perms.add(p.key));
+      rolePermDoc.permissions.forEach(p => perms.add(p.key));
     }
   }
 
-  // 3️⃣ Add extraPermissions
-  // console.log("Extra Permissions IDs:", this.extraPermissions);
+  // ✅ 3️⃣ Extra permissions
   if (this.extraPermissions?.length) {
     const extras = await Permission.find({
       _id: { $in: this.extraPermissions },
     });
-    extras.forEach((p) => perms.add(p.key));
+    extras.forEach(p => perms.add(p.key));
   }
 
-  // 4️⃣ Remove restrictedPermissions
+  // ✅ 4️⃣ Restricted remove
   if (this.restrictedPermissions?.length) {
     const restricted = await Permission.find({
       _id: { $in: this.restrictedPermissions },
     });
-    restricted.forEach((p) => perms.delete(p.key));
+    restricted.forEach(p => perms.delete(p.key));
   }
+
+  // ✅ 5️⃣ AUTO ADD PARENT MENUS (🔥 ye sabse important step hai)
+  const finalKeys = Array.from(perms);
+
+  const childPerms = await Permission.find({
+    key: { $in: finalKeys },
+    parentKey: { $exists: true, $ne: null }
+  });
+
+  childPerms.forEach(p => {
+    if (p.parentKey) perms.add(p.parentKey);
+  });
 
   return Array.from(perms);
 };
+
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);

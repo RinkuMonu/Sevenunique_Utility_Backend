@@ -82,6 +82,11 @@ exports.getWalletTransactions = async (req, res) => {
           transaction_reference_id: 1,
           description: 1,
           createdAt: 1,
+          gst: 1,
+          tds: 1,
+          charge: 1,
+          totalDebit: 1,
+          totalCredit: 1,
         },
       },
       { $sort: { createdAt: -1 } }
@@ -111,6 +116,9 @@ exports.getWalletTransactions = async (req, res) => {
         "transaction_reference_id",
         "description",
         "createdAt",
+        "gst",
+        "tds",
+        "charge",
       ];
       const csv = parse(transactions, { fields });
       res.header("Content-Type", "text/csv");
@@ -236,6 +244,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayIn across all users
     const totalPayInAgg = await payInModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -246,6 +255,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayOut across all users
     const totalPayOutAgg = await payOutModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -257,7 +267,7 @@ exports.getAdminSummary = async (req, res) => {
     const totalPayIn = totalPayInAgg[0]?.totalPayIn || 0;
     const totalPayOut = totalPayOutAgg[0]?.totalPayOut || 0;
 
-    const currentBalance = admin.eWallet || 0; // Admin’s own balance
+    const currentBalance = admin.eWallet || 0;
 
     res.json({
       success: true,

@@ -6,7 +6,7 @@ require("dotenv").config();
 function generateToken() {
   const token = jwt.sign(
     {},
-    "18fc02b675bfa38fbb3350b18e0fc45cf3740bd3be6104e4d310188943d09535",
+    process.env.SEVEN_AUTH_KEY,
     {
       algorithm: "HS256",
     }
@@ -28,7 +28,7 @@ const aadhaarVerify = async (req, res, next) => {
       { id_number },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
           "Content-Type": "application/json",
@@ -66,7 +66,7 @@ const submitAadharOTP = async (req, res) => {
       requestData,
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -134,7 +134,7 @@ const verifyBank = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -182,7 +182,7 @@ const verifyPAN = async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${generateToken()}`,
-          "Client-id": "Seven012",
+          "Client-id": process.env.SEVEN_CLIENT_ID,
           "x-env": "production",
         },
       }
@@ -235,13 +235,13 @@ const userVerify = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send("User not found!");
 
-    const normalizedAadharName = normalizeName(
-      user?.aadharDetails?.data?.full_name || ""
-    );
-    const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
-    const normalizedBankName = normalizeName(
-      user?.bankDetails?.account_name || ""
-    );
+    // const normalizedAadharName = normalizeName(
+    //   user?.aadharDetails?.data?.full_name || ""
+    // );
+    // const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
+    // const normalizedBankName = normalizeName(
+    //   user?.bankDetails?.account_name || ""
+    // );
 
     // if (
     //   normalizedAadharName === normalizedPanName &&
@@ -307,8 +307,8 @@ const userVerify = async (req, res) => {
 };
 
 const updateBankAccount = async (req, res) => {
-  const { id_number, ifsc } = req.body;
-  console.log("🔄 Updating Bank Account:", id_number, ifsc);
+  const { id_number, ifsc, userId } = req.body;
+  console.log("🔄 Updating Bank Account:", req.body);
 
   if (!id_number || !ifsc) {
     return res.status(400).json({
@@ -317,7 +317,7 @@ const updateBankAccount = async (req, res) => {
     });
   }
 
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(userId);
   if (!user)
     return res.status(404).json({ success: false, message: "User not found" });
 
@@ -336,7 +336,7 @@ const updateBankAccount = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -369,27 +369,27 @@ const updateBankAccount = async (req, res) => {
     const nameFromBank = bankData.account_name || "";
     const normalizedBankName = normalizeName(nameFromBank);
 
-    if (
-      normalizedAadharName === normalizedBankName &&
-      normalizedPanName === normalizedBankName
-    ) {
-      user.bankDetails = bankData;
-      await user.save();
+    // if (
+    //   normalizedAadharName === normalizedBankName &&
+    //   normalizedPanName === normalizedBankName
+    // ) {
+    user.bankDetails = bankData;
+    await user.save();
 
-      return res.status(200).json({
-        success: true,
-        message: "Bank details updated successfully",
-        bankDetails: bankData,
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: "Bank name mismatch with Aadhaar & PAN",
-      aadharName: user?.aadharDetails?.data?.full_name,
-      panName: user?.panDetails?.full_name,
-      bankName: nameFromBank,
+    return res.status(200).json({
+      success: true,
+      message: "Bank details updated successfully",
+      bankDetails: bankData,
     });
+    // }
+
+    // return res.status(400).json({
+    //   success: false,
+    //   message: "Bank name mismatch with Aadhaar & PAN",
+    //   aadharName: user?.aadharDetails?.data?.full_name,
+    //   panName: user?.panDetails?.full_name,
+    //   bankName: nameFromBank,
+    // });
   } catch (error) {
     console.error(
       "Error updating bank account:",
