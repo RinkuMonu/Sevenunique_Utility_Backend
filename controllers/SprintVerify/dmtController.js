@@ -1,5 +1,5 @@
-const axios = require('axios');
 require("dotenv").config();
+const axios = require('axios');
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate");
 const { encryptPidData } = require('../../services/jwtService');
 const crypto = require('crypto');
@@ -18,13 +18,13 @@ const CommissionTransaction = require('../../models/CommissionTransaction.js');
 
 // const headers = {
 //     'Token': generatePaysprintJWT(),
-//     'Authorisedkey': 'MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ=',
+    //  Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_p
+
 // }
 function getPaysprintHeaders() {
     return {
         'Token': generatePaysprintJWT(),
-        Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
-        // Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE="
+     Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P
     };
 }
 
@@ -689,7 +689,7 @@ exports.performTransaction = async (req, res, next) => {
                         userId,
                         role: "Retailer",
                         commission: commission.retailer || 0,
-                        chargeShare: commission.charge || 0,
+                        chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
                     },
                     { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
                     { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }

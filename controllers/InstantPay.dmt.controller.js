@@ -16,13 +16,13 @@ const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey =  process.env.INSTANTPAY_AES_KEY
 const getHeaders = () => {
 
     return {
-        "X-Ipay-Auth-Code": "1",
-        "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-        "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+        "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
+        "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
+        "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:5938:ee58:67d7:cde7",
         // "Content-Type": "application/json",
     };
@@ -708,7 +708,7 @@ exports.makeTransaction = async (req, res) => {
                 charge: commission.charge + commission.gst,
                 netAmount: required,
                 roles: [
-                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
                     { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
                     { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
                 ],

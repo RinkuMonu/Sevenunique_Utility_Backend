@@ -23,8 +23,10 @@ const { default: router } = require("./routes/instantpayPpiRoutes.js");
 
 const bannerRoutes = require("./routes/bannerRoutes.js");
 const panroute = require("./routes/pan.routes.js");
+// const redisRateLimit = require("./middleware/ratelimiter.js");
 const app = express();
 planCheckCronJob();
+
 
 const allowedOrigins = [
   "http://localhost:3000",
@@ -40,6 +42,8 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
 );
+
+// app.use(redisRateLimit)
 
 app.use(bodyParser.json());
 app.use("/uploads", express.static("/var/www/uploads"));
@@ -68,6 +72,7 @@ app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
+app.use("/api/v1/instant/payout", require("./routes/InstantPay.payout.js"));
 app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
 app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
