@@ -16,20 +16,40 @@ const merchant_identifier = process.env.ZAAKPAY_MERCHANT_CODE || "b19e8f103bce40
 const secretKey = process.env.ZAAKPAY_SECRET_KEY || "0678056d96914a8583fb518caf42828a";
 
 
-function generateZaakpayChecksum(dataObject, secretKey) {
+function generateZaakpayChecksum(params, secretKey, type) {
 
-  const dataString = JSON.stringify(dataObject);
+  if (type) {
+    const filteredParams = Object.keys(params)
+      .filter((key) => params[key] !== null && params[key] !== undefined && params[key] !== "")
+      .sort() // ⿢ Sort alphabetically
+      .map((key) => `${key}=${params[key]}`)
+      .join("&") + "&"; // ⿤ Append & at end
 
-  console.log("🔥 Checksum Raw String:", dataString);
+    console.log("✅ String used for checksum:", filteredParams);
+    // ⿥ Generate HMAC SHA256
+    const checksum = crypto
+      .createHmac("sha256", secretKey)
+      .update(filteredParams)
+      .digest("hex");
 
-  const checksum = crypto
-    .createHmac("sha256", secretKey)
-    .update(dataString)
-    .digest("hex");
+    console.log("✅ Generated Checksum:", checksum);
+    return checksum;
 
-  console.log("🔥 Generated Checksum:", checksum);
+  } else {
+    const dataString = JSON.stringify(params);
 
-  return checksum;
+    console.log("🔥 Checksum Raw String:", dataString);
+
+    const checksum = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataString)
+      .digest("hex");
+
+    console.log("🔥 Generated Checksum:", checksum);
+
+    return checksum;
+  }
+
 }
 
 
@@ -340,7 +360,7 @@ exports.generatePayment = async (req, res, next) => {
     );
 
     // 🔹 Prepare Zaakpay payload
-    const payload = {
+    const payloadUpi = {
       merchantIdentifier: merchant_identifier,
       showMobile: "true",
       mode: "0",
@@ -358,20 +378,36 @@ exports.generatePayment = async (req, res, next) => {
       }
     };
 
-    const checksum = generateZaakpayChecksum(payload, secretKey);
+    const payloadEx = {
+      amount: (amount * 100).toString(),
+      buyerEmail: email,
+      currency: "INR",
+      merchantIdentifier: merchant_identifier,
+      orderId: reference || referenceId,
+      returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
+      // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
+    };
+
+
+    const checksumUpi = generateZaakpayChecksum(payloadUpi, secretKey, false);
+    const checksumEx = generateZaakpayChecksum(payloadEx, secretKey, true);
 
     // Final request
-    const response = await axios.post(
+    const responseUpi = await axios.post(
       "https://api.zaakpay.com/transactU?v=8",
       qs.stringify({
-        data: JSON.stringify(payload),
-        checksum: checksum
+        data: JSON.stringify(payloadUpi),
+        checksum: checksumUpi
       }),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
+    const payload2 = {
+      ...payloadEx, checksum: checksumEx
+    }
+    const responseEx = `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`;
 
 
-    console.log(response.data);
+    console.log(responseUpi.data);
     payIn.remark = "Redirect to Zaakpay for payment";
     transaction.description = "Redirect to Zaakpay for payment";
 
@@ -382,12 +418,13 @@ exports.generatePayment = async (req, res, next) => {
     await session.commitTransaction();
     transactionCompleted = true;
 
-    logApiCall({ url: "/payin", requestData: { payload }, responseData: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload)}` });
+    logApiCall({ url: "/payin", requestData: { payloadUpi, payloadEx }, responseData: { resUpi: responseUpi.data, resEx: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}` } });
     return res.status(200).json({
       success: true,
       message: "PayIn initiated. Redirect user to complete payment.",
       data: {
-        redirectURL: response.data.bankPostData.androidIntentUrl
+        redirectURL: responseUpi.data.bankPostData.androidIntentUrl,
+        redirectEx: responseEx
       }
     });
   } catch (error) {
@@ -569,8 +606,29 @@ exports.generatePayment = async (req, res, next) => {
 exports.callbackPayIn = async (req, res) => {
   try {
 
-    const txnData = JSON.parse(req.body.txnData);
-    const data = txnData.txns[0];
+    let data;
+
+    if (req.body.txnData) {
+      try {
+        const txnData =
+          typeof req.body.txnData === "string"
+            ? JSON.parse(req.body.txnData)
+            : req.body.txnData;
+
+        data = txnData.txns ? txnData.txns[0] : txnData;
+
+        console.log("📌 Custom Checkout Data Parsed:", data);
+
+      } catch (err) {
+        console.error("❌ JSON Parse Error:", err);
+        return res.status(400).json({ success: false, message: "Invalid JSON received from ZaakPay" });
+      }
+    }
+    else {
+      data = req.body;
+      console.log("📌 Hosted Checkout Data:", data);
+    }
+
     console.log("callback data", data);
     logApiCall({ url: "/callback", requestData: "", responseData: data });
     const responseCode = data?.responseCode?.toString();
