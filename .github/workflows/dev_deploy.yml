@@ -1,77 +1,90 @@
-name: Deploy Node.js Backend to CWP Server (FAST & SAFE)
+name: Deploy Node.js Backend to CWP Server
 
 on:
   push:
     branches:
-      - main
+      - dev
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout
+      # 1️⃣ Checkout Code
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node
+      # 2️⃣ Setup Node.js
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Create TAR (FAST)
-      - name: 📦 Create backend archive
+      # 3️⃣ Compress Backend Code
+      - name: 📦 Compress Backend Code
         run: |
+          echo "🧳 Compressing backend files safely..."
           tar --exclude='./uploads' \
               --exclude='./storage' \
               --exclude='./node_modules' \
+              --exclude='.DS_Store' \
               --exclude='.git' \
-              --exclude='.github' \
               -czf backend.tar.gz .
 
-      # 4️⃣ Upload TAR using SCP (DIRECT)
-      - name: 🚀 Upload TAR to Server (FAST SCP)
+      # 4️⃣ FAST Upload (DIRECT SCP – NO DOUBLE TAR)
+      - name: 🚀 Upload TAR to Server (FAST)
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.BACKEND_SSH_HOST }}
-          username: ${{ secrets.BACKEND_SSH_USERNAME }}
-          password: ${{ secrets.BACKEND_SSH_PASSWORD }}
-          port: ${{ secrets.BACKEND_SSH_PORT }}
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USERNAME }}
+          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             scp backend.tar.gz \
-              ${{ secrets.BACKEND_SSH_USERNAME }}@${{ secrets.BACKEND_SSH_HOST }}:/home/servefi/
+            ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
 
-      # 5️⃣ Deploy on Server
-      - name: 🔐 Deploy & Restart
+      # 5️⃣ SSH Deploy, Install, Restart
+      - name: 🔐 SSH Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.BACKEND_SSH_HOST }}
-          username: ${{ secrets.BACKEND_SSH_USERNAME }}
-          password: ${{ secrets.BACKEND_SSH_PASSWORD }}
-          port: ${{ secrets.BACKEND_SSH_PORT }}
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USERNAME }}
+          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            APP_DIR="/home/servefi/public_html/Bbbps_Backend"
-            BACKUP_DIR="/home/servefi/backup_backend"
-            TS=$(date +%Y%m%d_%H%M%S)
+            echo "📁 Creating backend folder if missing"
+            mkdir -p /home/devserve/public_html/Bbbps_Backend
 
-            mkdir -p $APP_DIR $BACKUP_DIR
+            echo "🔐 Backing up existing .env"
+            if [ -f /home/devserve/public_html/Bbbps_Backend/.env ]; then
+              cp /home/devserve/public_html/Bbbps_Backend/.env /home/devserve/.env_backup
+            fi
 
-            echo "🛡️ Backup"
-            cp -r $APP_DIR $BACKUP_DIR/backup_$TS || true
+            echo "🛡️ Taking full project backup"
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            mkdir -p /home/devserve/backup_backend
+            cp -r /home/devserve/public_html/Bbbps_Backend /home/devserve/backup_backend/backup_$timestamp || true
 
-            echo "📦 Extract new code"
-            rm -rf $APP_DIR/*
-            tar -xzf /home/servefi/backend.tar.gz -C $APP_DIR
-            rm /home/servefi/backend.tar.gz
+            echo "🧹 Cleaning old backups (older than 10 days)"
+            find /home/devserve/backup_backend -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
-            echo "📦 Install prod deps"
-            cd $APP_DIR
+            echo "📦 Extracting new backend files"
+            rm -rf /home/devserve/public_html/Bbbps_Backend/*
+            tar -xzf /home/devserve/backend.tar.gz -C /home/devserve/public_html/Bbbps_Backend
+            rm /home/devserve/backend.tar.gz
+
+            echo "♻️ Restoring .env file"
+            if [ -f /home/devserve/.env_backup ]; then
+              mv /home/devserve/.env_backup /home/devserve/public_html/Bbbps_Backend/.env
+            fi
+
+            echo "📦 Installing dependencies"
+            cd /home/devserve/public_html/Bbbps_Backend
             npm install --production --legacy-peer-deps
 
-            echo "🚀 Restart PM2"
-            pm2 delete Bbbps_Backend || true
-            pm2 start server.js --name "Bbbps_Backend"
+            echo "🚀 Restarting PM2 app"
+            pm2 delete Dev_Bbbps_Backend || true
+            pm2 start server.js --name "Dev_Bbbps_Backend"
             pm2 save
 
-            echo "✅ DONE"
+            echo "✅ Deployment complete!"
