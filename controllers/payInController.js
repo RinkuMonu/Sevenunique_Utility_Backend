@@ -303,6 +303,14 @@ exports.generatePayment = async (req, res, next) => {
       });
     }
 
+    if (amount < 0 || amount > 100000) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be between 0 and 100000",
+      });
+    }
+
+
     const user = await User.findOne({
       _id: req?.user?.id || userId,
       status: true,
