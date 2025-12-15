@@ -10,17 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout Code
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node.js
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (100% SAFE)
       - name: 📦 Compress Backend Code
         run: |
           echo "🧳 Compressing backend files safely..."
@@ -36,7 +33,12 @@ jobs:
               -czf backend.tar.gz . || true
           ls -lh backend.tar.gz
 
-      # 4️⃣ FAST Upload (Direct SCP)
+      # 🔥 THIS STEP FIXES YOUR ERROR
+      - name: 🔐 Disable SSH Host Key Checking
+        run: |
+          mkdir -p ~/.ssh
+          echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" > ~/.ssh/config
+
       - name: 🚀 Upload TAR to Server
         uses: appleboy/ssh-action@master
         with:
@@ -45,10 +47,11 @@ jobs:
           password: ${{ secrets.DEV_SSH_PASSWORD }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            scp backend.tar.gz \
-              ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
+            scp -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                backend.tar.gz \
+                ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
 
-      # 5️⃣ Deploy & Restart
       - name: 🔐 SSH Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
@@ -63,21 +66,15 @@ jobs:
 
             mkdir -p $APP_DIR $BACKUP_DIR
 
-            if [ -f "$APP_DIR/.env" ]; then
-              cp $APP_DIR/.env /home/devserve/.env_backup
-            fi
-
+            [ -f "$APP_DIR/.env" ] && cp $APP_DIR/.env /home/devserve/.env_backup
             cp -r $APP_DIR $BACKUP_DIR/backup_$TS || true
-
             find $BACKUP_DIR -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
             rm -rf $APP_DIR/*
             tar -xzf /home/devserve/backend.tar.gz -C $APP_DIR
             rm /home/devserve/backend.tar.gz
 
-            if [ -f "/home/devserve/.env_backup" ]; then
-              mv /home/devserve/.env_backup $APP_DIR/.env
-            fi
+            [ -f "/home/devserve/.env_backup" ] && mv /home/devserve/.env_backup $APP_DIR/.env
 
             cd $APP_DIR
             npm install --production --legacy-peer-deps
