@@ -171,7 +171,7 @@ router.post(
 );
 router.post(
   "/generate-url",
-  // authenticateToken,
+  authenticateToken,
   busController.busbookingDirectUrl
 );
 router.post(

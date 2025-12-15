@@ -11,7 +11,7 @@ function getPaysprintHeaders() {
     Authorization: `Bearer ${jwtToken}`,
     Token: `${jwtToken}`,
     "Content-Type": "application/json",
-    authorisedkey:  process.env.PAYSPRINT_AUTH_KEY,
+    authorisedkey:  process.env.PAYSPRINT_AUTH_KEY_P,
   };
 }
 
