@@ -1,3 +1,4 @@
+require("dotenv").config();
 const axios = require("axios");
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate");
 const { startSession } = require("mongoose");
@@ -14,9 +15,14 @@ function getPaysprintHeaders() {
   return {
     Token: generatePaysprintJWT(),
     // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
-    Authorisedkey: "MGY1MTVmNWM3Yjk5MTdlYTcyYjk5NmUzZjYwZDVjNWE=",
+    Authorisedkey: process.env.PAYSPRINT_AUTH_KEY,
   };
 }
+
+
+
+
+
 
 const generateReferenceId = () => {
   const timestamp = Date.now().toString(36); // Short base36 timestamp
@@ -571,6 +577,141 @@ const paysprintCallback = async (req, res) => {
   }
 };
 
+///*********** */
+// routes/bus.js
+// POST /api/bus/generate-url
+function generatePaysprintJWTDirect() {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const secretKey = process.env.PAYSPRINT_JWT_SECRET_P;
+  const payload = {
+    timestamp: timestamp,
+    partnerId: process.env.PAYSPRINT_PARTNER_ID,
+    reqid: timestamp,
+    product: "BUS"
+  };
+  return jwt.sign(payload, secretKey, { algorithm: "HS256" });
+}
+function getPaysprintHeadersDirect() {
+  return {
+    Token: generatePaysprintJWTDirect(),
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P,
+  };
+}
+
+
+const busbookingDirectUrl = async (req, res) => {
+  try {
+    const refid = `TB${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+
+
+    if (!refid) {
+      return res.status(400).json({
+        success: false,
+        message: "refid is required",
+      });
+    }
+    console.log(refid)
+    const headers = getPaysprintHeadersDirect()
+    console.log("generatePaysprintJWT>>>>>>", headers)
+    // return;
+
+    const PAYSPRINT_GENERATE_URL =
+      "https://api.paysprint.in/api/v1/service/bus/generateurl";
+
+    const redirect_url = "https://server.finuniques.in/api/v1/s3/callback";
+    // const redirect_url = "https://vmm9pgj8-8080.inc1.devtunnels.ms/api/v1/s3/callback";
+
+    const psResponse = await axios.post(
+      PAYSPRINT_GENERATE_URL,
+      {
+        refid,
+        redirect_url,
+      },
+      {
+        headers: headers,
+      }
+    );
+
+
+    // assume response.data me encdata & url hai
+    console.log("Paysprint Response:", psResponse.data);
+    const lastres = psResponse.data || {};
+    logApiCall({
+      url: "/v1/s3/generate-url",
+      requestData: {
+        refid,
+        redirect_url,
+      },
+      responseData: lastres,
+    });
+
+    if (!(lastres.status === true && lastres.response_code === 1)) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid response from Service's",
+        data: psResponse.data,
+      });
+    }
+
+    // Frontend ko bhej do
+    return res.json({
+      success: true,
+      data: lastres ? lastres.data : null,
+      refid: refid,
+      message: lastres ? lastres.message : "Data Successfully Generated"
+    });
+  } catch (err) {
+    console.error("Error in generate-url:", err.response);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate bus url",
+      error: err.response?.data || err.message,
+    });
+  }
+}
+
+// routes/bus.js me hi
+const jwt = require("jsonwebtoken");
+
+// POST /api/bus/callback
+const busbookingDirectUrlCallback = async (req, res) => {
+  try {
+    console.log("bus booking response", req)
+    const encryptedData = req.body.data;
+
+    if (!encryptedData) {
+      return res.status(400).json({ success: false, message: "No data received" });
+    }
+
+    console.log("Encrypted Callback Data:", encryptedData);
+
+    const secretKey = process.env.PAYSPRINT_JWT_SECRET_P;
+    const actualSecret = Buffer.from(secretKey, "base64").toString("utf8");
+
+    // Decrypt JWT sent by Paysprint
+    const decrypted = jwt.verify(encryptedData, actualSecret);
+
+    console.log("Decrypted Callback:", decrypted);
+
+    // Store decrypted data in DB if required...
+
+    return res.json({ success: true, data: decrypted });
+  } catch (err) {
+    console.error("Callback Error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to decrypt callback data",
+      error: err.message,
+    });
+  }
+}
+
+
+
+
+
 // Helper function to get userId from refid (dummy logic, modify as per your system)
 async function getUserIdFromRefid(refid) {
   const booking = await bbpsModel.findOne({ transactionId: refid });
@@ -590,4 +731,6 @@ module.exports = {
   getCancellationData,
   cancelTicket,
   paysprintCallback,
+  busbookingDirectUrl,
+  busbookingDirectUrlCallback
 };

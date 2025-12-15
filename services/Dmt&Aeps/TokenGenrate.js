@@ -4,13 +4,13 @@ function generatePaysprintJWT() {
   const timestamp = Math.floor(Date.now() / 1000 + 5);
   const requestId = `REQ_${Date.now()}_${Math.floor(Math.random() * 1000 - 5)}`;
 
-  // const jwtKey = "UFMwMDE3OTIzYzdhYmFiZWU5OWJkMzAzNTEyNDQ0MmNmMGFiMWUyOA==";
-  const jwtKey = "UFMwMDYyMjY0ZmJmYjIzYmNiMTliMDJjMmJjZWIxYjA5ZGUzNmJjYjE3NTEwMjI2Mzg="
+  // const jwtKey = process.env.PAYSPRINT_JWT_SECRET;
+  const jwtKey = process.env.PAYSPRINT_JWT_SECRET_P
   const payload = {
     timestamp: timestamp,
     // partnerId: 'PS001792',
-    partnerId: "PS006226",
-    reqid: requestId,
+    partnerId: process.env.PAYSPRINT_PARTNER_ID,
+    reqid: requestId
   };
   const token = jwt.sign(payload, jwtKey, {
     algorithm: "HS256",

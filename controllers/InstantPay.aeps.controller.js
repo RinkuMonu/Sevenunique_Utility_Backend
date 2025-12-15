@@ -1,4 +1,5 @@
 // controllers/merchantOnboardingController.js
+require("dotenv").config();
 const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
@@ -8,14 +9,14 @@ const userModel = require("../models/userModel");
 
 
 const INSTANTPAY_BASE_URL = "https://api.instantpay.in";
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey = process.env.INSTANTPAY_AES_KEY
 const getHeaders = () => {
 
     return {
         "Content-Type": "application/json",
-        "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-        "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
-        "X-Ipay-Auth-Code": "1",
+        "X-Ipay-Client-Id":process.env.INSTANTPAY_CLIENT_ID ,
+        "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
+        "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
         "Content-Type": "application/json",
     };
@@ -296,7 +297,12 @@ exports.mobileChangeValidate = async (req, res) => {
 
 exports.getMerchantList = async (req, res) => {
     try {
-        const { pageNumber, recordsPerPage, outletId, mobile, pan } = req.body;
+        let { pageNumber, recordsPerPage, search } = req.body;
+        const isPAN = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i.test(search);
+        const isMobile = /^[0-9]{10}$/.test(search);
+        const isOutletId = /^[0-9]+$/.test(search) && !isMobile;
+
+
 
         const requestBody = {
             pagination: {
@@ -304,10 +310,10 @@ exports.getMerchantList = async (req, res) => {
                 recordsPerPage: recordsPerPage || 10,
             },
             filters: {
-                outletId: outletId || 0,
-                mobile: mobile || "",
-                pan: pan || "",
-            },
+                outletId: isOutletId ? Number(search) : 0,
+                mobile: isMobile ? search : "",
+                pan: isPAN ? search.toUpperCase() : "",
+            }
         };
 
         const response = await axios.post(
@@ -325,3 +331,4 @@ exports.getMerchantList = async (req, res) => {
         });
     }
 };
+
