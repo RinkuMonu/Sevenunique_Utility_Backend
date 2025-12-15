@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (SAFE TAR)
+      # 3️⃣ Compress Backend Code (100% SAFE)
       - name: 📦 Compress Backend Code
         run: |
           echo "🧳 Compressing backend files safely..."
@@ -33,10 +33,11 @@ jobs:
               --exclude='.github' \
               --exclude='*.log' \
               --exclude='.env' \
-              -czf backend.tar.gz .
+              -czf backend.tar.gz . || true
+          ls -lh backend.tar.gz
 
-      # 4️⃣ FAST Upload (Direct SCP – NO scp-action)
-      - name: 🚀 Upload TAR to Server (FAST)
+      # 4️⃣ FAST Upload (Direct SCP)
+      - name: 🚀 Upload TAR to Server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
@@ -47,7 +48,7 @@ jobs:
             scp backend.tar.gz \
               ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
 
-      # 5️⃣ SSH Deploy, Install, Restart (PM2)
+      # 5️⃣ Deploy & Restart
       - name: 🔐 SSH Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
@@ -56,50 +57,33 @@ jobs:
           password: ${{ secrets.DEV_SSH_PASSWORD }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            echo "=============================="
-            echo "🚀 STARTING DEV BACKEND DEPLOY"
-            echo "=============================="
-
             APP_DIR="/home/devserve/public_html/Bbbps_Backend"
             BACKUP_DIR="/home/devserve/backup_backend"
             TS=$(date +%Y%m%d_%H%M%S)
 
-            echo "📁 Ensure directories"
-            mkdir -p $APP_DIR
-            mkdir -p $BACKUP_DIR
+            mkdir -p $APP_DIR $BACKUP_DIR
 
-            echo "🔐 Backup existing .env"
             if [ -f "$APP_DIR/.env" ]; then
               cp $APP_DIR/.env /home/devserve/.env_backup
             fi
 
-            echo "🛡️ Full project backup"
-            if [ "$(ls -A $APP_DIR 2>/dev/null)" ]; then
-              cp -r $APP_DIR $BACKUP_DIR/backup_$TS
-            fi
+            cp -r $APP_DIR $BACKUP_DIR/backup_$TS || true
 
-            echo "🧹 Cleaning old backups (>10 days)"
             find $BACKUP_DIR -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
-            echo "📦 Deploy new backend"
             rm -rf $APP_DIR/*
             tar -xzf /home/devserve/backend.tar.gz -C $APP_DIR
             rm /home/devserve/backend.tar.gz
 
-            echo "♻️ Restore .env"
             if [ -f "/home/devserve/.env_backup" ]; then
               mv /home/devserve/.env_backup $APP_DIR/.env
             fi
 
-            echo "📦 Install production dependencies"
             cd $APP_DIR
             npm install --production --legacy-peer-deps
 
-            echo "🚀 Restart PM2 (DEV)"
             pm2 delete Dev_Bbbps_Backend || true
             pm2 start server.js --name "Dev_Bbbps_Backend"
             pm2 save
 
-            echo "=============================="
-            echo "✅ DEPLOYMENT COMPLETED"
-            echo "=============================="
+            echo "✅ DEV DEPLOY DONE"
