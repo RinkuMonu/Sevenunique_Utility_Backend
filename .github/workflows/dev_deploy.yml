@@ -10,45 +10,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout Code
+      # 1️⃣ Checkout
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node.js
+      # 2️⃣ Setup Node
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (SAFE TAR)
+      # 3️⃣ Disable SSH host key checking (IMPORTANT)
+      - name: 🔐 Disable SSH Host Key Checking
+        run: |
+          mkdir -p ~/.ssh
+          echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" > ~/.ssh/config
+
+      # 4️⃣ Create TAR (safe)
       - name: 📦 Compress Backend Code
         run: |
-          echo "🧳 Compressing backend files safely..."
           tar --warning=no-file-changed \
               --exclude='./uploads' \
               --exclude='./storage' \
               --exclude='./node_modules' \
-              --exclude='.DS_Store' \
               --exclude='.git' \
               --exclude='.github' \
+              --exclude='.DS_Store' \
               --exclude='*.log' \
               --exclude='.env' \
               -czf backend.tar.gz . || true
           ls -lh backend.tar.gz
 
-      # 4️⃣ Upload TAR to Server (CORRECT WAY)
-      - name: 🚀 Upload TAR to Server
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          source: "backend.tar.gz"
-          target: "/home/devserve/"
+      # 5️⃣ SCP UPLOAD (RUNNER SIDE – THIS WAS THE BUG)
+      - name: 🚀 Upload TAR to Server (SCP)
+        run: |
+          scp backend.tar.gz \
+            ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
 
-      # 5️⃣ SSH Deploy & Restart
-      - name: 🔐 SSH Deploy & Restart via PM2
+      # 6️⃣ SSH DEPLOY (REMOTE SIDE)
+      - name: 🔐 Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
@@ -62,34 +62,21 @@ jobs:
 
             mkdir -p $APP_DIR $BACKUP_DIR
 
-            echo "🔐 Backup .env"
-            if [ -f "$APP_DIR/.env" ]; then
-              cp $APP_DIR/.env /home/devserve/.env_backup
-            fi
-
-            echo "🛡️ Project backup"
+            [ -f "$APP_DIR/.env" ] && cp $APP_DIR/.env /home/devserve/.env_backup
             cp -r $APP_DIR $BACKUP_DIR/backup_$TS || true
-
-            echo "🧹 Cleanup old backups"
             find $BACKUP_DIR -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
-            echo "📦 Deploy new backend"
             rm -rf $APP_DIR/*
             tar -xzf /home/devserve/backend.tar.gz -C $APP_DIR
             rm /home/devserve/backend.tar.gz
 
-            echo "♻️ Restore .env"
-            if [ -f "/home/devserve/.env_backup" ]; then
-              mv /home/devserve/.env_backup $APP_DIR/.env
-            fi
+            [ -f "/home/devserve/.env_backup" ] && mv /home/devserve/.env_backup $APP_DIR/.env
 
-            echo "📦 Install prod deps"
             cd $APP_DIR
             npm install --production --legacy-peer-deps
 
-            echo "🚀 Restart PM2"
             pm2 delete Dev_Bbbps_Backend || true
             pm2 start server.js --name "Dev_Bbbps_Backend"
             pm2 save
 
-            echo "✅ DEV DEPLOY COMPLETE"
+            echo "✅ DEV DEPLOY DONE"
