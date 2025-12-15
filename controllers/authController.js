@@ -1,3 +1,4 @@
+require("dotenv").config();
 const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
 const { generateOtp, verifyOtp } = require("../services/otpService");
@@ -95,24 +96,24 @@ const getDeviceName = (userAgent = "") => {
   browser = ua.includes("Chrome")
     ? "Chrome"
     : ua.includes("Firefox")
-    ? "Firefox"
-    : ua.includes("Safari") && !ua.includes("Chrome")
-    ? "Safari"
-    : ua.includes("Edg")
-    ? "Edge"
-    : "Unknown Browser";
+      ? "Firefox"
+      : ua.includes("Safari") && !ua.includes("Chrome")
+        ? "Safari"
+        : ua.includes("Edg")
+          ? "Edge"
+          : "Unknown Browser";
 
   // Detect OS
   let os = "Unknown OS/device";
   os = ua.includes("Windows")
     ? "Windows"
     : ua.includes("Android")
-    ? "Android"
-    : ua.includes("iPhone")
-    ? "iPhone"
-    : ua.includes("Mac")
-    ? "MacOS"
-    : "Unknown OS";
+      ? "Android"
+      : ua.includes("iPhone")
+        ? "iPhone"
+        : ua.includes("Mac")
+          ? "MacOS"
+          : "Unknown OS";
 
   return `${browser} on ${os}`;
 };
@@ -263,7 +264,7 @@ const sendOtpController = async (req, res) => {
 
 const verifyOTPController = async (req, res) => {
   try {
-    const { mobileNumber, otp } = req.body;
+    const { mobileNumber, otp, outerRegister } = req.body;
 
     // ✅ Validation
     if (!mobileNumber || !otp) {
@@ -284,20 +285,24 @@ const verifyOTPController = async (req, res) => {
     }
     let user = await User.findOne({ mobileNumber });
 
-    let nextStep = 2;
+    let nextStep = outerRegister ? 3 : 2;
 
     if (user) {
-      if (user.name && user.email && user.password) nextStep = 3;
+      if (user.name && user.email && user.password)
+        nextStep = outerRegister ? 4 : 3;
 
       if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-        nextStep = 4;
+        nextStep = outerRegister ? 5 : 4;
 
       if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-        nextStep = 5;
+        nextStep = outerRegister ? 6 : 5;
 
       if (user.panDetails && Object.keys(user.panDetails).length > 0)
-        nextStep = 6;
+        nextStep = outerRegister ? 7 : 6;
     }
+    const token = user
+      ? generateJwtToken(user._id, user.role, user.mobileNumber)
+      : null;
 
     // ✅ Success
     return res.status(200).json({
@@ -306,6 +311,8 @@ const verifyOTPController = async (req, res) => {
       userId: user ? user._id : null,
       nextStep,
       isExistingUser: !!user,
+      token: token ? token : null,
+      role: user ? user.role : null,
     });
   } catch (error) {
     console.error("❌ Error in verifyOTPController:", error);
@@ -342,6 +349,11 @@ const loginController = async (req, res) => {
       return res
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
+    }
+    if (user.isKycVerified === false) {
+      return res.status(403).json({
+        message: "Your KYC is not verified. Please complete KYC to continue.",
+      });
     }
 
     // ✅ OTP login
@@ -614,40 +626,6 @@ const registerUser = async (req, res) => {
         userData.distributorId = adminUser._id;
       }
     }
-    // ✅ Email verify karne ka step
-    // if (userData.email) {
-    //   try {
-    //     const verifyEmailRes = await axios.post(
-    //       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-    //       { email: userData.email },
-    //       {
-    //         headers: {
-    //           Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
-    //           "x-env": "production",
-    //           "client-id": "Seven012",
-    //           "Content-Type": "application/json",
-    //         },
-    //       }
-    //     );
-
-    //     const result = verifyEmailRes.data;
-    //     console.log("📧 Email verify response:", result);
-
-    //     if (result?.status && result.status.toLowerCase() !== "valid") {
-    //       return res
-    //         .status(400)
-    //         .json({ message: "Invalid or undeliverable email address." });
-    //     }
-    //   } catch (err) {
-    //     console.error(
-    //       "❌ Email verify API fail hui:",
-    //       err.response?.data || err.message
-    //     );
-    //     return res.status(400).json({
-    //       message: "Email verify karne me problem aayi, dubara try karo.",
-    //     });
-    //   }
-    // }
 
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
@@ -705,31 +683,31 @@ const registerUser = async (req, res) => {
     );
 
     // ✅ Send lead to external API
-    try {
-      await axios.post(
-        "https://cms.sevenunique.com/apis/leads/set-leads.php",
-        {
-          website_id: 6,
-          name: NewUser.name,
-          mobile_number: NewUser.mobileNumber,
-          email: NewUser.email,
-          address: NewUser.address,
-          client_type: NewUser.role,
-          notes: "Lead from FinUnique small private limited",
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-          },
-        }
-      );
-    } catch (leadError) {
-      console.error(
-        "Error sending lead data:",
-        leadError.response ? leadError.response.data : leadError.message
-      );
-    }
+    // try {
+    //   await axios.post(
+    //     "https://cms.sevenunique.com/apis/leads/set-leads.php",
+    //     {
+    //       website_id: 6,
+    //       name: NewUser.name,
+    //       mobile_number: NewUser.mobileNumber,
+    //       email: NewUser.email,
+    //       address: NewUser.address,
+    //       client_type: NewUser.role,
+    //       notes: "Lead from FinUnique small private limited",
+    //     },
+    //     {
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
+    //       },
+    //     }
+    //   );
+    // } catch (leadError) {
+    //   console.error(
+    //     "Error sending lead data:",
+    //     leadError.response ? leadError.response.data : leadError.message
+    //   );
+    // }
 
     return res.status(200).json({
       message: "Registration successful",
@@ -739,7 +717,7 @@ const registerUser = async (req, res) => {
   } catch (error) {
     console.log("eeeeeeeeeeeeeee", error);
     console.error("Error in registerUser controller:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
 
@@ -921,7 +899,6 @@ const getUsersWithFilters = async (req, res) => {
       district,
       distributorId,
     } = req.query;
-    // console.log("query...", req.query);
 
     const andConditions = [];
     if (state) {
@@ -992,6 +969,7 @@ const getUsersWithFilters = async (req, res) => {
     const skip = (page - 1) * limit;
 
     let users = await User.find(filter)
+      .select("-mpin")
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -1218,6 +1196,7 @@ const updateUserDetails = async (req, res) => {
       callbackUrl,
     } = req.body;
 
+
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
     }
@@ -1237,7 +1216,7 @@ const updateUserDetails = async (req, res) => {
     if (password) user.password = password;
     if (mpin) user.mpin = mpin;
     if (outletId) user.outletId = outletId;
-    if (callbackUrl) user.callbackUrl = callbackUrl;
+    if (callbackUrl || callbackUrl == "") user.callbackUrl = callbackUrl;
 
     await user.save();
     return res.status(200).json({
@@ -1412,8 +1391,10 @@ const getDashboardStats = async (req, res, next) => {
         totalAepsTxns,
         totalDmtTxns,
         totalBbpsTxns,
+
         totalPayouts,
         totalPayIn,
+
         totalWalletBalance,
         todayPayins,
         todayPayouts,
@@ -1432,9 +1413,11 @@ const getDashboardStats = async (req, res, next) => {
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
         PayOut.aggregate([
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PayIn.aggregate([
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         User.aggregate([
@@ -1443,7 +1426,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1470,10 +1453,18 @@ const getDashboardStats = async (req, res, next) => {
         ]),
         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
         Transaction.countDocuments({ ...matchToday, status: "Success" }),
-        User.countDocuments({ status: true }),
+        User.countDocuments({ status: true, isKycVerified: true }),
         servicesModal.countDocuments({ isActive: true }),
-        User.countDocuments({ role: "Retailer", status: true }),
-        User.countDocuments({ role: "Distributor", status: true }),
+        User.countDocuments({
+          role: "Retailer",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "Distributor",
+          status: true,
+          isKycVerified: true,
+        }),
       ]);
 
       const successRate =
@@ -1949,6 +1940,93 @@ const updateProgress = async (req, res) => {
   }
 };
 
+const updateUserDocs = async (req, res) => {
+  try {
+    const role = req.user.role;
+
+    // 🛑 Only admin / superAdmin can update
+    if (role !== "Admin" && role !== "superAdmin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update documents",
+      });
+    }
+
+    const userId = req.params.id;
+
+    let user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const files = req.files || {};
+
+    // helper to return `/uploads/filename`
+    const getFile = (fieldName, oldValue) => {
+      return files[fieldName]
+        ? `/uploads/${files[fieldName][0].filename}`
+        : oldValue;
+    };
+
+    // SHOP PHOTO ARRAY (MULTIPLE APPEND)
+    let newShopPhotos = user.shopPhoto || [];
+    if (files.shopPhoto) {
+      const uploadedShopPhotos = files.shopPhoto.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newShopPhotos = [...newShopPhotos, ...uploadedShopPhotos];
+    }
+
+    // DIRECTOR KYC FILES (MULTIPLE)
+    let newDirectorKyc = user.directorKycFiles || [];
+    if (files.directorKycFiles) {
+      const uploadedKyc = files.directorKycFiles.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newDirectorKyc = [...newDirectorKyc, ...uploadedKyc];
+    }
+
+    const updateData = {
+      aadhaarFront: getFile("aadhaarFront", user.aadhaarFront),
+      aadhaarBack: getFile("aadhaarBack", user.aadhaarBack),
+      panCard: getFile("panCard", user.panCard),
+      bankDocument: getFile("bankDocument", user.bankDocument),
+      ownerPhoto: getFile("ownerPhoto", user.ownerPhoto),
+      shopAddressProof: getFile("shopAddressProof", user.shopAddressProof),
+      officeAddressProof: getFile(
+        "officeAddressProof",
+        user.officeAddressProof
+      ),
+      boardResolution: getFile("boardResolution", user.boardResolution),
+
+      // arrays
+      shopPhoto: newShopPhotos,
+      directorKycFiles: newDirectorKyc,
+    };
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Documents updated successfully",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Document update error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Try again later",
+    });
+  }
+};
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
@@ -1969,4 +2047,5 @@ module.exports = {
   updateProgress,
   getLoginHistory,
   verifyEmail7Unique,
+  updateUserDocs,
 };

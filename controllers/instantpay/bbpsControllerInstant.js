@@ -65,7 +65,7 @@ function buildHeaders({ withOutlet = false } = {}) {
     "Content-Type": "application/json",
     "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE || "1",
     "X-Ipay-Client-Id": process.env.IPAY_CLIENT_ID,
-    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+    "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
     "X-Ipay-Endpoint-Ip": process.env.IPAY_ENDPOINT_IP,
   };
   if (withOutlet) headers["X-Ipay-Outlet-Id"] = process.env.IPAY_OUTLET_ID;
@@ -270,9 +270,11 @@ exports.makePayment = async (req, res, next) => {
     }
 
     // ✅ Deduct wallet
-    user.eWallet -= required;
-    await user.save({ session });
-
+    const updateUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: -required } },
+      { new: true, session }
+    );
     // ✅ Create debit transaction
     const [debitTxn] = await Transaction.create([{
       user_id: userId,
@@ -284,7 +286,7 @@ exports.makePayment = async (req, res, next) => {
       charge: Number(commission.charge || 0),
       totalDebit: Number(required),
       totalCredit: Number(commission.retailer || 0),
-      balance_after: user.eWallet,
+      balance_after: updateUser.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
@@ -357,7 +359,7 @@ exports.makePayment = async (req, res, next) => {
         charge: Number(commission.charge || 0),
         netAmount: Number(required),
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -378,8 +380,12 @@ exports.makePayment = async (req, res, next) => {
       });
     } else if (statusUpdate === "Failed") {
       // ✅ Refund wallet if failed
-      user.eWallet += required;
-      await user.save({ session });
+      await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { session }
+      );
+
     }
 
     // ✅ Update BBPS & Transaction reports

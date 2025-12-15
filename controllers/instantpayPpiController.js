@@ -1,3 +1,4 @@
+import "dotenv/config";
 import axios from "axios";
 import crypto from "crypto";
 import xml2js from "xml2js";
@@ -15,14 +16,14 @@ const getHeaders = () => {
 
     return {
         "X-Ipay-Auth-Code": "1",
-        "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-        "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+        "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
+        "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
         "X-Ipay-Outlet-Id": '561907 ', // ✅ add this 
         "X-Ipay-Endpoint-Ip": "223.226.127.0",
         "Content-Type": "application/json",
     };
 };
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey =  process.env.INSTANTPAY_AES_KEY
 
 function encrypt(text, key) {
     const encryptionKey = Buffer.from(key); // 32 bytes
@@ -424,7 +425,7 @@ export const makeTransaction = async (req, res) => {
             charge: commission.charge + commission.gst,
             netAmount: required,
             roles: [
-                { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
                 { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
                 { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
             ],

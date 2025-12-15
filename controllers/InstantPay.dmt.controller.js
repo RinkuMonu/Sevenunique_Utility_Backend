@@ -9,16 +9,20 @@ const payOutModel = require("../models/payOutModel");
 const DmtReport = require('../models/dmtTransactionModel');
 const { distributeCommission } = require("../utils/distributerCommission");
 const CommissionTransaction = require("../models/CommissionTransaction");
+const bbpsModel = require("../models/bbpsModel");
+const matmModel = require("../models/matm.model");
+const payInModel = require("../models/payInModel");
+const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey =  process.env.INSTANTPAY_AES_KEY
 const getHeaders = () => {
 
     return {
-        "X-Ipay-Auth-Code": "1",
-        "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-        "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+        "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
+        "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
+        "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:5938:ee58:67d7:cde7",
         // "Content-Type": "application/json",
     };
@@ -78,6 +82,28 @@ async function parsePidXML(pidXml) {
         throw new Error("Failed to parse PID XML: " + err.message);
     }
 }
+
+
+async function findReportByRef(externalRef, session) {
+    const allReports = [
+        { model: AEPSTransaction, service: "AEPS" },
+        { model: DmtReport, service: "DMT" },
+        { model: bbpsModel, service: "BBPS" },
+        { model: matmModel, service: "MATM" },
+        { model: payInModel, service: "PAYIN" },
+        { model: payOutModel, service: "PAYOUT" },
+        { model: Transaction, service: "Transaction" }
+    ];
+
+    for (const item of allReports) {
+        const report = await item.model.findOne({ externalRef }).session(session);
+        if (report) {
+            return { report, service: item.service };
+        }
+    }
+    return null;
+}
+
 
 // 1️⃣ Get Bank List
 exports.getBankList = async (req, res) => {
@@ -514,19 +540,39 @@ exports.makeTransaction = async (req, res) => {
 
         const { remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef, referenceid, bene_id, category } = req.body;
 
-        // 1️⃣ Validate fields
-        if (!remitterMobileNumber || !accountNumber || !ifsc || !transferMode || !transferAmount || !latitude || !longitude || !referenceKey || !otp || !externalRef || !referenceid || !bene_id) {
-            return res.status(400).json({ status: false, message: "Missing required fields." });
+        const requiredFields = {
+            remitterMobileNumber,
+            accountNumber,
+            ifsc,
+            transferMode,
+            transferAmount,
+            latitude,
+            longitude,
+            referenceKey,
+            otp,
+            externalRef,
+            referenceid,
+            bene_id
+        };
+
+        for (const key in requiredFields) {
+            if (requiredFields[key] === undefined || requiredFields[key] === null || requiredFields[key] === "") {
+                return res.status(400).json({
+                    status: false,
+                    message: `Missing required field: ${key}`,
+                });
+            }
         }
 
-        const { commissions, service } = await getApplicableServiceCharge(req.user.id, category);
+
         const userId = req.user.id;
-        const commission = calculateCommissionFromSlabs(transferAmount, commissions || []);
+        const { commissions, service } = await getApplicableServiceCharge(userId, category);
+        const commission = calculateCommissionFromSlabs(transferAmount, commissions);
         const user = await userModel.findById(userId).session(session);
         if (!user) throw new Error("User not found");
 
         const usableBalance = user.eWallet - (user.cappingMoney || 0);
-        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+        const required = Number((Number(transferAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
 
         if (usableBalance < required) {
             return res.status(400).json({
@@ -534,8 +580,23 @@ exports.makeTransaction = async (req, res) => {
             });
         }
 
-        user.eWallet -= required;
-        await user.save({ session });
+        const updatedUser = await userModel.findOneAndUpdate(
+            {
+                _id: userId,
+                eWallet: { $gte: required + (user.cappingMoney || 0) }
+            },
+            {
+                $inc: { eWallet: -required }
+            },
+            { new: true, session }
+        );
+
+        if (!updatedUser) {
+            return res.status(400).json({
+                status: false,
+                message: `Insufficient wallet balance. Need ₹${required}`
+            });
+        }
 
         // 2️⃣ Create debit transaction
         const [debitTxn] = await Transaction.create([{
@@ -548,7 +609,7 @@ exports.makeTransaction = async (req, res) => {
             charge: commission.charge,
             totalDebit: required,
             totalCredit: Number(commission.retailer || 0),
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
             description: "DMT Transfer",
@@ -556,7 +617,7 @@ exports.makeTransaction = async (req, res) => {
         }], { session });
 
         // 3️⃣ Create payout record
-        await new payOutModel({
+        await payOutModel.create([{
             userId,
             amount: transferAmount,
             reference: referenceid,
@@ -571,7 +632,7 @@ exports.makeTransaction = async (req, res) => {
             tds: commission.tds,
             totalDebit: required,
             remark: `Money Transfer for beneficiary ID ${bene_id}`
-        }).save({ session });
+        }], { session });
 
         // 4️⃣ Call API
         const response = await axios.post(
@@ -579,7 +640,12 @@ exports.makeTransaction = async (req, res) => {
             {
                 remitterMobileNumber, accountNumber, ifsc, transferMode, transferAmount, latitude, longitude, referenceKey, otp, externalRef
             },
-            { headers: getHeaders() }
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                }
+            }
         );
 
         const result = response.data;
@@ -637,12 +703,12 @@ exports.makeTransaction = async (req, res) => {
 
             await CommissionTransaction.create([{
                 referenceId: referenceid,
-                service: commissions.service,
+                service: service._id,
                 baseAmount: transferAmount,
                 charge: commission.charge + commission.gst,
                 netAmount: required,
                 roles: [
-                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+                    { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
                     { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
                     { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
                 ],
@@ -653,8 +719,12 @@ exports.makeTransaction = async (req, res) => {
 
         } else {
             // Failed transaction: rollback
-            user.eWallet += required;
-            await user.save({ session });
+            await userModel.updateOne(
+                { _id: userId },
+                { $inc: { eWallet: required } },
+                { session }
+            );
+
             await Transaction.updateOne({ transaction_reference_id: referenceid }, { $set: { status: "Failed" } }, { session });
             await payOutModel.updateOne({ reference: referenceid }, { $set: { status: "Failed" } }, { session });
             throw new Error(result.status || "Transaction failed at provider");
@@ -667,6 +737,152 @@ exports.makeTransaction = async (req, res) => {
         await session.abortTransaction();
         console.error("💥 Transaction Error:", err);
         res.status(500).json({ status: false, message: err.message || "Transaction failed", error: err.response?.data || err.message });
+    } finally {
+        session.endSession();
+    }
+};
+
+// Transaction Status
+exports.TransactionStatus = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { externalRef, transactionDate } = req.body;
+
+        if (!externalRef) {
+            return res.status(400).json({
+                status: false,
+                message: "externalRef are required!",
+            });
+        }
+        if (!transactionDate) {
+            return res.status(400).json({
+                status: false,
+                message: "transactionDate are required!",
+            });
+        }
+
+        const user = await userModel.findById(req.user.id).session(session);
+        if (!user) throw new Error("User not found");
+
+        // ❇️ FIND REPORT FROM ANY SERVICE
+        const result = await findReportByRef(externalRef, session);
+        if (!result) throw new Error("No matching report found!");
+
+        console.log(result);
+        return;
+
+
+        const report = result.report;
+        const serviceType = result.service;
+
+        // 🟡 Only pending allowed
+        if (!["Pending", "TUP", "pending"].includes(report.status)) {
+            return res.status(400).json({
+                status: false,
+                message: `Status check allowed only for PENDING/TUP transactions.`,
+                currentStatus: report.status,
+                serviceType,
+            });
+        }
+
+        // 📦 Payload
+        const payload = {
+            transactionDate,
+            externalRef,
+            source: serviceType === "AEPS" ? "ORDER" : undefined,
+        };
+
+        // 🌐 Hit API
+        const ipayRes = await axios.post(`${BASE_URL}/reports/txnStatus`, payload, {
+            headers: {
+                ...getHeaders(),
+                "X-Ipay-Outlet-Id": user.outletId,
+            }
+        });
+
+        const resp = ipayRes.data;
+        const txnStatus = resp?.data?.transactionStatusCode;
+
+        // 🔄 Still pending
+        if (txnStatus === "TUP") {
+            report.status = "Pending";
+            await report.save({ session });
+            await session.commitTransaction();
+
+            return res.json({
+                status: true,
+                message: "Transaction still pending.",
+                data: resp,
+                serviceType,
+            });
+        }
+
+        // ✔ SUCCESS CASE
+        if (txnStatus === "TXN") {
+            report.status = "Success";
+            report.gatewayResponse = resp;
+
+            await report.save({ session });
+
+
+            await Transaction.updateOne(
+                { externalRef },
+                { status: "Success", gatewayResponse: resp },
+                { session }
+            );
+
+            await session.commitTransaction();
+            return res.json({
+                status: true,
+                message: "Transaction successful",
+                data: resp,
+                serviceType,
+            });
+        }
+
+        // ❌ FAILED → REFUND
+        const refundAmount = Number(report.amount);
+
+        const updatedUser = await userModel.findOneAndUpdate(
+            {
+                _id: req.user.id,
+            },
+            {
+                $inc: { eWallet: -report.amount }
+            },
+            { new: true, session }
+        );
+
+        report.status = "Failed";
+        report.gatewayResponse = resp;
+        report.refunded = true;
+        await report.save({ session });
+
+
+        // Transaction Report Update
+        await Transaction.updateOne(
+            { externalRef },
+            { status: "Failed", refunded: true },
+            { session }
+        );
+
+        await session.commitTransaction();
+
+        return res.json({
+            status: true,
+            message: `${serviceType} Transaction failed & refund processed.`,
+            data: resp,
+        });
+
+    } catch (err) {
+        await session.abortTransaction();
+        return res.status(500).json({
+            status: false,
+            message: err.message,
+            error: err.response?.data || err.message
+        });
     } finally {
         session.endSession();
     }
