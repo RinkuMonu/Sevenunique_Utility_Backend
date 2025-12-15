@@ -10,49 +10,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
+      # 2️⃣ Setup Node
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 📦 Compress Backend Code
-        run: |
-          echo "🧳 Compressing backend files safely..."
-          tar --warning=no-file-changed \
-              --exclude='./uploads' \
-              --exclude='./storage' \
-              --exclude='./node_modules' \
-              --exclude='.DS_Store' \
-              --exclude='.git' \
-              --exclude='.github' \
-              --exclude='*.log' \
-              --exclude='.env' \
-              -czf backend.tar.gz . || true
-          ls -lh backend.tar.gz
-
-      # 🔥 THIS STEP FIXES YOUR ERROR
+      # 3️⃣ Disable SSH host key checking (IMPORTANT)
       - name: 🔐 Disable SSH Host Key Checking
         run: |
           mkdir -p ~/.ssh
           echo -e "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile=/dev/null\n" > ~/.ssh/config
 
-      - name: 🚀 Upload TAR to Server
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          script: |
-            scp -o StrictHostKeyChecking=no \
-                -o UserKnownHostsFile=/dev/null \
-                backend.tar.gz \
-                ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
+      # 4️⃣ Create TAR (safe)
+      - name: 📦 Compress Backend Code
+        run: |
+          tar --warning=no-file-changed \
+              --exclude='./uploads' \
+              --exclude='./storage' \
+              --exclude='./node_modules' \
+              --exclude='.git' \
+              --exclude='.github' \
+              --exclude='.DS_Store' \
+              --exclude='*.log' \
+              --exclude='.env' \
+              -czf backend.tar.gz . || true
+          ls -lh backend.tar.gz
 
-      - name: 🔐 SSH Deploy & Restart via PM2
+      # 5️⃣ SCP UPLOAD (RUNNER SIDE – THIS WAS THE BUG)
+      - name: 🚀 Upload TAR to Server (SCP)
+        run: |
+          scp backend.tar.gz \
+            ${{ secrets.DEV_SSH_USERNAME }}@${{ secrets.DEV_SSH_HOST }}:/home/devserve/
+
+      # 6️⃣ SSH DEPLOY (REMOTE SIDE)
+      - name: 🔐 Deploy & Restart via PM2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
