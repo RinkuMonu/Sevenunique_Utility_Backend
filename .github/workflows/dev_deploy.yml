@@ -83,7 +83,7 @@ jobs:
 
             echo "🚀 Restarting PM2 app"
             pm2 delete Dev_Bbbps_Backend || true
-            pm2 start devserver.js --name "Dev_Bbbps_Backend"
+            pm2 start server.js --name "Dev_Bbbps_Backend"
             pm2 save
 
             echo "✅ Deployment complete!"

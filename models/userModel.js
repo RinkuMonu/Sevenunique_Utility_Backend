@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], // ✅ Array of strings now
+      type: [String], 
       trim: true,
     },
 
@@ -329,7 +329,7 @@ const userSchema = new mongoose.Schema(
     },
     cappingMoney: {
       type: Number,
-      default: 500,
+      default: 0,
     },
     mainWallet: {
       type: Number,
