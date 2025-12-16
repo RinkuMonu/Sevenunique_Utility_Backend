@@ -1,4 +1,4 @@
-name: Deploy Node.js Backend to CWP Server
+name: Deploy Node.js Backend to CWP Server (PROD)
 
 on:
   push:
@@ -10,45 +10,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout Code
+      # 1️⃣ Checkout
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Node.js
+      # 2️⃣ Setup Node (optional, safe)
       - name: 🛠️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (SAFE TAR)
-      - name: 📦 Compress Backend Code
-        run: |
-          echo "🧳 Compressing backend files safely..."
-          tar --warning=no-file-changed \
-              --exclude='./uploads' \
-              --exclude='./storage' \
-              --exclude='./node_modules' \
-              --exclude='.DS_Store' \
-              --exclude='.git' \
-              --exclude='.github' \
-              --exclude='*.log' \
-              --exclude='.env' \
-              -czf backend.tar.gz . || true
-          ls -lh backend.tar.gz
-
-      # 4️⃣ Upload to Server (SCP ACTION – STABLE FOR PROD)
-      - name: 🚀 Upload to Server via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.BACKEND_SSH_HOST }}
-          username: ${{ secrets.BACKEND_SSH_USERNAME }}
-          password: ${{ secrets.BACKEND_SSH_PASSWORD }}
-          port: ${{ secrets.BACKEND_SSH_PORT }}
-          source: "backend.tar.gz"
-          target: "/home/servefi/"
-
-      # 5️⃣ SSH Deploy, Install, Restart
-      - name: 🔐 SSH Deploy & Restart via PM2
+      # 3️⃣ Deploy using RSYNC (NO TAR, NO SCP-ACTION)
+      - name: 🚀 Deploy Backend via RSYNC
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.BACKEND_SSH_HOST }}
@@ -56,39 +29,50 @@ jobs:
           password: ${{ secrets.BACKEND_SSH_PASSWORD }}
           port: ${{ secrets.BACKEND_SSH_PORT }}
           script: |
-            echo "📁 Creating backend folder if missing"
-            mkdir -p /home/servefi/public_html/Bbbps_Backend
+            echo "🚀 STARTING PRODUCTION DEPLOY"
 
-            echo "🔐 Backing up existing .env"
-            if [ -f /home/servefi/public_html/Bbbps_Backend/.env ]; then
-              cp /home/servefi/public_html/Bbbps_Backend/.env /home/servefi/.env_backup
-            fi
+            APP_DIR="/home/servefi/public_html/Bbbps_Backend"
+            BACKUP_DIR="/home/servefi/backup_backend"
+            TMP_DIR="/home/servefi/tmp_backend"
+            TS=$(date +%Y%m%d_%H%M%S)
 
-            echo "🛡️ Taking full project backup"
-            timestamp=$(date +%Y%m%d_%H%M%S)
-            mkdir -p /home/servefi/backup_backend
-            cp -r /home/servefi/public_html/Bbbps_Backend /home/servefi/backup_backend/backup_$timestamp || true
+            mkdir -p $APP_DIR $BACKUP_DIR $TMP_DIR
 
-            echo "🧹 Cleaning old backups (older than 10 days)"
-            find /home/servefi/backup_backend -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
+            echo "🛡️ Backup current backend"
+            cp -r $APP_DIR $BACKUP_DIR/backup_$TS || true
 
-            echo "📦 Extracting new backend files"
-            rm -rf /home/servefi/public_html/Bbbps_Backend/*
-            tar -xzf /home/servefi/backend.tar.gz -C /home/servefi/public_html/Bbbps_Backend
-            rm /home/servefi/backend.tar.gz
+            echo "🧹 Cleanup old backups"
+            find $BACKUP_DIR -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
-            echo "♻️ Restoring .env file"
-            if [ -f /home/servefi/.env_backup ]; then
-              mv /home/servefi/.env_backup /home/servefi/public_html/Bbbps_Backend/.env
-            fi
+            echo "📤 Sync new code to temp"
+            rsync -az --delete \
+              --exclude node_modules \
+              --exclude uploads \
+              --exclude storage \
+              --exclude .git \
+              --exclude .github \
+              --exclude "*.log" \
+              --exclude ".env" \
+              $GITHUB_WORKSPACE/ \
+              $TMP_DIR/
 
-            echo "📦 Installing dependencies"
-            cd /home/servefi/public_html/Bbbps_Backend
+            echo "🔐 Preserve .env"
+            [ -f "$APP_DIR/.env" ] && cp $APP_DIR/.env /home/servefi/.env_backup
+
+            echo "🚚 Replace backend"
+            rm -rf $APP_DIR/*
+            cp -r $TMP_DIR/* $APP_DIR/
+            rm -rf $TMP_DIR
+
+            echo "♻️ Restore .env"
+            [ -f "/home/servefi/.env_backup" ] && mv /home/servefi/.env_backup $APP_DIR/.env
+
+            echo "📦 Install prod dependencies"
+            cd $APP_DIR
             npm install --production --legacy-peer-deps
 
-            echo "🚀 Restarting PM2 app (PROD)"
-            pm2 delete Bbbps_Backend || true
-            pm2 start server.js --name "Bbbps_Backend"
+            echo "🚀 Restart PM2"
+            pm2 reload Bbbps_Backend || pm2 start server.js --name "Bbbps_Backend"
             pm2 save
 
-            echo "✅ PRODUCTION DEPLOYMENT COMPLETE!"
+            echo "✅ PRODUCTION DEPLOY DONE"
