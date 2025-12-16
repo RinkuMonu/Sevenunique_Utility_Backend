@@ -20,18 +20,23 @@ jobs:
         with:
           node-version: '20'
 
-      # 3️⃣ Compress Backend Code (skip uploads & node_modules)
+      # 3️⃣ Compress Backend Code (SAFE TAR)
       - name: 📦 Compress Backend Code
         run: |
           echo "🧳 Compressing backend files safely..."
-          tar --exclude='./uploads' \
+          tar --warning=no-file-changed \
+              --exclude='./uploads' \
               --exclude='./storage' \
               --exclude='./node_modules' \
               --exclude='.DS_Store' \
               --exclude='.git' \
-              -czvf backend.tar.gz . 2> /dev/null || true
+              --exclude='.github' \
+              --exclude='*.log' \
+              --exclude='.env' \
+              -czf backend.tar.gz . || true
+          ls -lh backend.tar.gz
 
-      # 4️⃣ Upload to Server
+      # 4️⃣ Upload to Server (SCP ACTION – STABLE FOR PROD)
       - name: 🚀 Upload to Server via SCP
         uses: appleboy/scp-action@master
         with:
@@ -62,14 +67,14 @@ jobs:
             echo "🛡️ Taking full project backup"
             timestamp=$(date +%Y%m%d_%H%M%S)
             mkdir -p /home/servefi/backup_backend
-            cp -r /home/servefi/public_html/Bbbps_Backend /home/servefi/backup_backend/backup_$timestamp
+            cp -r /home/servefi/public_html/Bbbps_Backend /home/servefi/backup_backend/backup_$timestamp || true
 
             echo "🧹 Cleaning old backups (older than 10 days)"
             find /home/servefi/backup_backend -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
 
             echo "📦 Extracting new backend files"
             rm -rf /home/servefi/public_html/Bbbps_Backend/*
-            tar -xzvf /home/servefi/backend.tar.gz -C /home/servefi/public_html/Bbbps_Backend
+            tar -xzf /home/servefi/backend.tar.gz -C /home/servefi/public_html/Bbbps_Backend
             rm /home/servefi/backend.tar.gz
 
             echo "♻️ Restoring .env file"
@@ -79,11 +84,11 @@ jobs:
 
             echo "📦 Installing dependencies"
             cd /home/servefi/public_html/Bbbps_Backend
-            npm install --legacy-peer-deps --production
+            npm install --production --legacy-peer-deps
 
-            echo "🚀 Restarting PM2 app"
+            echo "🚀 Restarting PM2 app (PROD)"
             pm2 delete Bbbps_Backend || true
             pm2 start server.js --name "Bbbps_Backend"
             pm2 save
 
-            echo "✅ Deployment complete!"
+            echo "✅ PRODUCTION DEPLOYMENT COMPLETE!"
