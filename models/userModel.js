@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], 
+      type: [String],
       trim: true,
     },
 
@@ -359,6 +359,34 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    clientSource: {
+      type: String,
+      enum: ["APP", "PANEL"],
+      default: "PANEL",
+    },
+    referralCode: {
+      type: String,
+      unique: true
+    },
+
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
+    referralCount: {
+      type: Number,
+      default: 0
+    },
+
+    referralEarnings: {
+      type: Number,
+      default: 0
+    },
+
+
+
   },
   {
     timestamps: true,
@@ -366,6 +394,31 @@ const userSchema = new mongoose.Schema(
     toObject: { getters: true },
   }
 );
+
+const generateReferralCode = (name = "") => {
+  const prefix = name
+    .substring(0, 3)
+    .toUpperCase()
+    .padEnd(3, "X");
+
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random()
+    .toString(36)
+    .substring(2, 4)
+    .toUpperCase();
+
+  return prefix + timePart.slice(-5) + randomPart;
+};
+
+userSchema.pre("save", function (next) {
+  if (!this.isNew) return next();
+
+  this.referralCode = generateReferralCode(this.name);
+
+  next();
+});
+
+
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
