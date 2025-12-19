@@ -55,6 +55,9 @@ const OTP = require("../models/otpModel");
 //   }
 // };
 
+
+
+
 const verifyEmail7Unique = async (email) => {
   try {
     const res = await axios.post(
@@ -350,7 +353,7 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
-    if (user.isKycVerified === false) {
+    if (user.isKycVerified === false && user.role !== "User") {
       return res.status(403).json({
         message: "Your KYC is not verified. Please complete KYC to continue.",
       });
@@ -545,15 +548,24 @@ const getLoginHistory = async (req, res) => {
 };
 
 const registerUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     let userData = { ...req.body };
 
-    // console.log("body...............", userData);
+    const clientSource = userData.clientSource?.toUpperCase() || "PANEL";
+
+    if (clientSource !== "APP") {
+      delete userData.referal;
+    }
+
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    });
+    }).session(session);
 
     if (existingUser) {
+      await session.abortTransaction();
+      session.endSession();
       if (existingUser.mobileNumber === userData.mobileNumber) {
         return res
           .status(400)
@@ -563,6 +575,29 @@ const registerUser = async (req, res) => {
         return res.status(400).json({ message: "User Email already exists" });
       }
     }
+
+
+    let referredByUser = null;
+
+    if (clientSource === "APP" && userData.referal) {
+      referredByUser = await User.findOne({
+        referralCode: userData.referal,
+      }).session(session);
+
+      if (!referredByUser) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: "Invalid referral code",
+        });
+      }
+    }
+
+    if (referredByUser) {
+      userData.referredBy = referredByUser._id;
+    }
+
+
 
     //questions
     if (userData.questions && typeof userData.questions === "string") {
@@ -673,7 +708,63 @@ const registerUser = async (req, res) => {
     // ✅ Create user
     userData.UserId = await CounterModal.getNextUserId();
     const NewUser = new User(userData);
-    await NewUser.save();
+    await NewUser.save({ session });
+
+    if (referredByUser) {
+
+      const updatedReferrer = await User.findByIdAndUpdate(
+        referredByUser._id,
+        {
+          $inc: {
+            eWallet: 50,
+            referralCount: 1,
+            referralEarnings: 50,
+          },
+        },
+        { session, new: true }
+      );
+
+      const updatedNewUser = await User.findByIdAndUpdate(
+        NewUser._id,
+        {
+          $inc: {
+            eWallet: 20,
+          },
+        },
+        { session, new: true }
+      );
+
+
+      await Transaction.create([{
+        user_id: updatedReferrer._id,
+        transaction_type: "credit",
+        type2: "Refer & Earn",
+        amount: 50,
+        totalCredit: 50,
+        balance_after: updatedReferrer.eWallet,
+        payment_mode: "wallet",
+        transaction_reference_id: `EARN${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        description: "Referral reward",
+        status: "Success"
+      }], { session });
+
+      await Transaction.create([{
+        user_id: updatedNewUser._id,
+        transaction_type: "credit",
+        type2: "Refer & Earn",
+        amount: 20,
+        totalCredit: 20,
+        balance_after: updatedNewUser.eWallet,
+        payment_mode: "wallet",
+        transaction_reference_id: `EARN${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        description: "Referral reward",
+        status: "Success"
+      }], { session });
+
+
+    }
+    await session.commitTransaction();
+    session.endSession();
 
     // ✅ Generate JWT
     const token = generateJwtToken(
@@ -716,6 +807,8 @@ const registerUser = async (req, res) => {
     });
   } catch (error) {
     console.log("eeeeeeeeeeeeeee", error);
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error in registerUser controller:", error);
     return res.status(500).json({ message: "Internal server error", error });
   }
@@ -1290,6 +1383,8 @@ const getDashboardStats = async (req, res, next) => {
       [field]: user.id,
       createdAt: { $gte: startOfToday },
     });
+    console.log("matchTodayUser", matchTodayUser);
+
 
     let todayEarning = 0;
     let todayCharges = 0;
@@ -1524,7 +1619,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startOfToday }, distributorId: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1610,7 +1705,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startOfToday }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1808,6 +1903,7 @@ const otpModel = require("../models/otpModel.js");
 const LoginHistory = require("../models/LoginHistory.js");
 const userModel = require("../models/userModel.js");
 const { generateToken } = require("./kycController.js");
+
 
 // const updateUserPermissions = async (req, res) => {
 //   try {
