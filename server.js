@@ -22,6 +22,7 @@ const loan = require("./routes/loan.routes.js");
 const { default: router } = require("./routes/instantpayPpiRoutes.js");
 
 const bannerRoutes = require("./routes/bannerRoutes.js");
+const blogRoutes = require("./routes/blogRouter.js");
 const panroute = require("./routes/pan.routes.js");
 // const redisRateLimit = require("./middleware/ratelimiter.js");
 const app = express();
@@ -51,7 +52,7 @@ app.use("/uploads", express.static("/var/www/uploads"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// app.use(apiLogger);
+// app.use(apiLogger); 
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
@@ -87,6 +88,7 @@ app.use("/api/v1/getallrole", getAllRole);
 app.use("/api/loans", loan);
 app.use("/api/assets", require("./routes/device.routes"));
 app.use("/api/banners", bannerRoutes);
+app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
 app.get("/", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the API" })
