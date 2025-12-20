@@ -162,7 +162,7 @@ const verifyBank = async (req, res) => {
 };
 
 const verifyPAN = async (req, res) => {
-  const { id_number, userId } = req.body;
+  const { id_number, userId, } = req.body;
 
   console.log("🔍 PAN Verification Requested for:", id_number);
 
@@ -192,6 +192,9 @@ const verifyPAN = async (req, res) => {
 
     const nameFromPAN = response.data.data;
     user.panDetails = nameFromPAN.data;
+    if (user.clientSource === "APP") {
+      user.isKycVerified = true
+    }
     await user.save();
 
     return res
