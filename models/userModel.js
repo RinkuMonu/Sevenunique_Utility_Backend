@@ -425,6 +425,16 @@ userSchema.pre("save", async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+userSchema.pre("save", async function (next) {
+  if (!this.rolePermissions && this.role) {
+    const PermissionByRole = mongoose.model("PermissionByRole");
+    const rolePerm = await PermissionByRole.findOne({ role: this.role });
+    if (rolePerm) {
+      this.rolePermissions = rolePerm._id;
+    }
+  }
+  next();
+});
 
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
