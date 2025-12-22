@@ -711,15 +711,14 @@ const registerUser = async (req, res) => {
 
     // ✅ Create user
     userData.UserId = await CounterModal.getNextUserId();
-    const rolePerm = await PermissionByRole.findOne({ role: userData.role });
-    console.log("rolePerm", rolePerm)
-    if (rolePerm) {
-      userData.rolePermissions = rolePerm._id;
-    }
+    // const rolePerm = await PermissionByRole.findOne({ role: userData.role });
+    // console.log("rolePerm", rolePerm)
+    // if (rolePerm) {
+    //   userData.rolePermissions = rolePerm._id;
+    // }
 
     const NewUser = new User(userData);
     await NewUser.save({ session });
-    console.log("newwwwwwwwwwww", NewUser)
 
     if (referredByUser) {
 
