@@ -142,7 +142,7 @@ exports.listLeads = async (req, res) => {
 
     const [items, total] = await Promise.all([
       LoanLeadModal.find(filter)
-        .populate("retailerId", "name mobileNumber email")
+        .populate("retailerId", "name mobileNumber email UserId")
         .populate("loanTypeId", "name svgicon")
         .sort({ [sortBy]: sortOrder })
         .skip((page - 1) * limit)
