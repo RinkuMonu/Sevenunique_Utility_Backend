@@ -653,7 +653,10 @@ exports.callbackPayIn = async (req, res) => {
 
     // 🧾 Update PayIn record
     const payIn = await PayIn.findOneAndUpdate(
-      { reference: data?.orderId },
+      {
+        reference: data?.orderId,
+        status: { $ne: "Success" }
+      },
       {
         $set: {
           status: isSuccess ? "Success" : "Failed",
@@ -689,7 +692,10 @@ exports.callbackPayIn = async (req, res) => {
 
     // 💳 Update Transaction report
     await Transaction.findOneAndUpdate(
-      { transaction_reference_id: data?.orderId },
+      {
+        transaction_reference_id: data?.orderId,
+        status: { $ne: "Success" }
+      },
       {
         $set: {
           status: isSuccess ? "Success" : "Failed",
