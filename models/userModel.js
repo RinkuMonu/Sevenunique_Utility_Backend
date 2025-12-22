@@ -381,7 +381,7 @@ userSchema.methods.getEffectivePermissions = async function () {
   let perms = new Set();
 
   // ✅ 1️⃣ SUPERADMIN → pehle sab permissions lo (but flat return mat karo)
-  if (this.role === "superAdmin") {
+  if (this.role === "Admin") {
     const all = await Permission.find({});
     all.forEach(p => perms.add(p.key));
   }
