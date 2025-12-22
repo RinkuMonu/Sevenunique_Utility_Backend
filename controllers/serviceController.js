@@ -306,7 +306,7 @@ exports.getCreditScore = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "CIBIL score fetched successfully",
-      data: apiResponse.data, // frontend me score dikhane ke liye
+      data: apiResponse.data, 
       wallet_balance: updatedBalance,
       transaction_ref: transactionRef,
     });
