@@ -1596,7 +1596,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, distributorId: new mongoose.Types.ObjectId(user.id), status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, distributorId: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1682,7 +1682,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
+          { $match:{ createdAt: { $gte: startUTC, $lte: endUTC }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [

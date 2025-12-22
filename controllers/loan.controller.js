@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 const LoanCategoryModal = require("../models/LoanCategory.modal");
 const LoanLeadModal = require("../models/LoanLead.modal");
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
 
 // Retailer: create a lead for loan
 exports.createLead = async (req, res) => {
@@ -161,6 +163,191 @@ exports.listLeads = async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+exports.exportLoans = async (req, res) => {
+  try {
+    const { export: exportType } = req.query;
+
+    // 🔹 same filters jo listing me hain
+    const filter = {};
+    if (req.query.loanType) filter.loanType = req.query.loanType;
+    if (req.query.status) filter.status = req.query.status;
+
+    const loans = await LoanLeadModal.find(filter).sort({ createdAt: -1 }).lean();
+
+    // ================= JSON =================
+    if (exportType === "json") {
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=loan-leads.json"
+      );
+      return res.json(loans);
+    }
+
+    // ================= EXCEL =================
+    if (exportType === "excel") {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("Loan Leads");
+
+      sheet.columns = [
+        { header: "Name", key: "customerName", width: 20 },
+        { header: "Mobile", key: "customerMobile", width: 15 },
+        { header: "Aadhar No.", key: "customerAadhaar", width: 15 },
+        { header: "purpose", key: "purpose", width: 15 },
+        { header: "Loan Type", key: "loanType", width: 20 },
+        { header: "Amount", key: "amountRequested", width: 15 },
+        { header: "Tenure Months", key: "tenureMonths", width: 15 },
+        { header: "Status", key: "status", width: 15 },
+        { header: "Created At", key: "createdAt", width: 20 },
+      ];
+
+      sheet.addRows(loans);
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=loan-leads.xlsx"
+      );
+
+      await workbook.xlsx.write(res);
+      return res.end();
+    }
+
+    // ================= PDF =================
+    if (exportType === "pdf") {
+      const PDFDocument = require("pdfkit");
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 30,
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=loan-leads.pdf"
+      );
+
+      doc.pipe(res);
+
+      /* ================= HEADER ================= */
+      doc
+        .fontSize(16)
+        .fillColor("#0C3D4C")
+        .text("Loan Leads Report", { align: "center" });
+
+      doc.moveDown(1);
+
+      doc
+        .fontSize(10)
+        .fillColor("gray")
+        .text(`Generated on: ${new Date().toLocaleString()}`, {
+          align: "right",
+        });
+
+      doc.moveDown(1.5);
+
+      /* ================= TABLE CONFIG ================= */
+      const tableTop = doc.y;
+      const rowHeight = 18;
+
+      const columns = [
+        { label: "No", width: 20 },
+        { label: "Name", width: 110 },
+        { label: "Mobile", width: 70 },
+        { label: "Loan Type", width: 70 },
+        { label: "Amount", width: 60 },
+        { label: "Status", width: 70 },
+        { label: "Created At", width: 140 },
+      ];
+
+      let x = doc.page.margins.left;
+      let y = tableTop;
+
+      /* ================= TABLE HEADER ================= */
+      doc.fontSize(9).fillColor("#ffffff");
+
+      columns.forEach((col) => {
+        doc
+          .rect(x, y, col.width, rowHeight)
+          .fillAndStroke("#018EDE", "#018EDE");
+
+        doc
+          .fillColor("#ffffff")
+          .text(col.label, x + 3, y + 5, {
+            width: col.width - 6,
+            align: "left",
+          });
+
+        x += col.width;
+      });
+
+      y += rowHeight;
+
+      /* ================= TABLE ROWS ================= */
+      doc.fontSize(9).fillColor("#000");
+
+      loans.forEach((l, i) => {
+        x = doc.page.margins.left;
+
+        const formatIST = (date) => {
+          if (!date) return "-";
+          return new Date(date).toLocaleString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+          });
+        };
+
+
+        const row = [
+          i + 1,
+          l.customerName || "-",
+          l.customerMobile || "-",
+          l.loanType || "-",
+          l.amountRequested || 0,
+          l.status || "-",
+          formatIST(l.createdAt) || "-",
+        ];
+
+        row.forEach((cell, idx) => {
+          doc
+            .rect(x, y, columns[idx].width, rowHeight)
+            .stroke();
+
+          doc.text(String(cell), x + 3, y + 5, {
+            width: columns[idx].width - 6,
+            align: "left",
+          });
+
+          x += columns[idx].width;
+        });
+
+        y += rowHeight;
+
+        /* ================= PAGE BREAK ================= */
+        if (y + rowHeight > doc.page.height - doc.page.margins.bottom) {
+          doc.addPage();
+          y = doc.page.margins.top;
+        }
+      });
+
+      doc.end();
+    }
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Export failed" });
   }
 };
 
