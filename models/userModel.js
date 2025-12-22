@@ -275,8 +275,7 @@ const userSchema = new mongoose.Schema(
 
     documents: [String],
     mpin: {
-      type: Number,
-      required: true,
+      type: Number
     },
     mobileNumber: {
       type: String,
