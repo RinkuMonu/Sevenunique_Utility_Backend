@@ -807,7 +807,13 @@ exports.storeOnboardingData = async (req, res) => {
         message: "Unauthorized user",
       });
     }
-    const user = await userModel.findById(userId).select("isOnBoardEmailSend");
+    const user = await userModel.findById(userId).select("isOnBoardEmailSend isVideoKyc");
+    if (!user.isVideoKyc) {
+      return res.status(400).json({
+        success: false,
+        message: "First you must complete your video KYC",
+      });
+    }
 
     if (user?.isOnBoardEmailSend === true) {
       return res.status(400).json({
