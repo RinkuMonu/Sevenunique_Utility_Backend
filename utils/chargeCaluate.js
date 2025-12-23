@@ -348,7 +348,18 @@ function logApiCall({ url, requestData, responseData = null, error = null }) {
   }
 }
 
+function generateRandomCashback(retailerCommission) {
+  if (!retailerCommission || retailerCommission < 1) return 0;
+
+  const min = 1;
+  const max = Math.floor(retailerCommission);
+
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+
+
 module.exports = {
-  getApplicableServiceCharge, calculateCommissionFromSlabs, applyServiceCharges, logApiCall
+  getApplicableServiceCharge, calculateCommissionFromSlabs, applyServiceCharges, logApiCall, generateRandomCashback
 };
 

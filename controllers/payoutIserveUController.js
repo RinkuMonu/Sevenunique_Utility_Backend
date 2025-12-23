@@ -363,26 +363,46 @@ exports.initiatePayout = async (req, res) => {
 
 //  CALLBACK HANDLER
 exports.payoutCallback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     console.log("📥 Callback Received:", req.query, req.body);
 
     const { status, message, utr, reference, amount } = req.query;
 
     if (!status || !reference) {
+      await session.abortTransaction();
       return res.status(400).json({ success: false, message: "Missing status or reference" });
     }
 
-    const payout = await payOutModel.findOne({ reference: reference });
-    const transaction = await Transaction.findOne({ transaction_reference_id: reference });
+    const payout = await payOutModel.findOne({ reference: reference }).session(session);
+    const transaction = await Transaction.findOne({ transaction_reference_id: reference }).session(session);
     // const dmtReport = await DmtReport.findOne({ referenceid: reference });
 
 
 
-    if (!payout || !transaction || !dmtReport) {
+    if (!payout || !transaction) {
+      await session.abortTransaction();
       return res.status(404).json({ success: false, message: "Records not found for callback" });
     }
 
-    const user = await userModel.findById(payout.userId);
+    if (["Success", "Failed"].includes(payout.status)) {
+      await session.commitTransaction();
+      return res.json({
+        success: true,
+        message: "Callback already processed"
+      });
+    }
+
+    const user = await userModel.findById(payout.userId).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
     if (status.toLowerCase() == "success") {
       payout.status = "Success";
@@ -395,13 +415,16 @@ exports.payoutCallback = async (req, res) => {
       payout.remark = message || "Transaction successful";
       transaction.description = message || "Transaction successful";
     } else if (status.toLowerCase() == "failed") {
-      if (user) {
-        user.eWallet = Number(user.eWallet) + Number(payout.totalDebit || 0);
-        await user.save();
-      }
+
+      const updatedUser = await userModel.findByIdAndUpdate(
+        user._id,
+        { $inc: { eWallet: Number(payout.totalDebit || 0) } },
+        { new: true, session }
+      );
+
       payout.status = "Failed";
       transaction.status = "Failed";
-      transaction.balance_after = user.eWallet,
+      transaction.balance_after = updatedUser.eWallet;
         //   dmtReport.status = "Failed";
         // dmtReport.remarks = message || "Transaction failed";
         // dmtReport.message = message || "Transaction failed";
@@ -414,14 +437,19 @@ exports.payoutCallback = async (req, res) => {
       // dmtReport.status = "Pending";
     }
 
-    await payout.save();
-    await transaction.save();
+    await payout.save({ session });
+    await transaction.save({ session });
     // await dmtReport.save();
+
+    await session.commitTransaction();
 
     return res.status(200).json({ success: true, message: `Callback processed: ${status}` });
   } catch (error) {
+    await session.abortTransaction();
     console.error("❌ Callback Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error in callback" });
+  } finally {
+    session.endSession();
   }
 };
 
