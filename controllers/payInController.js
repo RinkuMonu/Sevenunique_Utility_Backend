@@ -612,6 +612,8 @@ exports.generatePayment = async (req, res, next) => {
 // };
 
 exports.callbackPayIn = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
 
     let data;
@@ -668,11 +670,12 @@ exports.callbackPayIn = async (req, res) => {
           updatedAt: new Date(),
         },
       },
-      { new: true }
+      { new: true, session }
     );
     console.log("payIn found", payIn);
 
     if (!payIn) {
+      await session.commitTransaction();
       return res.status(404).send("Invalid callback reference");
     }
 
@@ -684,10 +687,15 @@ exports.callbackPayIn = async (req, res) => {
       user = await User.findOneAndUpdate(
         { _id: payIn.userId },
         { $inc: { eWallet: amount } },
-        { new: true }
+        { new: true, session }
       );
     } else {
-      user = await User.findById(payIn.userId)
+      user = await User.findById(payIn.userId).session(session);
+    }
+
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).send("User not found");
     }
 
     // 💳 Update Transaction report
@@ -707,8 +715,9 @@ exports.callbackPayIn = async (req, res) => {
           "meta.apiResponse": data
         },
       },
-      { new: true }
+      { new: true, session }
     )
+    await session.commitTransaction();
 
     const successHTML = `
       <!DOCTYPE html>
@@ -798,6 +807,7 @@ exports.callbackPayIn = async (req, res) => {
       return res.status(200).send(isSuccess ? successHTML : failureHTML);
     }
   } catch (error) {
+    await session.abortTransaction();
     console.error("🔥 Error in callback handler:", error.message);
     res.status(500).send(`
       <html>
@@ -807,6 +817,8 @@ exports.callbackPayIn = async (req, res) => {
         </body>
       </html>
     `);
+  } finally {
+    session.endSession();
   }
 };
 

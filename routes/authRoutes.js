@@ -1,5 +1,5 @@
 const express = require("express");
-const   router = express.Router();
+const router = express.Router();
 
 const {
   sendOtpController,
@@ -21,6 +21,8 @@ const {
   updateProgress,
   getLoginHistory,
   updateUserDocs,
+  scratchCashback,
+  getCouponHistory,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -146,5 +148,26 @@ router.get(
   authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   getUserPermissions
 );
+
+
+// coupon-history
+router.get(
+  "/coupon-history",
+  authenticateToken,
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  getCouponHistory
+);
+
+
+// scratch-coupons
+
+router.get(
+  "/users/scratch-coupons",
+  authenticateToken,
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  scratchCashback
+);
+
+
 
 module.exports = router;
