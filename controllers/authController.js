@@ -17,6 +17,8 @@ const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
 const { getISTDayRange } = require("../services/timeZone.js");
+const PermissionByRole = require("../models/PermissionByRole.js");
+
 
 
 // utils/getDeviceName.js
@@ -709,6 +711,12 @@ const registerUser = async (req, res) => {
 
     // ✅ Create user
     userData.UserId = await CounterModal.getNextUserId();
+    // const rolePerm = await PermissionByRole.findOne({ role: userData.role });
+    // console.log("rolePerm", rolePerm)
+    // if (rolePerm) {
+    //   userData.rolePermissions = rolePerm._id;
+    // }
+
     const NewUser = new User(userData);
     await NewUser.save({ session });
 
@@ -774,33 +782,6 @@ const registerUser = async (req, res) => {
       NewUser.role,
       NewUser.mobileNumber
     );
-
-    // ✅ Send lead to external API
-    // try {
-    //   await axios.post(
-    //     "https://cms.sevenunique.com/apis/leads/set-leads.php",
-    //     {
-    //       website_id: 6,
-    //       name: NewUser.name,
-    //       mobile_number: NewUser.mobileNumber,
-    //       email: NewUser.email,
-    //       address: NewUser.address,
-    //       client_type: NewUser.role,
-    //       notes: "Lead from FinUnique small private limited",
-    //     },
-    //     {
-    //       headers: {
-    //         "Content-Type": "application/json",
-    //         Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-    //       },
-    //     }
-    //   );
-    // } catch (leadError) {
-    //   console.error(
-    //     "Error sending lead data:",
-    //     leadError.response ? leadError.response.data : leadError.message
-    //   );
-    // }
 
     return res.status(200).json({
       message: "Registration successful",
