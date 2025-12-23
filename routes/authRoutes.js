@@ -161,7 +161,7 @@ router.get(
 
 // scratch-coupons
 
-router.get(
+router.post(
   "/users/scratch-coupons",
   authenticateToken,
   authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),

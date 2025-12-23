@@ -373,6 +373,10 @@ const userSchema = new mongoose.Schema(
       ref: "User",
       default: null
     },
+    referralRewardGiven: {
+      type: Boolean,
+      default: false,
+    },
 
     referralCount: {
       type: Number,
