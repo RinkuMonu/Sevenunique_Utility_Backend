@@ -1700,7 +1700,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match:{ createdAt: { $gte: startUTC, $lte: endUTC }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1898,6 +1898,7 @@ const otpModel = require("../models/otpModel.js");
 const LoginHistory = require("../models/LoginHistory.js");
 const userModel = require("../models/userModel.js");
 const { generateToken } = require("./kycController.js");
+const scratchCouponModel = require("../models/scratchCoupon.model.js");
 
 
 // const updateUserPermissions = async (req, res) => {
@@ -2118,6 +2119,103 @@ const updateUserDocs = async (req, res) => {
   }
 };
 
+
+const getCouponHistory = async (req, res) => {
+  try {
+    const { status, userId } = req.query;
+    const role = req.user.role;
+
+    let filter = {};
+
+    if (role === "User") {
+
+      filter.userId = req.user.id;
+    } else if (role === "Admin") {
+      if (userId) filter.userId = userId;
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const query = scratchCouponModel
+      .find(filter)
+      .sort({ createdAt: -1 });
+
+    if (role === "Admin") {
+      query.populate("userId", "name email mobileNumber");
+    }
+
+    const coupons = await query.select(
+      "serviceName baseAmount cashbackAmount status createdAt scratchedAt"
+    );
+
+    res.json({
+      success: true,
+      role,
+      count: coupons.length,
+      data: coupons
+    });
+
+  } catch (err) {
+    console.error("Coupon history error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
+const scratchCashback = async (req, res) => {
+  const userId = req.user.id;
+  const { couponId } = req.body;
+
+  const coupon = await scratchCouponModel.findOne({
+    _id: couponId,
+    userId,
+    status: "UNSCRATCHED"
+  });
+
+  if (!coupon) {
+    return res.status(400).json({ message: "Invalid or already scratched coupon" });
+  }
+
+  // wallet credit
+  const updateUser = await userModel.findByIdAndUpdate(
+    userId,
+    { $inc: { eWallet: coupon.cashbackAmount } }
+  );
+
+  // mark scratched
+  coupon.status = "SCRATCHED";
+  coupon.scratchedAt = new Date();
+  await coupon.save();
+
+  // transaction entry
+  await Transaction.create({
+    user_id: userId,
+    transaction_type: "credit",
+    amount: coupon.cashbackAmount,
+    totalCredit: coupon.cashbackAmount,
+    balance_after: updateUser.eWallet,
+    type2: "CASHBACK",
+    payment_mode: "wallet",
+    transaction_reference_id: coupon.serviceTxnId,
+    status: "Success",
+    description: "Scratch Card Cashback"
+  });
+
+  res.json({
+    success: true,
+    cashbackAmount: coupon.cashbackAmount
+  });
+};
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
@@ -2139,4 +2237,6 @@ module.exports = {
   getLoginHistory,
   verifyEmail7Unique,
   updateUserDocs,
+  getCouponHistory,
+  scratchCashback
 };
