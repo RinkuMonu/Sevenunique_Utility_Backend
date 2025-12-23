@@ -333,6 +333,71 @@ exports.makePayment = async (req, res, next) => {
     } else if (data?.status === "Transaction Under Process") {
       statusUpdate = "Pending";
     }
+
+
+    if (
+      statusUpdate === "Success" &&
+      user.role === "User" &&
+      user.referredBy &&
+      !user.referralRewardGiven &&
+      Number(transactionAmount) >= 50
+    ) {
+      const referrerReward = 50;
+      const newUserReward = 20;
+
+
+      const referrer = await userModel.findByIdAndUpdate(
+        user.referredBy,
+        {
+          $inc: {
+            eWallet: referrerReward,
+            referralCount: 1,
+            referralEarnings: referrerReward,
+          },
+        },
+        { new: true, session }
+      );
+
+      const rewardedUser = await userModel.findByIdAndUpdate(
+        userId,
+        {
+          $inc: { eWallet: newUserReward },
+          $set: { referralRewardGiven: true },
+        },
+        { new: true, session }
+      );
+
+      await Transaction.create([
+        {
+          user_id: referrer._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: referrerReward,
+          totalCredit: referrerReward,
+          balance_after: referrer.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `REFERRER-${referenceid}`,
+          description: "Referral reward (first successful transaction)",
+          status: "Success",
+        },
+        {
+          user_id: rewardedUser._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: newUserReward,
+          totalCredit: newUserReward,
+          balance_after: rewardedUser.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `USER-${referenceid}`,
+          description: "Signup referral reward",
+          status: "Success",
+        },
+      ], { session });
+    }
+
+
+
+
     let finalUser = updateUser;
     // ✅ On success → payout & commission credit
     if (statusUpdate === "Success") {
@@ -352,6 +417,10 @@ exports.makePayment = async (req, res, next) => {
         totalDebit: required,
         remark: `Bill Payment for ${inputParameters.param1}`,
       }).save({ session });
+
+
+
+
 
       // 🔥 USER ROLE → SCRATCH CASHBACK
       if (user.role === "User") {

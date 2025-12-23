@@ -720,59 +720,7 @@ const registerUser = async (req, res) => {
     const NewUser = new User(userData);
     await NewUser.save({ session });
 
-    if (referredByUser) {
-
-      const updatedReferrer = await User.findByIdAndUpdate(
-        referredByUser._id,
-        {
-          $inc: {
-            eWallet: 50,
-            referralCount: 1,
-            referralEarnings: 50,
-          },
-        },
-        { session, new: true }
-      );
-
-      const updatedNewUser = await User.findByIdAndUpdate(
-        NewUser._id,
-        {
-          $inc: {
-            eWallet: 20,
-          },
-        },
-        { session, new: true }
-      );
-
-
-      await Transaction.create([{
-        user_id: updatedReferrer._id,
-        transaction_type: "credit",
-        type2: "Refer & Earn",
-        amount: 50,
-        totalCredit: 50,
-        balance_after: updatedReferrer.eWallet,
-        payment_mode: "wallet",
-        transaction_reference_id: `EARN${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-        description: "Referral reward",
-        status: "Success"
-      }], { session });
-
-      await Transaction.create([{
-        user_id: updatedNewUser._id,
-        transaction_type: "credit",
-        type2: "Refer & Earn",
-        amount: 20,
-        totalCredit: 20,
-        balance_after: updatedNewUser.eWallet,
-        payment_mode: "wallet",
-        transaction_reference_id: `EARN${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-        description: "Referral reward",
-        status: "Success"
-      }], { session });
-
-
-    }
+ 
     await session.commitTransaction();
     session.endSession();
 
@@ -2153,49 +2101,80 @@ const getCouponHistory = async (req, res) => {
 };
 
 const scratchCashback = async (req, res) => {
-  const userId = req.user.id;
-  const { couponId } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const coupon = await scratchCouponModel.findOne({
-    _id: couponId,
-    userId,
-    status: "UNSCRATCHED"
-  });
+  try {
+    const userId = req.user.id;
+    const { couponId } = req.body;
 
-  if (!coupon) {
-    return res.status(400).json({ message: "Invalid or already scratched coupon" });
+    // 1️⃣ Find valid coupon
+    const coupon = await scratchCouponModel.findOne({
+      _id: couponId,
+      userId,
+      status: "UNSCRATCHED",
+      expiresAt: { $gt: new Date() } // ✅ expiry check
+    }).session(session);
+
+    if (!coupon) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid, expired or already scratched coupon"
+      });
+    }
+
+    // 2️⃣ Credit wallet (get UPDATED wallet)
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: coupon.cashbackAmount } },
+      { new: true, session }
+    );
+
+    if (!updatedUser) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // 3️⃣ Mark coupon as scratched
+    coupon.status = "SCRATCHED";
+    coupon.scratchedAt = new Date();
+    await coupon.save({ session });
+
+    // 4️⃣ Create transaction entry
+    await Transaction.create([{
+      user_id: userId,
+      transaction_type: "credit",
+      type2: "CASHBACK",
+      amount: coupon.cashbackAmount,
+      totalCredit: coupon.cashbackAmount,
+      balance_after: updatedUser.eWallet, 
+      payment_mode: "wallet",
+      transaction_reference_id: `CB-${coupon.serviceTxnId}`, 
+      status: "Success",
+      description: `Scratch cashback for ${coupon.serviceName}`
+    }], { session });
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      cashbackAmount: coupon.cashbackAmount,
+      walletBalance: updatedUser.eWallet
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("❌ Scratch Cashback Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to scratch coupon"
+    });
+  } finally {
+    session.endSession();
   }
-
-  // wallet credit
-  const updateUser = await userModel.findByIdAndUpdate(
-    userId,
-    { $inc: { eWallet: coupon.cashbackAmount } }
-  );
-
-  // mark scratched
-  coupon.status = "SCRATCHED";
-  coupon.scratchedAt = new Date();
-  await coupon.save();
-
-  // transaction entry
-  await Transaction.create({
-    user_id: userId,
-    transaction_type: "credit",
-    amount: coupon.cashbackAmount,
-    totalCredit: coupon.cashbackAmount,
-    balance_after: updateUser.eWallet,
-    type2: "CASHBACK",
-    payment_mode: "wallet",
-    transaction_reference_id: coupon.serviceTxnId,
-    status: "Success",
-    description: "Scratch Card Cashback"
-  });
-
-  res.json({
-    success: true,
-    cashbackAmount: coupon.cashbackAmount
-  });
 };
+
 
 module.exports = {
   sendOtpController,
