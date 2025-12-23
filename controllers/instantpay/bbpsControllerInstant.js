@@ -5,12 +5,13 @@ const createError = require("http-errors");
 const Joi = require("joi");
 const BbpsHistory = require("../../models/bbpsModel");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback } = require("../../utils/chargeCaluate");
 const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const { distributeCommission } = require("../../utils/distributerCommission");
+const scratchCouponModel = require("../../models/scratchCoupon.model");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -257,7 +258,8 @@ exports.makePayment = async (req, res, next) => {
     }
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+    const retailerBenefit = user.role === "User" ? 0 : Number(commission.retailer || 0);
+    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(retailerBenefit || 0)).toFixed(2));
 
 
     // ✅ Balance check
@@ -285,7 +287,7 @@ exports.makePayment = async (req, res, next) => {
       tds: Number(commission.tds || 0),
       charge: Number(commission.charge || 0),
       totalDebit: Number(required),
-      totalCredit: Number(commission.retailer || 0),
+      totalCredit: user.role === "User" ? 0 : Number(commission.retailer || 0),
       balance_after: updateUser.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
@@ -301,7 +303,7 @@ exports.makePayment = async (req, res, next) => {
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
-      retailerCommission: Number(commission.retailer || 0),
+      retailerCommission: user.role === "User" ? 0 : Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
       gst: commission.gst,
@@ -331,7 +333,7 @@ exports.makePayment = async (req, res, next) => {
     } else if (data?.status === "Transaction Under Process") {
       statusUpdate = "Pending";
     }
-
+    let finalUser = updateUser;
     // ✅ On success → payout & commission credit
     if (statusUpdate === "Success") {
       await new payOutModel({
@@ -351,39 +353,68 @@ exports.makePayment = async (req, res, next) => {
         remark: `Bill Payment for ${inputParameters.param1}`,
       }).save({ session });
 
+      // 🔥 USER ROLE → SCRATCH CASHBACK
+      if (user.role === "User") {
+        const retailerCommission = Number(commission.retailer || 0);
 
-      await CommissionTransaction.create([{
-        referenceId: referenceid,
-        service: service?._id || "BBPS",
-        baseAmount: Number(transactionAmount),
-        charge: Number(commission.charge || 0),
-        netAmount: Number(required),
-        roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
-          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
-          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
-        ],
-        type: "credit",
-        status: "Success",
-        sourceRetailerId: userId,
-      }], { session });
+        if (retailerCommission > 0) {
 
-      await distributeCommission({
-        user: userId,
-        distributer: user.distributorId,
-        service,
-        amount: transactionAmount,
-        commission,
-        reference: referenceid,
-        description: `Commission for ${billerId.billerName}`,
-        session,
-      });
+          const cashbackAmount = generateRandomCashback(retailerCommission);
+
+          if (cashbackAmount > 0) {
+            await scratchCouponModel.findOneAndUpdate(
+              { serviceTxnId: referenceid },
+              {
+                $setOnInsert: {
+                  userId,
+                  serviceTxnId: referenceid,
+                  serviceName: billerId.billerName,
+                  baseAmount: required,
+                  cashbackAmount
+                }
+              },
+              { upsert: true, session }
+            );
+
+          }
+        }
+      } else {
+        await CommissionTransaction.create([{
+          referenceId: referenceid,
+          service: service?._id || "BBPS",
+          baseAmount: Number(transactionAmount),
+          charge: Number(commission.charge || 0),
+          netAmount: Number(required),
+          roles: [
+            { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
+            { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+            { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+          ],
+          type: "credit",
+          status: "Success",
+          sourceRetailerId: userId,
+        }], { session });
+
+        await distributeCommission({
+          user: userId,
+          distributer: user.distributorId,
+          service,
+          amount: transactionAmount,
+          commission,
+          reference: referenceid,
+          description: `Commission for ${billerId.billerName}`,
+          session,
+        });
+      }
+
+
+
     } else if (statusUpdate === "Failed") {
       // ✅ Refund wallet if failed
-      await userModel.findByIdAndUpdate(
+      finalUser = await userModel.findByIdAndUpdate(
         userId,
         { $inc: { eWallet: required } },
-        { session }
+        { new: true, session }
       );
 
     }
@@ -397,15 +428,25 @@ exports.makePayment = async (req, res, next) => {
           $set: {
             status: statusUpdate,
             apiResponse: data,
-            balance_after: user.eWallet,
+            balance_after: finalUser.eWallet,
           },
         },
         { session }
       ),
     ]);
 
+    let scratchCoupon = null;
+
+    if (statusUpdate === "Success" && user.role === "User") {
+      scratchCoupon = await scratchCouponModel.findOne(
+        { serviceTxnId: referenceid },
+        { _id: 1, cashbackAmount: 1, createdAt: 1 }
+      ).session(session);
+    }
+
+
     await session.commitTransaction();
-    forward(res, data);
+    forward(res, { ...data, scratchCoupon });
 
   } catch (err) {
 
