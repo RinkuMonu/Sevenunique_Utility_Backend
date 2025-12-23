@@ -91,7 +91,7 @@ app.use("/api/banners", bannerRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
 app.get("/", (req, res) =>
-  res.json({ ip: req.ip, message: "Welcome to the API" })
+  res.json({ ip: req.ip, message: "Welcome to the SEVEN UNIQUE API" })
 );
 
 mongoose
