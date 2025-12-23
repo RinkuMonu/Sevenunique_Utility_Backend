@@ -1,4 +1,4 @@
-const mongoose  = require("mongoose");
+const mongoose = require("mongoose");
 
 const scratchCouponSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -19,6 +19,15 @@ const scratchCouponSchema = new mongoose.Schema({
     expiresAt: Date,
 
     createdAt: { type: Date, default: Date.now }
+});
+
+scratchCouponSchema.pre("save", function (next) {
+    if (this.isNew && !this.expiresAt) {
+        const expiry = new Date(this.createdAt || Date.now());
+        expiry.setMonth(expiry.getMonth() + 1);
+        this.expiresAt = expiry;
+    }
+    next();
 });
 
 
