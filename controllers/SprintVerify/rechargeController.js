@@ -6,15 +6,16 @@ const PayOut = require("../../models/payOutModel.js")
 const Transaction = require("../../models/transactionModel.js");
 const userModel = require("../../models/userModel.js");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate.js");
+const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs, generateRandomCashback } = require("../../utils/chargeCaluate.js");
 const { distributeCommission } = require("../../utils/distributerCommission.js");
 const CommissionTransaction = require("../../models/CommissionTransaction.js");
+const scratchCouponModel = require("../../models/scratchCoupon.model.js");
 
 
 function getPaysprintHeaders() {
   return {
     Token: generatePaysprintJWT(),
-    Authorisedkey:  process.env.PAYSPRINT_AUTH_KEY_P
+    Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P
   };
 }
 
@@ -176,10 +177,11 @@ exports.doRecharge = async (req, res, next) => {
       throw new Error("Invalid mpin ! Please enter a vaild mpin");
     }
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const retailerBenefit = user.role === "User" ? 0 : Number(commission.retailer || 0);
     const required = Number((
       Number(amount) +
       Number(commission.charge || 0) +
-      Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)
+      Number(commission.gst || 0) + Number(commission.tds || 0) - Number(retailerBenefit || 0)
     ).toFixed(2));
 
     if (usableBalance < required) {
@@ -191,11 +193,14 @@ exports.doRecharge = async (req, res, next) => {
     }
 
     // ✅ Deduct from wallet
-    user.eWallet -= required;
 
-    await user.save({ session });
+    const updateUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: -required } },
+      { new: true, session }
+    );
 
-    console.log("💳 Wallet debited. Balance:", user.eWallet);
+
 
     // ✅ Create debit transaction
     const debitTxn = await Transaction.create([{
@@ -207,8 +212,8 @@ exports.doRecharge = async (req, res, next) => {
       tds: Number(commission.tds),
       charge: Number(commission.charge),
       totalDebit: Number(required),
-      totalCredit: Number(commission.retailer || 0),
-      balance_after: user.eWallet,
+      totalCredit: user.role === "User" ? 0 : Number(commission.retailer || 0),
+      balance_after: updateUser.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Recharge for ${canumber} (${operatorName})`,
@@ -224,7 +229,7 @@ exports.doRecharge = async (req, res, next) => {
 
       charges: Number(commission.charge || 0),
 
-      retailerCommission: Number(commission.retailer || 0),
+      retailerCommission: user.role === "User" ? 0 : Number(commission.retailer || 0),
 
       distributorCommission: Number(commission.distributor || 0),
 
@@ -280,21 +285,26 @@ exports.doRecharge = async (req, res, next) => {
     await debitTxn[0].save({ session });
     console.log("✅ Transaction status updated:", status);
 
+    let finalUser = updateUser;
+
     // ✅ Refund if failed
     if (status === "Failed") {
-      user.eWallet += required;
-      await user.save({ session });
-      console.log("💰 Refund completed. Wallet:", user.eWallet);
+      finalUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { new: true, session }
+      );
 
       rechargeRecord[0].status = "Refunded";
       await rechargeRecord[0].save({ session });
 
       debitTxn[0].status = status;
+      debitTxn[0].balance_after = finalUser.eWallet;
       await debitTxn[0].save({ session });
       console.log("♻️ Recharge marked as refunded");
     }
 
- 
+
     if (status === "Success") {
       const newPayOut = new PayOut({
         userId,
@@ -315,58 +325,95 @@ exports.doRecharge = async (req, res, next) => {
       await newPayOut.save({ session });
       console.log("🏦 Payout entry created");
 
-      await CommissionTransaction.create([{
-        referenceId: referenceid,
-        service: service._id,
-        baseAmount: Number(amount),
-        charge: Number(commission.charge),
-        netAmount: Number(required),
-        roles: [
-          {
-            userId,
-            role: "Retailer",
-            commission: commission.retailer || 0,
-            chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
-          },
-          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
-          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
-        ],
-        type: "credit",
-        status: "Success",
-        sourceRetailerId: userId,
-      }], { session });
+      if (user.role === "User") {
+        const retailerCommission = Number(commission.retailer || 0);
 
-      console.log("💸 CommissionTransaction created for all roles");
+        if (retailerCommission > 0) {
 
+          const cashbackAmount = generateRandomCashback(retailerCommission);
 
-      await distributeCommission({
-        user: userId,
-        distributer: user.distributorId,
-        service: service,
-        amount,
-        commission,
-        reference: referenceid,
-        description: `Commission for recharge of ${canumber}`,
-        session
-      });
-      console.log("💸 Commission distributed");
+          if (cashbackAmount > 0) {
+            await scratchCouponModel.findOneAndUpdate(
+              { serviceTxnId: referenceid },
+              {
+                $setOnInsert: {
+                  userId,
+                  serviceTxnId: referenceid,
+                  serviceName: "Recharge",
+                  baseAmount: required,
+                  cashbackAmount
+                }
+              },
+              { upsert: true, session }
+            );
+
+          }
+        }
+      } else {
+        await CommissionTransaction.create([{
+          referenceId: referenceid,
+          service: service._id,
+          baseAmount: Number(amount),
+          charge: Number(commission.charge),
+          netAmount: Number(required),
+          roles: [
+            {
+              userId,
+              role: "Retailer",
+              commission: commission.retailer || 0,
+              chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+            },
+            { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+            { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+          ],
+          type: "credit",
+          status: "Success",
+          sourceRetailerId: userId,
+        }], { session });
+
+        console.log("💸 CommissionTransaction created for all roles");
+
+        await distributeCommission({
+          user: userId,
+          distributer: user.distributorId,
+          service: service,
+          amount,
+          commission,
+          reference: referenceid,
+          description: `Commission for recharge of ${canumber}`,
+          session
+        });
+        console.log("💸 Commission distributed");
+      }
+
+    }
+
+    let scratchCoupon = null;
+
+    if (status === "Success" && user.role === "User") {
+      scratchCoupon = await scratchCouponModel.findOne(
+        { serviceTxnId: referenceid },
+        { _id: 1, cashbackAmount: 1, createdAt: 1 }
+      ).session(session);
     }
 
     await session.commitTransaction();
-    session.endSession();
     console.log("✅ Recharge transaction committed successfully");
 
-    return res.status(status === "Success" ? 200 : 400).json({
+    return res.status(status === "Success" ? 200 : status === "Pending" ? 202 : 400).json({
       status: status.toLowerCase(),
       message: message || `Recharge ${status.toLowerCase()}`,
-      refid: referenceid
+      refid: referenceid,
+      scratchCoupon
     });
 
   } catch (err) {
     await session.abortTransaction();
-    session.endSession();
     console.error("❌ Error in doRecharge:", err);
     return next(err);
+  } finally {
+    session.endSession();
+
   }
 };
 

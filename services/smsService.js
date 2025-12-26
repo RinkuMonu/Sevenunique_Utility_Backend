@@ -1,15 +1,32 @@
 const axios = require("axios");
 
-const sendOtp = async (mobileNumber, otp) => {
+const sendOtp = async (mobileNumber, otp, type) => {
   try {
-    const authKey = process.env.MSG91_AUTH_KEY; 
-    const templateId = process.env.MSG91_TEMPLATE_ID; 
+    const authKey = process.env.MSG91_AUTH_KEY;
+    const templatedDEFALUT = process.env.MSG91_TEMPLATE_ID;
+    const templateIdForLogREG = process.env.MSG91_TEMPLATE_ID_FOR_LOG_N_REG;
+    const templateIdForForgot_password = process.env.MSG91_TEMPLATE_ID_FOR_FORGET_PASWORD;
+    const templateIdForReset_MPIN = process.env.MSG91_TEMPLATE_ID_FOR_LOG_N_REG_RESET_MPIN;
 
-    if (!authKey || !templateId) {
+    if (!authKey) {
       console.error("Missing MSG91 Auth Key or Template ID");
       throw new Error("MSG91 Auth Key or Template ID is missing");
     }
-
+    let templateId = "";
+    if (type === "password") {
+      templateId = templateIdForForgot_password;
+    }
+    else if (type === "mpin") {
+      templateId = templateIdForReset_MPIN;
+    }
+    else if (type === "login" || type === "register") {
+      templateId = templateIdForLogREG;
+    }
+    else {
+      templateId = templatedDEFALUT;
+    }
+    console.log(mobileNumber, otp, type)
+    console.log(templateId)
     const payload = {
       template_id: templateId,
       recipients: [
@@ -30,7 +47,7 @@ const sendOtp = async (mobileNumber, otp) => {
           authkey: authKey,
         },
       }
-      
+
     );
     console.log(response)
     if (response.data.type === "success") {

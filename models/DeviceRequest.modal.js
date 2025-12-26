@@ -1,3 +1,4 @@
+const { required } = require("joi");
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
@@ -8,10 +9,22 @@ const DeviceRequestSchema = new Schema(
     quantity: { type: Number, default: 1, min: 1 },
     address: { type: String, required: true },
     remarks: { type: String },
+    amount: { type: Number, require: true },
+    gstAmount: { type: Number, required: true },
+    totalCost: { type: Number, require: true },
+    requestID: {
+      type: String,
+      unique: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: ["PENDING", "APPROVED", "REJECTED", "SHIPPED", "DELIVERED"],
       default: "PENDING",
+    },
+    transactionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Transaction",
     },
     adminNote: { type: String },
   },

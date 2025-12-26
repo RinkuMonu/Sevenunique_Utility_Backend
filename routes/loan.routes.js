@@ -19,6 +19,7 @@ router.get("/my", authenticateToken, C.getMyLeads);
 
 // Admin
 router.get("/", authenticateToken, C.listLeads);
+router.get("/export", authenticateToken, C.exportLoans);
 router.get("/:id", authenticateToken, C.getLeadById);
 router.patch("/:id", authenticateToken, C.updateLead);
 
