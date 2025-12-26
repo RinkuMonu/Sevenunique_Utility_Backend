@@ -1,4 +1,4 @@
-name: 🚀 DEV CI/CD (SCP) - Bbbps Backend
+name: 🚀 DEV CI/CD - Bbbps Backend
 
 on:
   push:
@@ -10,37 +10,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout code
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Node.js (only for consistency, build nahi ho raha yahan)
       - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
+      # 3️⃣ Clean unwanted files
       - name: 🧹 Clean workspace
         run: |
           rm -rf node_modules
           rm -rf .git
 
-      - name: 📤 Upload code to server via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          source: "."
-          target: ${{ secrets.SERVER_PATH }}
-
-      - name: 🔁 Install deps & Restart PM2
+      # 4️⃣ SSH key test (VERY IMPORTANT)
+      - name: 🔐 Test SSH Connection
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          username: devserve
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          script: |
+            echo "SSH connected as:"
+            whoami
+            hostname
+            pwd
+
+      # 5️⃣ Upload code via SCP
+      - name: 📤 Upload Backend Code (SCP)
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: devserve
+          key: ${{ secrets.DEV_SSH_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          source: |
+            .
+            !node_modules
+            !.git
+            !.github
+          target: /home/devserve/public_html/Bbbps_Backend
+          strip_components: 1
+
+      # 6️⃣ Install deps & restart PM2
+      - name: 🔁 Install Dependencies & Restart PM2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: devserve
+          key: ${{ secrets.DEV_SSH_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             cd /home/devserve/public_html/Bbbps_Backend
-            npm install
-            pm2 restart Dev_Bbbps_Backend
+            npm install --production
+            pm2 restart Dev_Bbbps_Backend || pm2 start server.js --name Dev_Bbbps_Backend
+            pm2 save
