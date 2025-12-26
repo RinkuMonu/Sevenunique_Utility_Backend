@@ -1,4 +1,4 @@
-name: Deploy Node.js Backend to CWP Server
+name: 🚀 DEV CI/CD - Git Reset Deploy (Bbbps Backend)
 
 on:
   push:
@@ -10,80 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout Code
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v3
-
-      # 2️⃣ Setup Node.js
-      - name: 🛠️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # 3️⃣ Compress Backend Code (skip uploads & node_modules)
-      - name: 📦 Compress Backend Code
-        run: |
-          echo "🧳 Compressing backend files safely..."
-          tar --exclude='./uploads' \
-              --exclude='./storage' \
-              --exclude='./node_modules' \
-              --exclude='.DS_Store' \
-              --exclude='.git' \
-              -czvf backend.tar.gz . 2> /dev/null || true
-
-      # 4️⃣ Upload to Server
-      - name: 🚀 Upload to Server via SCP
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          source: "backend.tar.gz"
-          target: "/home/devserve/"
-
-      # 5️⃣ SSH Deploy, Install, Restart
-      - name: 🔐 SSH Deploy & Restart via PM2
+      - name: 🔐 Deploy via SSH (Git Reset Hard)
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          username: devserve
+          key: ${{ secrets.DEV_SSH_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            echo "📁 Creating backend folder if missing"
-            mkdir -p /home/devserve/public_html/Bbbps_Backend
+            echo "Connected as:"
+            whoami
+            hostname
 
-            echo "🔐 Backing up existing .env"
-            if [ -f /home/devserve/public_html/Bbbps_Backend/.env ]; then
-              cp /home/devserve/public_html/Bbbps_Backend/.env /home/devserve/.env_backup
-            fi
-
-            echo "🛡️ Taking full project backup"
-            timestamp=$(date +%Y%m%d_%H%M%S)
-            mkdir -p /home/devserve/backup_backend
-            cp -r /home/devserve/public_html/Bbbps_Backend /home/devserve/backup_backend/backup_$timestamp
-
-            echo "🧹 Cleaning old backups (older than 10 days)"
-            find /home/devserve/backup_backend -mindepth 1 -mtime +10 -exec rm -rf {} \; || true
-
-            echo "📦 Extracting new backend files"
-            rm -rf /home/devserve/public_html/Bbbps_Backend/*
-            tar -xzvf /home/devserve/backend.tar.gz -C /home/devserve/public_html/Bbbps_Backend
-            rm /home/devserve/backend.tar.gz
-
-            echo "♻️ Restoring .env file"
-            if [ -f /home/devserve/.env_backup ]; then
-              mv /home/devserve/.env_backup /home/devserve/public_html/Bbbps_Backend/.env
-            fi
-
-            echo "📦 Installing dependencies"
             cd /home/devserve/public_html/Bbbps_Backend
-            npm install --legacy-peer-deps --production
 
-            echo "🚀 Restarting PM2 app"
-            pm2 delete Dev_Bbbps_Backend || true
-            pm2 start server.js --name "Dev_Bbbps_Backend"
+            echo "Fetching latest code..."
+            git fetch origin
+
+            echo "Resetting server code to origin/dev..."
+            git reset --hard origin/dev
+
+            echo "Installing dependencies..."
+            npm install --production
+
+            echo "Restarting PM2..."
+            pm2 restart Dev_Bbbps_Backend || pm2 start server.js --name Dev_Bbbps_Backend
+
             pm2 save
-
-            echo "✅ Deployment complete!"

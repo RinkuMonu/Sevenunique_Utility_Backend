@@ -12,6 +12,7 @@ export const planCheckCronJob = () => {
     console.log("🔄 Running daily plan expiry check...");
 
     try {
+      
       const now = new Date();
 
       // Sabhi users jinka plan endDate nikal gaya hai
