@@ -16,6 +16,10 @@ const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
+const { getISTDayRange } = require("../services/timeZone.js");
+const PermissionByRole = require("../models/PermissionByRole.js");
+
+
 
 // utils/getDeviceName.js
 
@@ -54,6 +58,9 @@ const OTP = require("../models/otpModel");
 //     return { valid: false, reason: "api_error" };
 //   }
 // };
+
+
+
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -350,7 +357,7 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
-    if (user.isKycVerified === false) {
+    if (user.isKycVerified === false && user.role !== "User") {
       return res.status(403).json({
         message: "Your KYC is not verified. Please complete KYC to continue.",
       });
@@ -545,15 +552,24 @@ const getLoginHistory = async (req, res) => {
 };
 
 const registerUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     let userData = { ...req.body };
 
-    // console.log("body...............", userData);
+    const clientSource = userData.clientSource?.toUpperCase() || "PANEL";
+
+    if (clientSource !== "APP") {
+      delete userData.referal;
+    }
+
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    });
+    }).session(session);
 
     if (existingUser) {
+      await session.abortTransaction();
+      session.endSession();
       if (existingUser.mobileNumber === userData.mobileNumber) {
         return res
           .status(400)
@@ -563,6 +579,29 @@ const registerUser = async (req, res) => {
         return res.status(400).json({ message: "User Email already exists" });
       }
     }
+
+
+    let referredByUser = null;
+
+    if (clientSource === "APP" && userData.referal) {
+      referredByUser = await User.findOne({
+        referralCode: userData.referal,
+      }).session(session);
+
+      if (!referredByUser) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: "Invalid referral code",
+        });
+      }
+    }
+
+    if (referredByUser) {
+      userData.referredBy = referredByUser._id;
+    }
+
+
 
     //questions
     if (userData.questions && typeof userData.questions === "string") {
@@ -672,8 +711,18 @@ const registerUser = async (req, res) => {
 
     // ✅ Create user
     userData.UserId = await CounterModal.getNextUserId();
+    // const rolePerm = await PermissionByRole.findOne({ role: userData.role });
+    // console.log("rolePerm", rolePerm)
+    // if (rolePerm) {
+    //   userData.rolePermissions = rolePerm._id;
+    // }
+
     const NewUser = new User(userData);
-    await NewUser.save();
+    await NewUser.save({ session });
+
+ 
+    await session.commitTransaction();
+    session.endSession();
 
     // ✅ Generate JWT
     const token = generateJwtToken(
@@ -682,33 +731,6 @@ const registerUser = async (req, res) => {
       NewUser.mobileNumber
     );
 
-    // ✅ Send lead to external API
-    // try {
-    //   await axios.post(
-    //     "https://cms.sevenunique.com/apis/leads/set-leads.php",
-    //     {
-    //       website_id: 6,
-    //       name: NewUser.name,
-    //       mobile_number: NewUser.mobileNumber,
-    //       email: NewUser.email,
-    //       address: NewUser.address,
-    //       client_type: NewUser.role,
-    //       notes: "Lead from FinUnique small private limited",
-    //     },
-    //     {
-    //       headers: {
-    //         "Content-Type": "application/json",
-    //         Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-    //       },
-    //     }
-    //   );
-    // } catch (leadError) {
-    //   console.error(
-    //     "Error sending lead data:",
-    //     leadError.response ? leadError.response.data : leadError.message
-    //   );
-    // }
-
     return res.status(200).json({
       message: "Registration successful",
       newUser: NewUser,
@@ -716,6 +738,8 @@ const registerUser = async (req, res) => {
     });
   } catch (error) {
     console.log("eeeeeeeeeeeeeee", error);
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error in registerUser controller:", error);
     return res.status(500).json({ message: "Internal server error", error });
   }
@@ -1263,8 +1287,7 @@ const updateCredential = async (req, res) => {
 const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 
-const startOfToday = new Date();
-startOfToday.setHours(0, 0, 0, 0);
+
 
 const getDashboardStats = async (req, res, next) => {
   try {
@@ -1280,28 +1303,24 @@ const getDashboardStats = async (req, res, next) => {
         wallet: user.eWallet,
       },
     };
+    const { startUTC, endUTC } = getISTDayRange();
 
     const matchToday = {
-      createdAt: { $gte: startOfToday },
+      createdAt: { $gte: startUTC, $lte: endUTC }
     };
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
       [field]: user.id,
-      createdAt: { $gte: startOfToday },
+      createdAt: { $gte: startUTC, $lte: endUTC }
     });
+    console.log("matchTodayUser", matchTodayUser);
+
 
     let todayEarning = 0;
     let todayCharges = 0;
 
     if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      // Today’s start and end
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-
       // Today Earnings
       const earningResult = await CommissionTransaction.aggregate([
         { $unwind: "$roles" },
@@ -1310,7 +1329,7 @@ const getDashboardStats = async (req, res, next) => {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
+            createdAt: { $gte: startUTC, $lte: endUTC },
           },
         },
         {
@@ -1331,7 +1350,7 @@ const getDashboardStats = async (req, res, next) => {
             "roles.role": role,
             "roles.userId": new mongoose.Types.ObjectId(user.id),
             status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
+            createdAt: { $gte: startUTC, $lte: endUTC },
           },
         },
         {
@@ -1413,11 +1432,11 @@ const getDashboardStats = async (req, res, next) => {
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
         PayOut.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PayIn.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         User.aggregate([
@@ -1426,7 +1445,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday }, status: "Success" } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1524,7 +1543,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, distributorId: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1610,7 +1629,7 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
           {
             $facet: {
               byType: [
@@ -1808,6 +1827,8 @@ const otpModel = require("../models/otpModel.js");
 const LoginHistory = require("../models/LoginHistory.js");
 const userModel = require("../models/userModel.js");
 const { generateToken } = require("./kycController.js");
+const scratchCouponModel = require("../models/scratchCoupon.model.js");
+
 
 // const updateUserPermissions = async (req, res) => {
 //   try {
@@ -2027,6 +2048,134 @@ const updateUserDocs = async (req, res) => {
   }
 };
 
+
+const getCouponHistory = async (req, res) => {
+  try {
+    const { status, userId } = req.query;
+    const role = req.user.role;
+
+    let filter = {};
+
+    if (role === "User") {
+
+      filter.userId = req.user.id;
+    } else if (role === "Admin") {
+      if (userId) filter.userId = userId;
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const query = scratchCouponModel
+      .find(filter)
+      .sort({ createdAt: -1 });
+
+    if (role === "Admin") {
+      query.populate("userId", "name email mobileNumber");
+    }
+
+    const coupons = await query.select(
+      "serviceName baseAmount cashbackAmount status createdAt scratchedAt"
+    );
+
+    res.json({
+      success: true,
+      role,
+      count: coupons.length,
+      data: coupons
+    });
+
+  } catch (err) {
+    console.error("Coupon history error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
+const scratchCashback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const userId = req.user.id;
+    const { couponId } = req.body;
+
+    // 1️⃣ Find valid coupon
+    const coupon = await scratchCouponModel.findOne({
+      _id: couponId,
+      userId,
+      status: "UNSCRATCHED",
+      expiresAt: { $gt: new Date() } // ✅ expiry check
+    }).session(session);
+
+    if (!coupon) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid, expired or already scratched coupon"
+      });
+    }
+
+    // 2️⃣ Credit wallet (get UPDATED wallet)
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: coupon.cashbackAmount } },
+      { new: true, session }
+    );
+
+    if (!updatedUser) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // 3️⃣ Mark coupon as scratched
+    coupon.status = "SCRATCHED";
+    coupon.scratchedAt = new Date();
+    await coupon.save({ session });
+
+    // 4️⃣ Create transaction entry
+    await Transaction.create([{
+      user_id: userId,
+      transaction_type: "credit",
+      type2: "CASHBACK",
+      amount: coupon.cashbackAmount,
+      totalCredit: coupon.cashbackAmount,
+      balance_after: updatedUser.eWallet, 
+      payment_mode: "wallet",
+      transaction_reference_id: `CB-${coupon.serviceTxnId}`, 
+      status: "Success",
+      description: `Scratch cashback for ${coupon.serviceName}`
+    }], { session });
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      cashbackAmount: coupon.cashbackAmount,
+      walletBalance: updatedUser.eWallet
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("❌ Scratch Cashback Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to scratch coupon"
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
@@ -2048,4 +2197,6 @@ module.exports = {
   getLoginHistory,
   verifyEmail7Unique,
   updateUserDocs,
+  getCouponHistory,
+  scratchCashback
 };

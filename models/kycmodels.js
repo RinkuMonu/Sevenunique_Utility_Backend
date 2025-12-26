@@ -17,6 +17,19 @@ const kycRequestSchema = new mongoose.Schema({
   scheduledTime: { type: Date },
   roomLink: String,
   createdAt: { type: Date, default: Date.now },
+  completedAt: { type: Date }
 });
 
+
+kycRequestSchema.pre("save", function (next) {
+  if (this.isModified("status") && this.status === "completed") {
+    this.completedAt = new Date();
+  }
+  next();
+});
+
+
 module.exports = mongoose.model("KYCRequest", kycRequestSchema);
+
+
+

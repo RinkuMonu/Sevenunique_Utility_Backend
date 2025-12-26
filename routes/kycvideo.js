@@ -155,6 +155,7 @@ router.patch("/verify", async (req, res, next) => {
       { _id: new mongoose.Types.ObjectId(requestId) },
       {
         status: "completed",
+        completedAt: new Date()
       },
       { new: true }
     );
