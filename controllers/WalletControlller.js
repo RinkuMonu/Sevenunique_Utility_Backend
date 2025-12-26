@@ -4,9 +4,11 @@ const User = require("../models/userModel.js");
 const { parse } = require("json2csv");
 const payInModel = require("../models/payInModel.js");
 const payOutModel = require("../models/payOutModel.js");
+const { getISTDayRange } = require("../services/timeZone.js");
 
 exports.getWalletTransactions = async (req, res) => {
   try {
+    const { startUTC, endUTC } = getISTDayRange()
     const {
       keyword,
       transaction_type,
@@ -28,8 +30,8 @@ exports.getWalletTransactions = async (req, res) => {
     if (payment_mode) match.payment_mode = payment_mode;
     if (fromDate || toDate) {
       match.createdAt = {};
-      if (fromDate) match.createdAt.$gte = new Date(fromDate);
-      if (toDate) match.createdAt.$lte = new Date(toDate);
+      if (fromDate) match.createdAt.$gte = startUTC;
+      if (toDate) match.createdAt.$lte = endUTC;
     }
 
     const pipeline = [
@@ -174,6 +176,7 @@ exports.getWalletTransactions = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error(error);
     res
       .status(500)
       .json({ success: false, message: "Server error", error: error.message });
