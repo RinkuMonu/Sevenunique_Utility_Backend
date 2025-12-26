@@ -1,4 +1,4 @@
-name: 🚀 CI/CD - Bbbps Backend
+name: 🚀 DEV CI/CD (SCP) - Bbbps Backend
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
       - dev
 
 jobs:
-  deploy:
+  deploy-dev:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout code
+      - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
       - name: 🔧 Setup Node.js
@@ -18,18 +18,29 @@ jobs:
         with:
           node-version: 18
 
-      - name: 🚀 Deploy to Server
+      - name: 🧹 Clean workspace
+        run: |
+          rm -rf node_modules
+          rm -rf .git
+
+      - name: 📤 Upload code to server via SCP
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USERNAME }}
+          password: ${{ secrets.DEV_SSH_PASSWORD }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          source: "."
+          target: ${{ secrets.SERVER_PATH }}
+
+      - name: 🔁 Install deps & Restart PM2
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.DEV_SSH_HOST  }}
+          host: ${{ secrets.DEV_SSH_HOST }}
           username: ${{ secrets.DEV_SSH_USERNAME }}
-          password: ${{ secrets.DEV_SSH_KEY }}
+          password: ${{ secrets.DEV_SSH_PASSWORD }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-              cd /home/devserve/public_html/Bbbps_Backend
-              echo "📂 Path:" && pwd
-              git fetch origin
-              git reset --hard origin/main
-              npm install
-              pm2 restart Dev_Bbbps_Backend 
-
+            cd /home/devserve/public_html/Bbbps_Backend
+            npm install
+            pm2 restart Dev_Bbbps_Backend
