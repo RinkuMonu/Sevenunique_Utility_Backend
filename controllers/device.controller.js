@@ -9,12 +9,12 @@ const Transaction = require("../models/transactionModel");
 // ✅ Create Device Controller
 exports.createDevice = async (req, res) => {
   try {
-    const { brand, model, price, warranty, description } = req.body;
+    const { brand, model, price, warranty, description, gst } = req.body;
 
-    if (!brand || !model || !price) {
+    if (!brand || !model || !price || !gst || !warranty) {
       return res.status(400).json({
         success: false,
-        message: "Brand, Model and Price are required",
+        message: "Brand, Model ,gst ,warranty and Price are required",
       });
     }
 
@@ -29,6 +29,7 @@ exports.createDevice = async (req, res) => {
       model,
       price,
       warranty,
+      gst,
       description,
       image: imagePath,
     });
@@ -88,10 +89,11 @@ exports.updateDevice = async (req, res) => {
         .json({ success: false, message: "Device not found" });
     }
 
-    const { brand, model, price, description, warranty } = req.body;
+    const { brand, model, price, description, warranty, gst } = req.body;
     if (brand) device.brand = brand;
     if (model) device.model = model;
     if (price) device.price = price;
+    if (gst) device.gst = gst;
     if (warranty) device.warranty = warranty;
     if (description) device.description = description;
 
@@ -121,6 +123,12 @@ exports.updateDevice = async (req, res) => {
 
 /* ------- Device Requests --------- */
 // Retailer creates a request
+const generateRequestId = () => {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `REQ-${datePart}-${randomPart}`;
+};
+
 exports.createDeviceRequest = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -134,7 +142,10 @@ exports.createDeviceRequest = async (req, res) => {
     const retailer = await userModel.findById(req.user.id).session(session);
     if (!retailer) throw new Error("Retailer not found");
 
-    const totalCost = device.price * quantity;
+
+    const baseAmount = device.price * quantity;
+    const gstAmount = (baseAmount * device.gst) / 100;
+    const totalCost = baseAmount + gstAmount;
 
     // ✅ Balance check
     if (retailer.eWallet < totalCost) {
@@ -153,11 +164,14 @@ exports.createDeviceRequest = async (req, res) => {
         {
           retailerId: retailer._id,
           deviceId,
+          requestID: generateRequestId(),
           quantity,
           address,
           remarks,
           status: "PENDING",
-          amount: totalCost, // 🔥 store amount for refund safety
+          gstAmount,
+          amount: baseAmount,
+          totalCost,
         },
       ],
       { session }
@@ -169,7 +183,8 @@ exports.createDeviceRequest = async (req, res) => {
         {
           user_id: retailer._id,
           transaction_type: "debit",
-          amount: totalCost,
+          amount: baseAmount,
+          gst: gstAmount,
           totalDebit: totalCost,
           type2: "DEVICE Purchase",
           balance_after: retailer.eWallet,
@@ -247,7 +262,7 @@ exports.listDeviceRequests = async (req, res) => {
           localField: "retailerId",
           foreignField: "_id",
           as: "retailer",
-          pipeline: [{ $project: { _id: 0, name: 1 } }],
+          pipeline: [{ $project: { _id: 0, name: 1, UserId: 1 } }],
         },
       },
       { $unwind: { path: "$retailer", preserveNullAndEmptyArrays: true } },
@@ -267,7 +282,9 @@ exports.listDeviceRequests = async (req, res) => {
           $or: [
             { remarks: new RegExp(q, "i") },
             { address: new RegExp(q, "i") },
+            { requestID: new RegExp(q, "i") },
             { "retailer.name": new RegExp(q, "i") },
+            { "retailer.UserId": new RegExp(q, "i") },
           ],
         },
       });
@@ -335,7 +352,7 @@ exports.updateDeviceRequest = async (req, res) => {
     // ❌ REJECT → REFUND
     if (status === "REJECTED") {
       // 🔁 wallet refund
-      retailer.eWallet += request.amount;
+      retailer.eWallet += request.totalCost;
       await retailer.save({ session });
 
       // mark debit as failed
@@ -346,8 +363,8 @@ exports.updateDeviceRequest = async (req, res) => {
             user_id: retailer._id,
             type2: "DEVICE Purchase",
             transaction_type: "credit",
-            totalCredit: request.amount,
-            amount: request.amount,
+            totalCredit: request.totalCost,
+            amount: request.totalCost,
             balance_after: retailer.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: `D-R-R-${Date.now()}`,
