@@ -10,6 +10,7 @@ const {
   sendBatchOnboardingMail,
   getOnboardingList,
   updateOnboardMailStatus,
+  checkIserveuTxnStatus,
 } = require("../controllers/Iserveu");
 const authenticateToken = require("../middleware/verifyToken");
 const router = express.Router();
@@ -19,6 +20,7 @@ router.get("/get-token", getToken);
 router.post("/callback", aepsCallback);
 router.get("/matm-report", authenticateToken, getMatmReports);
 router.post("/matm/callback", matmCallback);
+router.post("/statusCheck", checkIserveuTxnStatus);
 
 router.get("/admin/onboarding-list", authenticateToken, getOnboardingList);
 router.patch("/admin/onboarding/update-status/:id", authenticateToken, updateOnboardMailStatus);
