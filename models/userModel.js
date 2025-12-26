@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], 
+      type: [String],
       trim: true,
     },
 
@@ -275,8 +275,7 @@ const userSchema = new mongoose.Schema(
 
     documents: [String],
     mpin: {
-      type: Number,
-      required: true,
+      type: Number
     },
     mobileNumber: {
       type: String,
@@ -359,6 +358,38 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    clientSource: {
+      type: String,
+      enum: ["APP", "PANEL"],
+      default: "PANEL",
+    },
+    referralCode: {
+      type: String,
+      unique: true
+    },
+
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+    referralRewardGiven: {
+      type: Boolean,
+      default: false,
+    },
+
+    referralCount: {
+      type: Number,
+      default: 0
+    },
+
+    referralEarnings: {
+      type: Number,
+      default: 0
+    },
+
+
+
   },
   {
     timestamps: true,
@@ -367,10 +398,45 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+const generateReferralCode = (name = "") => {
+  const prefix = name
+    .substring(0, 3)
+    .toUpperCase()
+    .padEnd(3, "X");
+
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random()
+    .toString(36)
+    .substring(2, 4)
+    .toUpperCase();
+
+  return prefix + timePart.slice(-5) + randomPart;
+};
+
+userSchema.pre("save", function (next) {
+  if (!this.isNew) return next();
+
+  this.referralCode = generateReferralCode(this.name);
+
+  next();
+});
+
+
+
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+userSchema.pre("save", async function (next) {
+  if (!this.rolePermissions && this.role) {
+    const PermissionByRole = mongoose.model("PermissionByRole");
+    const rolePerm = await PermissionByRole.findOne({ role: this.role });
+    if (rolePerm) {
+      this.rolePermissions = rolePerm._id;
+    }
+  }
   next();
 });
 
@@ -381,7 +447,7 @@ userSchema.methods.getEffectivePermissions = async function () {
   let perms = new Set();
 
   // ✅ 1️⃣ SUPERADMIN → pehle sab permissions lo (but flat return mat karo)
-  if (this.role === "superAdmin") {
+  if (this.role === "Admin") {
     const all = await Permission.find({});
     all.forEach(p => perms.add(p.key));
   }
