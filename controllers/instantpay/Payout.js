@@ -4,6 +4,7 @@ const userModel = require("../../models/userModel");
 const { getApplicableServiceCharge, calculateCommissionFromSlabs, logApiCall } = require("../../utils/chargeCaluate");
 const payOutModel = require("../../models/payOutModel");
 const Transaction = require("../../models/transactionModel");
+const crypto = require("crypto");
 
 const getHeaders = () => {
 
@@ -14,6 +15,22 @@ const getHeaders = () => {
         "X-Ipay-Endpoint-Ip": "223.226.127.0"
     };
 };
+
+
+const encryptionKey = "efb0a1c3666c5fb0efb0a1c3666c5fb0" || process.env.INSTANTPAY_AES_KEY
+
+function encrypt(text, key) {
+    const encryptionKey = Buffer.from(key); // 32 bytes
+    const algorithm = "aes-256-cbc";
+    const iv = crypto.randomBytes(16); // 16 bytes IV
+    const cipher = crypto.createCipheriv(algorithm, encryptionKey, iv);
+    let encrypted = cipher.update(text, "utf8", "base64");
+    encrypted += cipher.final("base64");
+
+    // IV ko bhi attach kar dete hain (Base64 me safe transfer ke liye)
+    const encryptedData = Buffer.concat([iv, Buffer.from(encrypted, "base64")]).toString("base64");
+    return encryptedData;
+}
 
 class InstantPay_payout {
 
@@ -42,8 +59,12 @@ class InstantPay_payout {
         const session = await mongoose.startSession();
 
         try {
+            session.startTransaction();
             const {
-                payee,
+                payeeName,
+                payeeAccount,
+                payeeIFSC,
+                paymentMode,
                 transferMode,
                 transferAmount,
                 externalRef,
@@ -53,6 +74,9 @@ class InstantPay_payout {
                 mpin,
                 category,
                 custMobNo,
+                referenceNumber,
+                cardNumber,
+                payeeCardHolderName
             } = req.body;
 
             const userId = req.user.id;
@@ -101,10 +125,10 @@ class InstantPay_payout {
                 reference: externalRef,
                 amount: transferAmount,
                 type: service?._id,
-                trans_mode: transferMode,
-                name: payee.name,
-                account: payee.accountNumber,
-                ifsc: payee.bankIfsc,
+                trans_mode: "WALLET",
+                name: payeeName,
+                account: payeeAccount,
+                ifsc: payeeIFSC,
                 mobile: custMobNo,
                 email: user.email,
                 charges: commission.charge,
@@ -115,27 +139,82 @@ class InstantPay_payout {
             });
 
 
-            const payload = {
-                payer: { bankProfileId: "0", accountNumber: "9660339514" },
-                payee: {
-                    name: payee.name,
-                    accountNumber: payee.accountNumber,
-                    bankIfsc: payee.bankIfsc,
-                },
-                transferMode,
-                transferAmount,
-                externalRef,
-                latitude,
-                longitude,
-                Remarks: remarks,
-            };
+            let instantPayPayload = {};
+
+            switch (transferMode) {
+
+                case "IMPS":
+                case "NEFT":
+                case "RTGS":
+                    instantPayPayload = {
+                        payer: { bankProfileId: "0", accountNumber: "9660339514" },
+                        payee: {
+                            name: payeeName,
+                            accountNumber: payeeAccount,
+                            bankIfsc: payeeIFSC
+                        },
+                        transferMode,
+                        transferAmount,
+                        externalRef,
+                        latitude,
+                        longitude,
+                        remarks
+                    };
+                    break;
+
+                case "CREDITCARD":
+                    instantPayPayload = {
+                        payer: {
+                            bankId: "0",
+                            bankProfileId: "0",
+                            accountNumber: "9660339514",
+                            name: "DINESH KUMAR PRAJAPAT",
+                            paymentMode,
+                            cardNumber: encrypt(cardNumber, encryptionKey),
+                            referenceNumber
+                        },
+                        payee: {
+                            accountNumber: encrypt(payeeAccount, encryptionKey),
+                            name: payeeCardHolderName
+                        },
+                        transferMode: "CREDITCARD",
+                        transferAmount,
+                        externalRef,
+                        latitude,
+                        longitude,
+                        remarks
+                    };
+                    break;
+
+                default:
+                    return res.status(400).json({
+                        success: false,
+                        message: "Invalid transfer mode"
+                    });
+            }
+
+
+            // payload = {
+            //     payer: { bankProfileId: "0", accountNumber: "9660339514" },
+            //     payee: {
+            //         name: payee.name,
+            //         accountNumber: payee.accountNumber,
+            //         bankIfsc: payee.bankIfsc,
+            //     },
+            //     transferMode,
+            //     transferAmount,
+            //     externalRef,
+            //     latitude,
+            //     longitude,
+            //     Remarks: remarks,
+            // };
 
             let apiResponse;
 
             try {
                 apiResponse = await axios.post(
                     "https://api.instantpay.in/payments/payout",
-                    payload,
+                    instantPayPayload,
                     { headers: getHeaders(), timeout: 15000 }
                 );
             } catch (apiErr) {
@@ -152,9 +231,10 @@ class InstantPay_payout {
 
             logApiCall({
                 url: "/instantpay/payout",
-                requestData: payload,
+                requestData: instantPayPayload,
                 responseData: apiResponse.data,
             });
+            console.log(apiResponse);
 
 
             if (apiResponse.data?.statuscode !== "TXN") {
@@ -171,13 +251,14 @@ class InstantPay_payout {
                 await Transaction.create({
                     user_id: userId,
                     transaction_type: "debit",
+                    type: service?._id || "",
                     amount: transferAmount,
                     totalDebit: 0,
                     balance_after: user.eWallet,
                     transaction_reference_id: externalRef,
-                    description: `Payout failed to ${payee.name}`,
+                    description: `Payout failed to ${payeeName}`,
                     status: "Failed",
-                    "meta.apiResponse": apiResponse
+                    "meta.apiResponse": apiResponse.data
                 });
 
                 return res.status(400).json({
@@ -223,9 +304,9 @@ class InstantPay_payout {
                         totalDebit: debitAmount,
                         balance_after: updatedUser.eWallet,
                         transaction_reference_id: externalRef,
-                        description: `Money transfer to ${payee.name}`,
+                        description: `Money transfer to ${payeeName}`,
                         status: "Success",
-                        "meta.apiResponse": apiResponse
+                        "meta.apiResponse": apiResponse.data
                     },
                 ],
                 { session }
@@ -251,7 +332,6 @@ class InstantPay_payout {
             session.endSession();
         }
     }
-
 
 
 }
