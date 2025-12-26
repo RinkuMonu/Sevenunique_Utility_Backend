@@ -3,7 +3,7 @@ name: 🚀 CI/CD - Bbbps Backend
 on:
   push:
     branches:
-      - main
+      - dev
 
 jobs:
   deploy:
@@ -31,5 +31,5 @@ jobs:
               git fetch origin
               git reset --hard origin/main
               npm install
-              pm2 restart Bbbps_Backend
+              pm2 restart Dev_Bbbps_Backend 
 
