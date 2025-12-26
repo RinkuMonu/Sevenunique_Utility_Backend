@@ -5,7 +5,7 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const { errors } = require("celebrate");
 const { errorHandler, notFound } = require("./middleware/errorMiddleware");
-
+const path = require("path");
 const authRoutes = require("./routes/authRoutes");
 const KycRoutes = require("./routes/kycRoutes");
 const serviceRoutes = require("./routes/serviceRoutes");
@@ -59,7 +59,6 @@ app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
 app.use("/api/kyc", KycRoutes);
 app.use("/api/service/plans", servicePlanRoutes);
 app.use("/api/permission", require("./routes/permissionByRoleRoutes.js"));
-
 app.use("/api/v1/service", serviceRoutes);
 app.use("/api/v1/e-wallet", require("./routes/WalletRoutes.js"));
 app.use("/api/v1/payment", require("./routes/mainWalletRoutes.js"));
@@ -78,9 +77,7 @@ app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
 app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 app.use("/api/InstantPay_PPI", router);
-
 app.use("/api/v1/commission", require("./routes/commisionRoutes.js"));
-
 app.use("/api/recharge", rechargeRoute);
 app.use("/api/biller", billerRoutes);
 app.use("/api/v1/news", NewsRouter);
@@ -90,9 +87,25 @@ app.use("/api/assets", require("./routes/device.routes"));
 app.use("/api/banners", bannerRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
-app.get("/", (req, res) =>
+app.get("/health", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the SEVEN UNIQUE API" })
 );
+
+// 🟢 React build (JS/CSS) → cache OK
+app.use(
+  express.static(path.join(__dirname, "build"), {
+    maxAge: "1y",
+    immutable: true,
+  })
+);
+
+app.get("*", (req, res) => {
+  res.setHeader(
+    "Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.sendFile(path.join(__dirname, "build", "index.html"));
+});
 
 mongoose
   .connect(process.env.MONGO_URI)
@@ -103,10 +116,10 @@ mongoose
     console.error("Error connecting to MongoDB:", err.message);
   });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 5001;
 
 app.use(errors());
 app.use(notFound);
-app.use(errorHandler);    
+app.use(errorHandler);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
