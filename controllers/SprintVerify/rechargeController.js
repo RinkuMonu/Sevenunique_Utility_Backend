@@ -333,6 +333,9 @@ exports.doRecharge = async (req, res, next) => {
           const cashbackAmount = generateRandomCashback(retailerCommission);
 
           if (cashbackAmount > 0) {
+            const expiry = new Date();
+            expiry.setMonth(expiry.getMonth() + 1);
+
             await scratchCouponModel.findOneAndUpdate(
               { serviceTxnId: referenceid },
               {
@@ -341,7 +344,8 @@ exports.doRecharge = async (req, res, next) => {
                   serviceTxnId: referenceid,
                   serviceName: "Recharge",
                   baseAmount: required,
-                  cashbackAmount
+                  cashbackAmount,
+                  expiresAt: expiry,
                 }
               },
               { upsert: true, session }
@@ -421,6 +425,8 @@ exports.checkRechargeStatus = async (req, res, next) => {
   const { transactionId } = req.params;
 
   try {
+
+    const headers = getPaysprintHeaders();
     const response = await axios.post(
       "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
       {
