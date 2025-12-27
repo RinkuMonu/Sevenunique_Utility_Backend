@@ -295,17 +295,22 @@ const verifyOTPController = async (req, res) => {
     let nextStep = outerRegister ? 3 : 2;
 
     if (user) {
-      if (user.name && user.email && user.password)
-        nextStep = outerRegister ? 4 : 3;
+      if (user.forceLogout || user.forceLogout === true || user.forceLogout == "true") {
+        nextStep = outerRegister ? 3 : 2
+      } else {
 
-      if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-        nextStep = outerRegister ? 5 : 4;
+        if (user.name && user.email && user.password)
+          nextStep = outerRegister ? 4 : 3;
 
-      if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-        nextStep = outerRegister ? 6 : 5;
+        if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
+          nextStep = outerRegister ? 5 : 4;
 
-      if (user.panDetails && Object.keys(user.panDetails).length > 0)
-        nextStep = outerRegister ? 7 : 6;
+        if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
+          nextStep = outerRegister ? 6 : 5;
+
+        if (user.panDetails && Object.keys(user.panDetails).length > 0)
+          nextStep = outerRegister ? 7 : 6;
+      }
     }
     const token = user
       ? generateJwtToken(user._id, user.role, user.mobileNumber)
@@ -357,9 +362,10 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
-    if (user.isKycVerified === false && user.role !== "User") {
+
+    if (user.forceLogout || user.forceLogout === true || user.forceLogout == "true" || user.isKycVerified === false && user.role !== "User") {
       return res.status(403).json({
-        message: "Your KYC is not verified. Please complete KYC to continue.",
+        message: "Please complete your KYC and required documents to access your account.",
       });
     }
     if (user.role === "User" && user.clientSource === "PANEL") {
@@ -387,9 +393,12 @@ const loginController = async (req, res) => {
         .json({ message: "Password or OTP is required to login" });
     }
 
-    // ✅ Generate JWT
+    // if (user.forceLogout || user.forceLogout == "true" || user.forceLogout == true) {
+    //   user.forceLogout = false
+    //   await user.save();
+    // }
+    // ✅ Generate JWT 
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
-
     const deviceName = getDeviceName(req.headers["user-agent"]);
 
     sendLoginEmail(
@@ -572,19 +581,34 @@ const registerUser = async (req, res) => {
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
     }).session(session);
 
+
+    let userToSave = null;
+
     if (existingUser) {
-      await session.abortTransaction();
-      session.endSession();
-      if (existingUser.mobileNumber === userData.mobileNumber) {
-        return res
-          .status(400)
-          .json({ message: "User Mobile Number already exists" });
-      }
-      if (existingUser.email === userData.email) {
-        return res.status(400).json({ message: "User Email already exists" });
+      if (
+        existingUser.forceLogout === true &&
+        existingUser.isKycVerified === false
+      ) {
+        delete userData.mobileNumber;
+        delete userData.email;
+
+        userToSave = existingUser;
+      } else {
+        await session.abortTransaction();
+        session.endSession();
+
+        if (existingUser.mobileNumber === userData.mobileNumber) {
+          return res.status(400).json({
+            message: "User Mobile Number already exists"
+          });
+        }
+        if (existingUser.email === userData.email) {
+          return res.status(400).json({
+            message: "User Email already exists"
+          });
+        }
       }
     }
-
 
     let referredByUser = null;
 
@@ -605,9 +629,6 @@ const registerUser = async (req, res) => {
     if (referredByUser) {
       userData.referredBy = referredByUser._id;
     }
-
-
-
     //questions
     if (userData.questions && typeof userData.questions === "string") {
       try {
@@ -715,15 +736,25 @@ const registerUser = async (req, res) => {
     }
 
     // ✅ Create user
-    userData.UserId = await CounterModal.getNextUserId();
+    // userData.UserId = await CounterModal.getNextUserId();
     // const rolePerm = await PermissionByRole.findOne({ role: userData.role });
     // console.log("rolePerm", rolePerm)
     // if (rolePerm) {
     //   userData.rolePermissions = rolePerm._id;
     // }
 
-    const NewUser = new User(userData);
-    await NewUser.save({ session });
+    let savedUser;
+    if (userToSave) {
+      // 🔵 STEP-3: UPDATE EXISTING USER
+      Object.assign(userToSave, userData);
+      userToSave.forceLogout = false;
+      savedUser = await userToSave.save({ session });
+    } else {
+      // 🟢 BRAND NEW USER
+      userData.UserId = await CounterModal.getNextUserId();
+      const newUser = new User(userData);
+      savedUser = await newUser.save({ session });
+    }
 
 
     await session.commitTransaction();
@@ -731,14 +762,15 @@ const registerUser = async (req, res) => {
 
     // ✅ Generate JWT
     const token = generateJwtToken(
-      NewUser._id,
-      NewUser.role,
-      NewUser.mobileNumber
+      savedUser._id,
+      savedUser.role,
+      savedUser.mobileNumber
     );
+
 
     return res.status(200).json({
       message: "Registration successful",
-      newUser: NewUser,
+      newUser: savedUser,
       token,
     });
   } catch (error) {
@@ -768,7 +800,7 @@ const updateProfileController = async (req, res) => {
       shopName,
       userId,
     } = req.body;
-    console.log(req.body);
+    // console.log(req.body);
 
     let user = await User.findById(userId);
     if (!user) {
@@ -789,9 +821,17 @@ const updateProfileController = async (req, res) => {
       };
     }
     if (pinCode) user.pinCode = pinCode;
-    if (role) user.role = role;
+    if (role) {
+      user.role = role
+      user.forceLogout = true
+      user.isKycVerified = false
+      user.agreement = false
+      roleChanged = true;
+    }
+    if (!roleChanged && isKycVerified !== undefined) {
+      user.isKycVerified = isKycVerified
+    }
     if (agreement !== undefined) user.agreement = agreement;
-    if (isKycVerified !== undefined) user.isKycVerified = isKycVerified;
     if (isVideoKyc !== undefined) user.isVideoKyc = isVideoKyc;
     if (isSpecial !== undefined) user.isSpecial = isSpecial;
     if (shopType) user.shopType = shopType;
