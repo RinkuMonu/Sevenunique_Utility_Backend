@@ -154,7 +154,7 @@ router.get(
 router.get(
   "/coupon-history",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "User", "Sub Admin"),
   getCouponHistory
 );
 
@@ -164,7 +164,7 @@ router.get(
 router.post(
   "/users/scratch-coupons",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("User"),
   scratchCashback
 );
 

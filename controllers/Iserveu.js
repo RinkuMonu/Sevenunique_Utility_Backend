@@ -1115,3 +1115,84 @@ exports.updateOnboardMailStatus = async (req, res) => {
     });
   }
 };
+
+
+exports.checkIserveuTxnStatus = async (req, res) => {
+  try {
+    const { transactionDate, clientRefId } = req.body;
+
+    // ✅ Basic validation
+    if (!transactionDate || !clientRefId) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate and clientRefId are required",
+      });
+    }
+
+    // transactionDate must be YYYY-MM-DD
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(transactionDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate must be in YYYY-MM-DD format",
+      });
+    }
+
+    // ✅ Build request payload (as per IServeU spec)
+    const payload = {
+      "$1": "UAeps_txn_status_api",
+      "$4": transactionDate,
+      "$5": transactionDate, // must be same as start date
+      "$6": clientRefId,
+    };
+
+    const response = await axios.post(
+      "https://apidev.iserveu.online/sandbox/statuscheck/txnreport",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          client_id: process.env.ISERVEU_CLIENT_ID,
+          client_secret: process.env.ISERVEU_CLIENT_SECRET,
+        },
+        timeout: 15000,
+      }
+    );
+
+    const data = response.data;
+
+    // ✅ SUCCESS with data
+    if (data.status === 200 && data.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Transaction status fetched",
+        data: data.results[0], // usually single record
+      });
+    }
+
+    // ✅ SUCCESS but NO DATA
+    if (data.status === 1 && data.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No record found for given transaction",
+        data: null,
+      });
+    }
+
+    // ❌ FAILED response
+    return res.status(400).json({
+      success: false,
+      message: data.message || "Transaction status query failed",
+      data,
+    });
+
+  } catch (error) {
+    console.error("IServeU Status API Error:", error?.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch transaction status",
+      error: error?.response?.data || error.message,
+    });
+  }
+};
