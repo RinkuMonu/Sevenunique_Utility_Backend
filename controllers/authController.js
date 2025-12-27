@@ -368,6 +368,11 @@ const loginController = async (req, res) => {
         message: "Please complete your KYC and required documents to access your account.",
       });
     }
+    if (user.role === "User" && user.clientSource === "PANEL") {
+      return res.status(403).json({
+        message: "This panel is not for users; Only retailers and distributors can access it.",
+      });
+    }
 
     // ✅ OTP login
     if (otp) {
@@ -2096,22 +2101,28 @@ const getCouponHistory = async (req, res) => {
 
     let filter = {};
 
+    // 🔐 Role based filter
     if (role === "User") {
-
-      filter.userId = req.user.id;
-    } else if (role === "Admin") {
-      if (userId) filter.userId = userId;
-    } else {
+      filter.userId = new mongoose.Types.ObjectId(req.user.id);
+    }
+    else if (role === "Admin") {
+      if (userId) {
+        filter.userId = new mongoose.Types.ObjectId(userId);
+      }
+    }
+    else {
       return res.status(403).json({
         success: false,
-        message: "Access denied"
+        message: "Access denied",
       });
     }
 
+    // Optional status filter (for list only)
     if (status) {
       filter.status = status;
     }
 
+    // 📄 Coupon list
     const query = scratchCouponModel
       .find(filter)
       .sort({ createdAt: -1 });
@@ -2124,21 +2135,41 @@ const getCouponHistory = async (req, res) => {
       "serviceName baseAmount cashbackAmount status createdAt scratchedAt"
     );
 
+    // 💰 TOTAL CASHBACK (only SCRATCHED)
+    const cashbackMatch = {
+      ...filter,
+      status: "SCRATCHED",
+    };
+
+    const cashbackAgg = await scratchCouponModel.aggregate([
+      { $match: cashbackMatch },
+      {
+        $group: {
+          _id: null,
+          totalCashback: { $sum: "$cashbackAmount" },
+        },
+      },
+    ]);
+
+    const totalCashback = cashbackAgg[0]?.totalCashback || 0;
+
     res.json({
       success: true,
       role,
       count: coupons.length,
-      data: coupons
+      totalCashback,
+      data: coupons,
     });
 
   } catch (err) {
     console.error("Coupon history error:", err);
     res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
     });
   }
 };
+
 
 const scratchCashback = async (req, res) => {
   const session = await mongoose.startSession();
@@ -2147,14 +2178,22 @@ const scratchCashback = async (req, res) => {
   try {
     const userId = req.user.id;
     const { couponId } = req.body;
+    const id = new mongoose.Types.ObjectId(couponId);
+    const user = new mongoose.Types.ObjectId(userId);
+
+    console.log(id);
+    console.log(userId);
+
 
     // 1️⃣ Find valid coupon
     const coupon = await scratchCouponModel.findOne({
-      _id: couponId,
-      userId,
+      _id: id,
+      userId: user,
       status: "UNSCRATCHED",
-      expiresAt: { $gt: new Date() } // ✅ expiry check
+      expiresAt: { $gt: new Date() }
     }).session(session);
+    console.log(coupon);
+
 
     if (!coupon) {
       await session.abortTransaction();
