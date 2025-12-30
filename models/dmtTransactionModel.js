@@ -45,6 +45,11 @@ const dmtReportSchema = new mongoose.Schema(
     totalDebit: { type: Number, default: 0 },
     NPCI_response_code: { type: String },
     bank_status: { type: String },
+    provider: {
+      type: String,
+      enum: ["instantPay", "paySprint", "iserveu"],
+      default: "instantPay",
+    },
   },
   { timestamps: true }
 );

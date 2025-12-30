@@ -104,6 +104,7 @@ exports.aepsCallback = async (req, res) => {
       AUTH_FAILED: "Failed",
       FAILURE: "Failed",
       AUTH_DECLINE: "Failed",
+      REFUNDED: "Refunded",
     };
 
     const finalStatus = statusMap[status] || "Pending";
@@ -217,6 +218,7 @@ exports.aepsCallback = async (req, res) => {
               distributorCommission: commission.distributor,
               adminCommission: commission.admin,
               apiResponse: req.body,
+              provider: "iserveu"
             },
           ],
           { session }
@@ -274,6 +276,7 @@ exports.aepsCallback = async (req, res) => {
             distributorCommission: commission.distributor,
             adminCommission: commission.admin,
             apiResponse: req.body,
+            provider: "iserveu"
           },
         ],
         { session }
@@ -353,6 +356,7 @@ exports.aepsCallback = async (req, res) => {
           distributorCommission: commission.distributor,
           adminCommission: commission.admin,
           apiResponse: req.body,
+          provider: "iserveu"
         },
       ],
       { session }
@@ -377,7 +381,7 @@ exports.aepsCallback = async (req, res) => {
         charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+          { userId: user._id, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -1119,10 +1123,10 @@ exports.updateOnboardMailStatus = async (req, res) => {
 
 exports.checkIserveuTxnStatus = async (req, res) => {
   try {
-    const { transactionDate, clientRefId } = req.body;
+    const { transactionDate, externalRef } = req.body;
 
     // ✅ Basic validation
-    if (!transactionDate || !clientRefId) {
+    if (!transactionDate || !externalRef) {
       return res.status(400).json({
         success: false,
         message: "transactionDate and clientRefId are required",
@@ -1142,8 +1146,8 @@ exports.checkIserveuTxnStatus = async (req, res) => {
     const payload = {
       "$1": "UAeps_txn_status_api",
       "$4": transactionDate,
-      "$5": transactionDate, // must be same as start date
-      "$6": clientRefId,
+      "$5": transactionDate,
+      "$6": externalRef,
     };
 
     const response = await axios.post(
