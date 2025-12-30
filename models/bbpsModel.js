@@ -66,7 +66,11 @@ const bbpsHistorySchema = new mongoose.Schema(
       type: String,
       enum: ["instantPay", "paySprint", "iserveu"],
       default: "instantPay",
-    }
+    },
+    commissionDistributed: {
+      type: Boolean,
+      default: false
+    },
 
   },
   { timestamps: true }
