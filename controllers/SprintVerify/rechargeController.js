@@ -274,15 +274,15 @@ exports.doRecharge = async (req, res, next) => {
     console.log(rechargeRes);
 
     const { response_code, message } = rechargeRes.data;
-    let status = "Pending";
+    let status = "Failed";
 
     if (response_code === 1) status = "Success";
     else if ([0, 2].includes(response_code)) status = "Pending";
 
-    rechargeRecord[0].status = status;
-    await rechargeRecord[0].save({ session });
     console.log("🔄 Recharge record status updated:", status);
 
+    rechargeRecord[0].status = status;
+    await rechargeRecord[0].save({ session });
     debitTxn[0].status = status;
     await debitTxn[0].save({ session });
     console.log("✅ Transaction status updated:", status);
@@ -290,21 +290,21 @@ exports.doRecharge = async (req, res, next) => {
     let finalUser = updateUser;
 
     // ✅ Refund if failed
-    // if (status === "Failed") {
-    //   finalUser = await userModel.findByIdAndUpdate(
-    //     userId,
-    //     { $inc: { eWallet: required } },
-    //     { new: true, session }
-    //   );
+    if (status === "Failed") {
+      finalUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { new: true, session }
+      );
 
-    //   rechargeRecord[0].status = "Refunded";
-    //   await rechargeRecord[0].save({ session });
+      rechargeRecord[0].status = "Failed";
+      await rechargeRecord[0].save({ session });
 
-    //   debitTxn[0].status = status;
-    //   debitTxn[0].balance_after = finalUser.eWallet;
-    //   await debitTxn[0].save({ session });
-    //   console.log("♻️ Recharge marked as refunded");
-    // }
+      debitTxn[0].status = status;
+      debitTxn[0].balance_after = finalUser.eWallet;
+      await debitTxn[0].save({ session });
+      console.log("♻️ Recharge marked as refunded");
+    }
 
 
     if (status === "Success") {
@@ -375,7 +375,6 @@ exports.doRecharge = async (req, res, next) => {
           type: "credit",
           status: "Success",
           sourceRetailerId: userId,
-          commissionDistributed: true
         }], { session });
 
         console.log("💸 CommissionTransaction created for all roles");
@@ -391,6 +390,11 @@ exports.doRecharge = async (req, res, next) => {
           session
         });
         console.log("💸 Commission distributed");
+        if (status === "Success") {
+          rechargeRecord[0].commissionDistributed = true;
+          await rechargeRecord[0].save({ session });
+        }
+
       }
 
     }
@@ -424,62 +428,6 @@ exports.doRecharge = async (req, res, next) => {
   }
 };
 
-// exports.checkRechargeStatus = async (req, res, next) => {
-//   const { transactionId } = req.params;
-
-//   try {
-
-//     const headers = getPaysprintHeaders();
-//     const response = await axios.post(
-//       "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
-//       {
-//         referenceid: transactionId,
-//       },
-//       { headers }
-//     );
-
-//     logApiCall({
-//       url: "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
-
-//       requestData: req.params,
-//       responseData: response.data
-//     });
-//     const resData = response.data;
-//     if (resData.status === true) {
-//       const txnStatus = resData.data?.status;
-
-//       if (txnStatus === 1) {
-//         return res.status(200).json({
-//           status: "success",
-//           message: "Recharge successful",
-//           data: resData.data,
-//         });
-//       } else if (txnStatus === 0) {
-//         return res.status(200).json({
-//           status: "failed",
-//           message: "Recharge failed",
-//           data: resData.data,
-//         });
-//       } else {
-//         return res.status(200).json({
-//           status: "pending",
-//           message: "Recharge status pending",
-//           data: resData.data,
-//         });
-//       }
-//     } else {
-//       return res.status(400).json({
-//         status: "fail",
-//         message: "Status API returned failure",
-//         data: resData,
-//       });
-//     }
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
-
 
 exports.checkRechargeStatus = async (req, res, next) => {
   const { transactionId } = req.params;
@@ -510,14 +458,15 @@ exports.checkRechargeStatus = async (req, res, next) => {
     console.log("Transaction", recharge, transaction)
 
     // 2️⃣ FINAL state → skip API
-    if (["Success", "Refunded"].includes(recharge.status)) {
+    if (["Success", "Refunded", "Failed"].includes(recharge.status)) {
       await session.commitTransaction();
       return res.status(200).json({
         status: recharge.status.toLowerCase(),
         message:
           recharge.status === "Success"
-            ? "Recharge successful"
-            : "Recharge failed. Amount Already has been refunded.",
+            ? "Recharge successful" :
+            recharge.status === "Refunded" ?
+              "Recharge failed. Amount Already has been refunded." : "Your recharge Failed",
         data: recharge,
       });
     }
@@ -563,9 +512,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
 
     if (txnStatus === "1" && recharge.status === "Pending" && !recharge.commissionDistributed) {
       recharge.status = "Success";
-      recharge.completedAt = new Date();
       transaction.status = "Success";
-      transaction.completedAt = new Date();
       await recharge.save({ session });
       await transaction.save({ session });
       console.log("user", user)
@@ -663,6 +610,9 @@ exports.checkRechargeStatus = async (req, res, next) => {
           session
         });
         console.log("💸 Commission distributed");
+        recharge.commissionDistributed = true
+        await recharge.save({ session });
+
       }
 
 
@@ -687,10 +637,10 @@ exports.checkRechargeStatus = async (req, res, next) => {
       if (recharge.status !== "Refunded") {
 
         // 5-A User wallet credit
-        await userModel.updateOne(
-          { _id: recharge.userId },
+        const updatedUser = await userModel.findByIdAndUpdate(
+          recharge.userId,
           { $inc: { eWallet: recharge.totalDebit } },
-          { session }
+          { new: true, session }
         );
 
         // 5-B SAME transaction record update (NO new report)
@@ -700,11 +650,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
             $set: {
               status: "Refunded",
               description: `Recharge failed – refund credited for ${recharge.customerNumber || ""}`,
-              // transaction_type: "credit",
-              // amount: recharge.totalDebit,
-              // totalCredit: recharge.totalDebit,
-              // totalDebit: 0,
-              balance_after: user.eWallet + recharge.totalDebit,
+              balance_after: updatedUser.eWallet,
             }
           },
           { session }
@@ -728,7 +674,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
     await session.commitTransaction();
     return res.status(200).json({
       status: "pending",
-      message: "Recharge is still pending",
+      message: "Recharge is still pending... Please Wait",
       data: apiRes.data,
     });
 
@@ -743,22 +689,60 @@ exports.checkRechargeStatus = async (req, res, next) => {
 
 
 
+// exports.checkRechargeStatus = async (req, res, next) => {
+//   const { transactionId } = req.params;
 
+//   try {
 
+//     const headers = getPaysprintHeaders();
+//     const response = await axios.post(
+//       "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
+//       {
+//         referenceid: transactionId,
+//       },
+//       { headers }
+//     );
 
+//     logApiCall({
+//       url: "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
 
+//       requestData: req.params,
+//       responseData: response.data
+//     });
+//     const resData = response.data;
+//     if (resData.status === true) {
+//       const txnStatus = resData.data?.status;
 
-
-
-
-
-
-
-
-
-
-
-
+//       if (txnStatus === 1) {
+//         return res.status(200).json({
+//           status: "success",
+//           message: "Recharge successful",
+//           data: resData.data,
+//         });
+//       } else if (txnStatus === 0) {
+//         return res.status(200).json({
+//           status: "failed",
+//           message: "Recharge failed",
+//           data: resData.data,
+//         });
+//       } else {
+//         return res.status(200).json({
+//           status: "pending",
+//           message: "Recharge status pending",
+//           data: resData.data,
+//         });
+//       }
+//     } else {
+//       return res.status(400).json({
+//         status: "fail",
+//         message: "Status API returned failure",
+//         data: resData,
+//       });
+//     }
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 
 
 exports.getBillOperatorList = async (req, res) => {
