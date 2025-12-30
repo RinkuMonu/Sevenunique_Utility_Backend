@@ -62,6 +62,16 @@ const bbpsHistorySchema = new mongoose.Schema(
       of: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    provider: {
+      type: String,
+      enum: ["instantPay", "paySprint", "iserveu"],
+      default: "instantPay",
+    },
+    commissionDistributed: {
+      type: Boolean,
+      default: false
+    },
+
   },
   { timestamps: true }
 );

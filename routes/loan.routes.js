@@ -3,10 +3,11 @@ const router = express.Router();
 const C = require("../controllers/loan.controller");
 const authenticateToken = require("../middleware/verifyToken");
 const upload = require("../utils/uplods");
+const authorizeRoles = require("../middleware/verifyRole");
 
 // Public or Admin
 router.get("/categories", authenticateToken, C.getCategories);
-router.post("/categories", authenticateToken, C.createCategory);
+router.post("/categories", authenticateToken, authorizeRoles("Admin"), C.createCategory);
 
 // Retailer
 router.post(
@@ -21,6 +22,6 @@ router.get("/my", authenticateToken, C.getMyLeads);
 router.get("/", authenticateToken, C.listLeads);
 router.get("/export", authenticateToken, C.exportLoans);
 router.get("/:id", authenticateToken, C.getLeadById);
-router.patch("/:id", authenticateToken, C.updateLead);
+router.patch("/:id", authenticateToken, authorizeRoles("Admin"), C.updateLead);
 
 module.exports = router;
