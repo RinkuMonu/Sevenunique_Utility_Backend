@@ -56,7 +56,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Success", "Pending", "Failed"],
+      enum: ["Success", "Pending", "Failed","Refunded"],
       default: "Pending",
     },
     bankRRN: {

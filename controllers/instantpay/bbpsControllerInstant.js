@@ -5,7 +5,7 @@ const createError = require("http-errors");
 const Joi = require("joi");
 const BbpsHistory = require("../../models/bbpsModel");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback } = require("../../utils/chargeCaluate");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback, logApiCall } = require("../../utils/chargeCaluate");
 const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
@@ -97,6 +97,7 @@ exports.circleLookup = async (req, res, next) => {
       {},   // 👈 empty body
       { headers: buildHeaders({ withOutlet: true }) }  // 👈 outlet include
     );
+    logApiCall({ url: "/circleLookup", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) {
     console.error("Circle Lookup Error:", err.response?.data || err.message);
@@ -123,6 +124,7 @@ exports.getPlans = async (req, res, next) => {
       body,                                        // ✅ body pass
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getPlans", requestData: body, responseData: data });
 
     forward(res, data);
   } catch (err) {
@@ -138,6 +140,7 @@ exports.getCategories = async (_req, res, next) => {
       "/marketplace/utilityPayments/category",
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getCategories", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -161,6 +164,7 @@ exports.listBillers = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/listBillers", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -175,6 +179,7 @@ exports.getBillerDetails = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getBillerDetails", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -197,6 +202,8 @@ exports.prePaymentEnquiry = async (req, res, next) => {
       payload,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/prePaymentEnquiry", requestData: payload, responseData: data });
+
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -210,7 +217,6 @@ exports.makePayment = async (req, res, next) => {
     // ✅ Validate incoming request
     const schema = Joi.object({
       billerId: Joi.object().required(),
-      externalRef: Joi.string().required(),
       enquiryReferenceId: Joi.string().required(),
       inputParameters: Joi.object().unknown(true).required(),
       transactionAmount: Joi.number().required(),
@@ -225,7 +231,7 @@ exports.makePayment = async (req, res, next) => {
 
     const body = await schema.validateAsync(req.body);
 
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
@@ -318,13 +324,16 @@ exports.makePayment = async (req, res, next) => {
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef: referenceid });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
       payload,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+
+    logApiCall({ url: "/makePayment", requestData: payload, responseData: data });
+
 
     // ✅ Determine transaction status
     let statusUpdate = "Failed";
