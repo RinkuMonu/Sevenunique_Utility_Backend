@@ -387,8 +387,10 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-
-
+    forceLogout: {
+      type: Boolean,
+      default: false
+    }
 
   },
   {
@@ -429,16 +431,18 @@ userSchema.pre("save", async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+
 userSchema.pre("save", async function (next) {
-  if (!this.rolePermissions && this.role) {
+  if (this.isModified("role")) {
     const PermissionByRole = mongoose.model("PermissionByRole");
     const rolePerm = await PermissionByRole.findOne({ role: this.role });
-    if (rolePerm) {
-      this.rolePermissions = rolePerm._id;
-    }
+    this.rolePermissions = rolePerm ? rolePerm._id : null;
+    this.extraPermissions = [];
+    this.restrictedPermissions = [];
   }
   next();
 });
+
 
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
@@ -446,7 +450,6 @@ userSchema.methods.getEffectivePermissions = async function () {
 
   let perms = new Set();
 
-  // ✅ 1️⃣ SUPERADMIN → pehle sab permissions lo (but flat return mat karo)
   if (this.role === "Admin") {
     const all = await Permission.find({});
     all.forEach(p => perms.add(p.key));

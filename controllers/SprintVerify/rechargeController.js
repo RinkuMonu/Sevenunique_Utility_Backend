@@ -217,7 +217,8 @@ exports.doRecharge = async (req, res, next) => {
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Recharge for ${canumber} (${operatorName})`,
-      status: "Pending"
+      status: "Pending",
+      provider: "paySprint",
     }], { session });
 
     const rechargeRecord = await BbpsHistory.create([{
@@ -242,7 +243,8 @@ exports.doRecharge = async (req, res, next) => {
 
       transactionId: referenceid,
       extraDetails: { mobileNumber: canumber },
-      status: "Pending"
+      status: "Pending",
+      provider: "paySprint",
     }], { session });
 
     const headers = getPaysprintHeaders();
@@ -277,10 +279,10 @@ exports.doRecharge = async (req, res, next) => {
     if (response_code === 1) status = "Success";
     else if ([0, 2].includes(response_code)) status = "Pending";
 
-    rechargeRecord[0].status = status;
-    await rechargeRecord[0].save({ session });
     console.log("🔄 Recharge record status updated:", status);
 
+    rechargeRecord[0].status = status;
+    await rechargeRecord[0].save({ session });
     debitTxn[0].status = status;
     await debitTxn[0].save({ session });
     console.log("✅ Transaction status updated:", status);
@@ -295,7 +297,7 @@ exports.doRecharge = async (req, res, next) => {
         { new: true, session }
       );
 
-      rechargeRecord[0].status = "Refunded";
+      rechargeRecord[0].status = "Failed";
       await rechargeRecord[0].save({ session });
 
       debitTxn[0].status = status;
@@ -388,6 +390,11 @@ exports.doRecharge = async (req, res, next) => {
           session
         });
         console.log("💸 Commission distributed");
+        if (status === "Success") {
+          rechargeRecord[0].commissionDistributed = true;
+          await rechargeRecord[0].save({ session });
+        }
+
       }
 
     }
@@ -421,60 +428,322 @@ exports.doRecharge = async (req, res, next) => {
   }
 };
 
+
 exports.checkRechargeStatus = async (req, res, next) => {
   const { transactionId } = req.params;
+  const session = await mongoose.startSession();
 
   try {
+    session.startTransaction();
 
+    // 1️⃣ Recharge fetch
+    const recharge = await BbpsHistory.findOne(
+      { transactionId },
+      null,
+      { session }
+    );
+    const transaction = await Transaction.findOne(
+      { transaction_reference_id: transactionId },
+      null,
+      { session }
+    );
+
+    if (!recharge || !transaction) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        status: "failed",
+        message: "Transaction not found",
+      });
+    }
+    console.log("Transaction", recharge, transaction)
+
+    // 2️⃣ FINAL state → skip API
+    if (["Success", "Refunded", "Failed"].includes(recharge.status)) {
+      await session.commitTransaction();
+      return res.status(200).json({
+        status: recharge.status.toLowerCase(),
+        message:
+          recharge.status === "Success"
+            ? "Recharge successful" :
+            recharge.status === "Refunded" ?
+              "Recharge failed. Amount Already has been refunded." : "Your recharge Failed",
+        data: recharge,
+      });
+    }
+
+    // 3️⃣ Gateway call (sirf Pending)
     const headers = getPaysprintHeaders();
+
     const response = await axios.post(
       "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
-      {
-        referenceid: transactionId,
-      },
+      { referenceid: transactionId },
       { headers }
     );
 
     logApiCall({
       url: "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
-
-      requestData: req.params,
-      responseData: response.data
+      requestData: { referenceid: transactionId },
+      responseData: response.data,
     });
-    const resData = response.data;
-    if (resData.status === true) {
-      const txnStatus = resData.data?.status;
 
-      if (txnStatus === 1) {
-        return res.status(200).json({
-          status: "success",
-          message: "Recharge successful",
-          data: resData.data,
-        });
-      } else if (txnStatus === 0) {
-        return res.status(200).json({
-          status: "failed",
-          message: "Recharge failed",
-          data: resData.data,
-        });
-      } else {
-        return res.status(200).json({
-          status: "pending",
-          message: "Recharge status pending",
-          data: resData.data,
-        });
-      }
-    } else {
+    const apiRes = response.data;
+    console.log("apiResapiRes", apiRes)
+
+    if (!apiRes.status) {
+      await session.abortTransaction();
       return res.status(400).json({
-        status: "fail",
-        message: "Status API returned failure",
-        data: resData,
+        status: "failed",
+        message: "Unable to fetch status from service",
+        data: apiRes,
       });
     }
+
+    const txnStatus = String(apiRes.data?.status);
+    console.log("txnStatus", txnStatus)
+
+    // =====================
+    // 4️⃣ SUCCESS
+    // =====================
+    const user = await userModel.findById(
+      recharge.userId,
+      null,
+      { session }
+    ).select("eWallet")
+
+    if (txnStatus === "1" && recharge.status === "Pending" && !recharge.commissionDistributed) {
+      recharge.status = "Success";
+      transaction.status = "Success";
+      await recharge.save({ session });
+      await transaction.save({ session });
+      console.log("user", user)
+      const { commissions, service } = await getApplicableServiceCharge(recharge.userId, recharge.rechargeType, recharge.operator);
+      console.log("💰 Service charges & meta:", commissions);
+
+      // ✅ Check for slabs
+      const commission = {
+        retailer: recharge?.retailerCommission,
+        distributor: recharge?.distributorCommission,
+        admin: recharge?.adminCommission,
+        charge: recharge?.charges,
+        gst: recharge?.gst,
+        tds: recharge?.tds,
+      };
+
+      const newPayOut = new PayOut({
+        userId: recharge.userId || transaction.user_id,
+        amount: Number(recharge.amount),
+        reference: recharge.transactionId,
+        type: recharge.rechargeType,
+        trans_mode: "WALLET",
+        name: user.name,
+        mobile: user.mobileNumber,
+        email: user.email,
+        status: "Success",
+        charges: commission.charge || 0,
+        gst: commission.gst || 0,
+        tds: commission.tds || 0,
+        totalDebit: recharge.totalDebit,
+        remark: `Recharge for ${recharge?.extraDetails?.mobileNumber || ""}`
+      });
+      await newPayOut.save({ session });
+
+      if (user.role === "User") {
+        const retailerCommission = Number(commission.retailer || 0);
+
+        if (retailerCommission > 0) {
+
+          const cashbackAmount = generateRandomCashback(retailerCommission);
+
+          if (cashbackAmount > 0) {
+            const expiry = new Date();
+            expiry.setMonth(expiry.getMonth() + 1);
+
+            await scratchCouponModel.findOneAndUpdate(
+              { serviceTxnId: recharge.transactionId },
+              {
+                $setOnInsert: {
+                  userId: recharge.userId || transaction.user_id,
+                  serviceTxnId: recharge.transactionId,
+                  serviceName: "Recharge",
+                  baseAmount: Number(recharge.totalDebit),
+                  cashbackAmount,
+                  expiresAt: expiry,
+                }
+              },
+              { upsert: true, session }
+            );
+
+          }
+        }
+      } else {
+        await CommissionTransaction.create([{
+          referenceId: recharge.transactionId,
+          service: service._id,
+          baseAmount: Number(recharge.totalDebit),
+          charge: Number(commission.charge),
+          netAmount: Number(recharge.totalDebit),
+          roles: [
+            {
+              userId: recharge.userId || transaction.user_id,
+              role: "Retailer",
+              commission: commission.retailer || 0,
+              chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+            },
+            { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+            { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+          ],
+          type: "credit",
+          status: "Success",
+          sourceRetailerId: recharge.userId || transaction.user_id,
+        }], { session });
+
+        console.log("💸 CommissionTransaction created for all roles");
+
+        await distributeCommission({
+          user: recharge.userId || transaction.user_id,
+          distributer: user.distributorId,
+          service: service,
+          amount,
+          commission,
+          reference: recharge.transactionId || transaction.transaction_reference_id,
+          description: `Commission for recharge of ${recharge.extraDetails.mobileNumber || ""}`,
+          session
+        });
+        console.log("💸 Commission distributed");
+        recharge.commissionDistributed = true
+        await recharge.save({ session });
+
+      }
+
+
+    }
+
+    let scratchCoupon = null;
+
+    if (apiRes.data?.status == 1 && user.role === "User") {
+      scratchCoupon = await scratchCouponModel.findOne(
+        { serviceTxnId: recharge.transactionId },
+        { _id: 1, cashbackAmount: 1, createdAt: 1 }
+      ).session(session);
+    }
+
+
+    // ==================================
+    // 5️⃣ FAILED + REFUNDED
+    // ==================================
+    if (txnStatus == "0" && apiRes.data?.refunded == "1") {
+
+      // 🔐 Double refund protection
+      if (recharge.status !== "Refunded") {
+
+        // 5-A User wallet credit
+        const updatedUser = await userModel.findByIdAndUpdate(
+          recharge.userId,
+          { $inc: { eWallet: recharge.totalDebit } },
+          { new: true, session }
+        );
+
+        // 5-B SAME transaction record update (NO new report)
+        await Transaction.updateOne(
+          { transaction_reference_id: transactionId },
+          {
+            $set: {
+              status: "Refunded",
+              description: `Recharge failed – refund credited for ${recharge.customerNumber || ""}`,
+              balance_after: updatedUser.eWallet,
+            }
+          },
+          { session }
+        );
+        // 5-C Recharge report update
+        recharge.status = "Refunded";
+        await recharge.save({ session });
+      }
+      await session.commitTransaction();
+      console.log("✅ Recharge transaction committed successfully");
+      return res.status(200).json({
+        status: "failed",
+        message: "Recharge failed. Amount has been refunded to your wallet.",
+        data: apiRes.data,
+      });
+    }
+
+    // =====================
+    // 6️⃣ STILL PENDING
+    // =====================
+    await session.commitTransaction();
+    return res.status(200).json({
+      status: "pending",
+      message: "Recharge is still pending... Please Wait",
+      data: apiRes.data,
+    });
+
   } catch (error) {
+    await session.abortTransaction();
+    console.error("checkRechargeStatus error:", error);
     next(error);
+  } finally {
+    session.endSession();
   }
 };
+
+
+
+// exports.checkRechargeStatus = async (req, res, next) => {
+//   const { transactionId } = req.params;
+
+//   try {
+
+//     const headers = getPaysprintHeaders();
+//     const response = await axios.post(
+//       "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
+//       {
+//         referenceid: transactionId,
+//       },
+//       { headers }
+//     );
+
+//     logApiCall({
+//       url: "https://api.paysprint.in/api/v1/service/recharge/recharge/status",
+
+//       requestData: req.params,
+//       responseData: response.data
+//     });
+//     const resData = response.data;
+//     if (resData.status === true) {
+//       const txnStatus = resData.data?.status;
+
+//       if (txnStatus === 1) {
+//         return res.status(200).json({
+//           status: "success",
+//           message: "Recharge successful",
+//           data: resData.data,
+//         });
+//       } else if (txnStatus === 0) {
+//         return res.status(200).json({
+//           status: "failed",
+//           message: "Recharge failed",
+//           data: resData.data,
+//         });
+//       } else {
+//         return res.status(200).json({
+//           status: "pending",
+//           message: "Recharge status pending",
+//           data: resData.data,
+//         });
+//       }
+//     } else {
+//       return res.status(400).json({
+//         status: "fail",
+//         message: "Status API returned failure",
+//         data: resData,
+//       });
+//     }
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
 
 exports.getBillOperatorList = async (req, res) => {
   const headers = getPaysprintHeaders();

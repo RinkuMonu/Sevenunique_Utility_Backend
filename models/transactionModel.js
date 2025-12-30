@@ -56,7 +56,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Success", "Pending", "Failed","Refunded"],
+      enum: ["Success", "Pending", "Failed", "Refunded"],
       default: "Pending",
     },
     bankRRN: {
@@ -72,6 +72,11 @@ const TransactionSchema = new mongoose.Schema(
     description: {
       type: String,
       default: "",
+    },
+    provider: {
+      type: String,
+      enum: ["instantPay", "paySprint", "iserveu"],
+      default: "instantPay",
     },
     meta: {
       type: Map,
