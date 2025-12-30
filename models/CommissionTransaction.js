@@ -31,6 +31,10 @@ const CommissionTransactionSchema = new mongoose.Schema(
         totalEarned: { type: Number, default: 0 },
       },
     ],
+    commissionDistributed: {
+      type: Boolean,
+      default: false
+    },
     type: {
       type: String,
       enum: ["credit", "debit"],
