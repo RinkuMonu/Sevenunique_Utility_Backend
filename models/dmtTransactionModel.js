@@ -9,7 +9,7 @@ const dmtReportSchema = new mongoose.Schema(
     }, // User ID
     status: {
       type: String,
-      enum: ["Pending", "Failed", "Success"],
+      enum: ["Pending", "Failed", "Success", "Refunded"],
       default: "Pending"
     },
     ackno: { type: String },
