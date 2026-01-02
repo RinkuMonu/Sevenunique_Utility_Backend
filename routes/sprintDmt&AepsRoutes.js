@@ -16,7 +16,7 @@ router.get("/d1/bene_id", authenticateToken, BeneficiaryById);
 router.post('/d1/pennydrop', authenticateToken, PennyDrop);
 router.post('/d1/send-otp', authenticateToken, sendTransactionOtp);
 router.post('/d1/perform-transaction', authenticateToken, performTransaction);
-router.post('/d1/track-transaction', authenticateToken, TrackTransaction);
+// router.post('/d1/track-transaction', authenticateToken, TrackTransaction);
 router.post('/d1/refund-otp', authenticateToken, RefundOtp);
 router.post('/d1/refund', authenticateToken, Refund);
 

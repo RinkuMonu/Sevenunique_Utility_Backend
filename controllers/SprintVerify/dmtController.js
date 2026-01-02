@@ -731,65 +731,201 @@ exports.performTransaction = async (req, res, next) => {
     }
 };
 
-exports.TrackTransaction = async (req, res, next) => {
-    try {
-        const headers = getPaysprintHeaders();
-        const {
-            referenceid,
-        } = req.body;
+// exports.TrackTransaction = async (req, res, next) => {
+//     try {
+//         const headers = getPaysprintHeaders();
+//         const {
+//             referenceid,
+//         } = req.body;
 
-        if (!referenceid) {
-            return res.status(400).json({ error: true, message: "Missing required fields" });
-        }
-        const payload = {
-            referenceid,
-        };
-        const response = await axios.post(
-            'https://api.paysprint.in/api/v1/service/dmt/kyc/transact/transact/querytransact',
-            payload, { headers }
-        );
-        logApiCall({
+//         if (!referenceid) {
+//             return res.status(400).json({ error: true, message: "Missing required fields" });
+//         }
+//         const payload = {
+//             referenceid,
+//         };
+//         const response = await axios.post(
+//             'https://api.paysprint.in/api/v1/service/dmt/kyc/transact/transact/querytransact',
+//             payload, { headers }
+//         );
+//         logApiCall({
 
-            url: "https://api.paysprint.in/api/v1/service/dmt/kyc/transact/transact/querytransact",
-            requestData: req.body,
-            responseData: response.data
-        });
-        return res.json(response.data);
-    } catch (error) {
-        return next(error)
+//             url: "https://api.paysprint.in/api/v1/service/dmt/kyc/transact/transact/querytransact",
+//             requestData: req.body,
+//             responseData: response.data
+//         });
+//         return res.json(response.data);
+//     } catch (error) {
+//         return next(error)
+//     }
+// };
+
+
+
+
+// exports.RefundOtp = async (req, res, next) => {
+//     try {
+//         const { referenceid, ackno } = req.body;
+//         if (!referenceid || !ackno) {
+//             return res.status(400).json({ error: true, message: "Missing required fields" });
+//         }
+//         const transaction = await Transaction.findOne(
+//             { transaction_reference_id: referenceid },
+//         );
+
+//         console.log("ttt", transaction)
+
+//         if (!transaction) {
+//             return res.status(404).json({
+//                 error: true,
+//                 message: "Your Transaction not found"
+//             });
+//         }
+//         const beforeStatus = await TrackTransaction(referenceid)
+
+
+//         const headers = getPaysprintHeaders();
+//         const payload = {
+//             referenceid,
+//             ackno
+//         };
+//         const response = await axios.post(
+//             'https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund/resendotp',
+//             payload, { headers }
+//         );
+//         logApiCall({
+//             url: "https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund/resendotp",
+//             requestData: req.body,
+//             responseData: response.data
+//         });
+//         console.log("xxxxxxxxxxxxxxxxx", response)
+//         return res.json(response.data);
+//     } catch (error) {
+
+//         console.log("yyyyyyyyyy", error.response?.data)
+//         // return next(error)
+//         return res.json(error.response?.data)
+//     }
+// };
+
+
+
+const trackTransactionStatus = async (referenceid) => {
+    if (!referenceid) {
+        throw new Error("referenceid is required");
     }
+
+    const headers = getPaysprintHeaders();
+
+    const payload = { referenceid };
+
+    const response = await axios.post(
+        "https://api.paysprint.in/api/v1/service/dmt/kyc/transact/transact/querytransact",
+        payload,
+        { headers }
+    );
+
+    logApiCall({
+        url: "querytransact",
+        requestData: payload,
+        responseData: response.data,
+    });
+
+    return response.data;
 };
 
 exports.RefundOtp = async (req, res, next) => {
     try {
-        const headers = getPaysprintHeaders();
-        const {
-            referenceid,
-            ackno
-        } = req.body;
+        const { referenceid, ackno } = req.body;
+
         if (!referenceid || !ackno) {
-            return res.status(400).json({ error: true, message: "Missing required fields" });
+            return res.status(400).json({
+                error: true,
+                message: "referenceid and ackno are required",
+            });
         }
-        const payload = {
-            referenceid,
-            ackno
-        };
-        const response = await axios.post(
-            'https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund/resendotp',
-            payload, { headers }
-        );
-        logApiCall({
-            url: "https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund/resendotp",
-            requestData: req.body,
-            responseData: response.data
+
+        // 🔍 Local transaction check
+        const DmtReportt = await DmtReport.findOne({
+            referenceid: referenceid,
         });
-        return res.json(response.data);
+
+        if (["Success", "Refunded"].includes(DmtReportt.status)) {
+            return res.status(400).json({
+                error: true,
+                message: `Refund OTP not allowed. Transaction already ${DmtReportt.status}`,
+            });
+        }
+
+        const tranReportt = await Transaction.findOne({
+            transaction_reference_id: referenceid,
+        });
+        const payoutReportt = await PayOut.findOne({
+            reference: referenceid,
+        });
+
+        if (!DmtReportt || !tranReportt || !payoutReportt) {
+            return res.status(404).json({
+                error: true,
+                message: "Some Report not found",
+            });
+        }
+
+        console.log("txnnnnnnnnnnn", DmtReportt)
+
+        // STEP 1: Track DmtReport from Paysprint
+        const trackRes = await trackTransactionStatus(referenceid);
+        console.log("trackRes", trackRes)
+
+        const txnCode = trackRes?.response_code;
+        console.log("texnstatus", txnCode)
+
+        // If already success → refund not allowed
+        if (txnCode === 1) {
+            return res.status(400).json({
+                error: true,
+                message: "Transaction already successful. Refund not allowed.",
+            });
+        }
+
+        //  STEP 2: Send Refund OTP
+        const headers = getPaysprintHeaders();
+
+        const payload = { referenceid, ackno };
+
+        const response = await axios.post(
+            "https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund/resendotp",
+            payload,
+            { headers }
+        );
+
+        logApiCall({
+            url: "refund-resend-otp",
+            requestData: payload,
+            responseData: response.data,
+        });
+
+        return res.json({
+            status: true,
+            message: response.data?.message || "Refund OTP sent",
+            data: response.data,
+        });
+
     } catch (error) {
-        return next(error)
+        console.error("RefundOtp error:", error.response?.data || error.message);
+        return res.status(500).json({
+            error: true,
+            message: error.response?.data?.message || error.message,
+        });
     }
 };
 
+
+
+
 exports.Refund = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const headers = getPaysprintHeaders();
         const {
@@ -797,13 +933,34 @@ exports.Refund = async (req, res, next) => {
             ackno, otp
         } = req.body;
 
+
         if (!referenceid || !ackno || !otp) {
             return res.status(400).json({ error: true, message: "Missing required fields" });
         }
-        const payload = {
-            referenceid,
-            ackno, otp
-        };
+        // 1️⃣ Find transaction & report (Recharge / DMT / etc)
+        const transaction = await Transaction.findOne(
+            { transaction_reference_id: referenceid },
+            null,
+            { session }
+        );
+
+        if (!transaction) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                error: true,
+                message: "Your Transaction not found"
+            });
+        }
+
+        // 🔐 Double refund protection
+        if (transaction.status == "Refunded") {
+            await session.commitTransaction();
+            return res.json({
+                status: true,
+                message: "Amount already refunded",
+            });
+        }
+        const payload = { referenceid, ackno, otp };
         const response = await axios.post(
             'https://api.paysprint.in/api/v1/service/dmt/kyc/refund/refund',
             payload, { headers }
@@ -813,9 +970,57 @@ exports.Refund = async (req, res, next) => {
             requestData: req.body,
             responseData: response.data
         });
-        return res.json({ ...response.data, message: response.data.message });
+        const apiRes = response.data;
+
+        // ❌ Refund failed at gateway
+        if (apiRes.responseCode !== 1) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                error: true,
+                message: apiRes.message || "Refund failed at gateway",
+                data: apiRes
+            });
+        }
+
+        // 3️⃣ Wallet credit (ONLY ON SUCCESS)
+        const user = await userModel.findByIdAndUpdate(
+            transaction.user_id,
+            { $inc: { eWallet: transaction.totalDebit } },
+            { new: true, session }
+        );
+
+        // 4️⃣ Update transaction (same record)
+        transaction.status = "Refunded";
+        transaction.balance_after = user.eWallet;
+        transaction.refunded = true;
+        await transaction.save({ session });
+
+
+        // 5️⃣ Update service report (Recharge / DMT etc)
+        await DmtReport.updateOne(
+            { referenceid: referenceid },
+            {
+                $set: {
+                    status: "Refunded",
+                }
+            },
+            { session }
+        );
+
+        await session.commitTransaction();
+
+
+        return res.json({
+            status: true,
+            message: "Refund successful. Amount credited to wallet.",
+            walletBalance: user.eWallet,
+            data: apiRes
+        });
 
     } catch (error) {
-        return next(error)
+        await session.abortTransaction();
+        return next(error);
+    } finally {
+        session.endSession();
     }
 };
