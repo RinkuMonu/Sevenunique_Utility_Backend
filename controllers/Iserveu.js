@@ -1200,3 +1200,116 @@ exports.checkIserveuTxnStatus = async (req, res) => {
     });
   }
 };
+
+
+
+exports.aepsPreCheck = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { serviceId, txnType, amount } = req.body;
+
+    if (!serviceId || !txnType) {
+      return res.status(400).json({
+        status: false,
+        message: "serviceId and txnType are required",
+      });
+    }
+
+    const ALL_TXN_TYPES = [
+      "CASH_WITHDRAWAL",
+      "CASH_DEPOSIT",
+      "BALANCE_ENQUIRY",
+      "MINI_STATEMENT",
+    ];
+
+    if (!ALL_TXN_TYPES.includes(txnType)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid AEPS transaction type",
+      });
+    }
+
+    if (["BALANCE_ENQUIRY", "MINI_STATEMENT"].includes(txnType)) {
+      return res.json({
+        status: true,
+        allowed: true,
+        data: {
+          txnType,
+          note: "No amount or wallet validation required",
+        },
+      });
+    }
+
+    const amt = Number(amount);
+    if (amt < 150 || amt > 10000) {
+      return res.status(400).json({
+        status: false,
+        message: "Amount must be between 150 and 10,000",
+      });
+    }
+
+    // 🔹 Get commission config
+    const { commissions, service } =
+      await getApplicableServiceCharge(userId, serviceId);
+
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amt, commissions)
+      : {
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+      };
+    let grossDebit;
+    if (txnType === "CASH_WITHDRAWAL") {
+      grossDebit =
+        Number(commission.charge || 0) -
+        Number(commission.gst || 0) -
+        Number(commission.tds || 0) 
+    } else if (txnType === "CASH_DEPOSIT") {
+      grossDebit =
+        amt +
+        Number(commission.charge || 0) +
+        Number(commission.gst || 0) +
+        Number(commission.tds || 0) -
+        Number(commission.retailer || 0);
+    }
+
+
+    const user = await userModel.findById(userId);
+
+    const availableBalance =
+      Number(user.eWallet || 0) - Number(user.cappingMoney || 0);
+
+    if (availableBalance < grossDebit) {
+      return res.status(400).json({
+        status: false,
+        allowed: false,
+        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${grossDebit}`,
+      });
+    }
+
+    return res.json({
+      status: true,
+      allowed: true,
+      data: {
+        amount: amt,
+        grossDebit,
+        charge: commission.charge,
+        gst: commission.gst,
+        tds: commission.tds,
+        retailerCommission: commission.retailer,
+        availableBalance,
+      },
+    });
+  } catch (err) {
+    console.error("AEPS Pre-check Error:", err);
+    return res.status(500).json({
+      status: false,
+      message: err.message || "AEPS pre-check failed",
+    });
+  }
+};
+
