@@ -104,6 +104,7 @@ exports.aepsCallback = async (req, res) => {
       AUTH_FAILED: "Failed",
       FAILURE: "Failed",
       AUTH_DECLINE: "Failed",
+      REFUNDED: "Refunded",
     };
 
     const finalStatus = statusMap[status] || "Pending";
@@ -217,6 +218,7 @@ exports.aepsCallback = async (req, res) => {
               distributorCommission: commission.distributor,
               adminCommission: commission.admin,
               apiResponse: req.body,
+              provider: "iserveu"
             },
           ],
           { session }
@@ -274,6 +276,7 @@ exports.aepsCallback = async (req, res) => {
             distributorCommission: commission.distributor,
             adminCommission: commission.admin,
             apiResponse: req.body,
+            provider: "iserveu"
           },
         ],
         { session }
@@ -353,6 +356,7 @@ exports.aepsCallback = async (req, res) => {
           distributorCommission: commission.distributor,
           adminCommission: commission.admin,
           apiResponse: req.body,
+          provider: "iserveu"
         },
       ],
       { session }
@@ -377,7 +381,7 @@ exports.aepsCallback = async (req, res) => {
         charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+          { userId: user._id, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -855,190 +859,6 @@ exports.storeOnboardingData = async (req, res) => {
   }
 };
 
-// exports.sendAepsExcelMail = async (req, res) => {
-//   try {
-//     const formData = req.body?.formData;
-//     if (!req.user || !req.user.id) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Unauthorized access",
-//       });
-//     }
-//     const userId = req.user.id;
-//     const user = await userModel.findById(userId).select("isOnBoardEmailSend");
-//     console.log(user);
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "User not found",
-//       });
-//     }
-//     // if (user.isOnBoardEmailSend === true) {
-//     //   return res.status(400).json({
-//     //     success: false,
-//     //     message: "Onboarding mail already sent",
-//     //   });
-//     // }
-//     if (!formData || typeof formData !== "object") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Unknown/Missing data",
-//       });
-//     }
-
-//     const requiredFields = [
-//       "bcagentid",
-//       "bcagentname",
-//       "companyname",
-//       "mobilenumber",
-//       "email",
-//       "lat",
-//       "long",
-//     ];
-
-//     for (let field of requiredFields) {
-//       if (!formData[field] || String(formData[field]).trim() === "") {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Missing required field: ${field}`,
-//         });
-//       }
-//     }
-
-//     const safeData = Object.fromEntries(
-//       Object.entries(formData).map(([key, value]) => [
-//         key,
-//         String(value || "")
-//           .toString()
-//           .trim(),
-//       ])
-//     );
-
-//     const workbook = new ExcelJS.Workbook();
-//     const worksheet = workbook.addWorksheet("BC Agent Data");
-
-//     worksheet.columns = [
-//       { header: "bcagentid", key: "bcagentid" },
-//       { header: "bcagentname", key: "bcagentname" },
-//       { header: "lastname", key: "lastname" },
-//       { header: "companyname", key: "companyname" },
-//       { header: "address", key: "address" },
-//       { header: "area", key: "area" },
-//       { header: "pincode", key: "pincode" },
-//       { header: "mobilenumber", key: "mobilenumber" },
-//       { header: "shopname", key: "shopname" },
-//       { header: "shopaddress", key: "shopaddress" },
-//       { header: "shopstate", key: "shopstate" },
-//       { header: "shopcity", key: "shopcity" },
-//       { header: "shopdistrict", key: "shopdistrict" },
-//       { header: "shoparea", key: "shoparea" },
-//       { header: "shoppincode", key: "shoppincode" },
-//       { header: "pancard", key: "pancard" },
-//       { header: "email", key: "email" },
-//       { header: "AADHAAR", key: "AADHAAR" },
-//       { header: "lat", key: "lat" },
-//       { header: "long", key: "long" },
-//       { header: "apiusername", key: "apiusername" },
-//     ];
-
-//     worksheet.addRow({
-//       bcagentid: safeData.bcagentid,
-//       bcagentname: safeData.bcagentname,
-//       lastname: safeData.lastname,
-//       companyname: safeData.companyname,
-//       address: safeData.address,
-//       area: safeData.area,
-//       pincode: safeData.pincode,
-//       mobilenumber: safeData.mobilenumber,
-//       shopname: safeData.shopname,
-//       shopaddress: safeData.shopaddress,
-//       shopstate: safeData.shopstate,
-//       shopcity: safeData.shopcity,
-//       shopdistrict: safeData.shopdistrict,
-//       shoparea: safeData.shoparea,
-//       shoppincode: safeData.shoppincode,
-//       pancard: safeData.pancard,
-//       email: safeData.email,
-//       AADHAAR: safeData.AADHAAR,
-//       lat: safeData.lat,
-//       long: safeData.long,
-//       apiusername: safeData.apiusername,
-//     });
-
-//     const buffer = await workbook.xlsx.writeBuffer();
-
-//     const transporter = nodemailer.createTransport({
-//       host: process.env.SMTP_HOST,
-//       port: Number(process.env.SMTP_PORT),
-//       secure: false,
-//       auth: {
-//         user: process.env.SMTP_USER,
-//         pass: process.env.SMTP_PASS,
-//       },
-//       tls: {
-//         rejectUnauthorized: false,
-//       },
-//       connectionTimeout: 15000,
-//       greetingTimeout: 15000,
-//     });
-
-//     await transporter.verify();
-
-//     const info = await transporter.sendMail({
-//       from: `"SevenUnique" <info@7unique.in>`,
-//       to: process.env.RECEIVER_EMAIL,
-//       subject: "BC Agent Excel Data",
-//       html: `
-//     <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
-//       <p>Hi Team,</p>
-
-//       <p>
-//         Please find the attached data for the
-//         <strong>AEPS</strong> and <strong>MATM</strong> services required for the onboarding process.
-//       </p>
-
-//       <p>
-//         If you require any further information, please feel free to reach out.
-//       </p>
-
-//       <br/>
-
-//       <p>
-//         Thanks & Regards,<br/>
-//         <strong>Seven Tech Solutions Pvt. Ltd.</strong>
-//       </p>
-//     </div>
-//   `,
-//       attachments: [
-//         {
-//           filename: `bc-agent-${Date.now()}.xlsx`,
-//           content: buffer,
-//         },
-//       ],
-//     });
-//     await userModel.updateOne(
-//       { _id: userId },
-//       {
-//         $set: {
-//           isOnBoardEmailSend: true,
-//         },
-//       }
-//     );
-
-//     return res.json({
-//       success: true,
-//       message: "Onboarding mail sent successfully Thank You!",
-//     });
-//   } catch (error) {
-//     console.error("SECURE SMTP ERROR:", error.message);
-
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error while sending email",
-//     });
-//   }
-// };
-
 exports.sendBatchOnboardingMail = async (req, res, forceSend = false) => {
   const isApiCall = !!res;
   const session = await mongoose.startSession();
@@ -1299,3 +1119,197 @@ exports.updateOnboardMailStatus = async (req, res) => {
     });
   }
 };
+
+
+exports.checkIserveuTxnStatus = async (req, res) => {
+  try {
+    const { transactionDate, externalRef } = req.body;
+
+    // ✅ Basic validation
+    if (!transactionDate || !externalRef) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate and clientRefId are required",
+      });
+    }
+
+    // transactionDate must be YYYY-MM-DD
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(transactionDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate must be in YYYY-MM-DD format",
+      });
+    }
+
+    // ✅ Build request payload (as per IServeU spec)
+    const payload = {
+      "$1": "UAeps_txn_status_api",
+      "$4": transactionDate,
+      "$5": transactionDate,
+      "$6": externalRef,
+    };
+
+    const response = await axios.post(
+      "https://apidev.iserveu.online/sandbox/statuscheck/txnreport",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          client_id: process.env.ISERVEU_CLIENT_ID,
+          client_secret: process.env.ISERVEU_CLIENT_SECRET,
+        },
+        timeout: 15000,
+      }
+    );
+
+    const data = response.data;
+
+    // ✅ SUCCESS with data
+    if (data.status === 200 && data.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Transaction status fetched",
+        data: data.results[0], // usually single record
+      });
+    }
+
+    // ✅ SUCCESS but NO DATA
+    if (data.status === 1 && data.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No record found for given transaction",
+        data: null,
+      });
+    }
+
+    // ❌ FAILED response
+    return res.status(400).json({
+      success: false,
+      message: data.message || "Transaction status query failed",
+      data,
+    });
+
+  } catch (error) {
+    console.error("IServeU Status API Error:", error?.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch transaction status",
+      error: error?.response?.data || error.message,
+    });
+  }
+};
+
+
+
+exports.aepsPreCheck = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { serviceId, txnType, amount } = req.body;
+
+    if (!serviceId || !txnType) {
+      return res.status(400).json({
+        status: false,
+        message: "serviceId and txnType are required",
+      });
+    }
+
+    const ALL_TXN_TYPES = [
+      "CASH_WITHDRAWAL",
+      "CASH_DEPOSIT",
+      "BALANCE_ENQUIRY",
+      "MINI_STATEMENT",
+    ];
+
+    if (!ALL_TXN_TYPES.includes(txnType)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid AEPS transaction type",
+      });
+    }
+
+    if (["BALANCE_ENQUIRY", "MINI_STATEMENT"].includes(txnType)) {
+      return res.json({
+        status: true,
+        allowed: true,
+        data: {
+          txnType,
+          note: "No amount or wallet validation required",
+        },
+      });
+    }
+
+    const amt = Number(amount);
+    if (amt < 150 || amt > 10000) {
+      return res.status(400).json({
+        status: false,
+        message: "Amount must be between 150 and 10,000",
+      });
+    }
+
+    // 🔹 Get commission config
+    const { commissions, service } =
+      await getApplicableServiceCharge(userId, serviceId);
+
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amt, commissions)
+      : {
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+      };
+    let grossDebit;
+    if (txnType === "CASH_WITHDRAWAL") {
+      grossDebit =
+        Number(commission.charge || 0) -
+        Number(commission.gst || 0) -
+        Number(commission.tds || 0) 
+    } else if (txnType === "CASH_DEPOSIT") {
+      grossDebit =
+        amt +
+        Number(commission.charge || 0) +
+        Number(commission.gst || 0) +
+        Number(commission.tds || 0) -
+        Number(commission.retailer || 0);
+    }
+
+
+    const user = await userModel.findById(userId);
+
+    const availableBalance =
+      Number(user.eWallet || 0) - Number(user.cappingMoney || 0);
+
+    if (availableBalance < grossDebit) {
+      return res.status(400).json({
+        status: false,
+        allowed: false,
+        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${grossDebit}`,
+      });
+    }
+
+    return res.json({
+      status: true,
+      allowed: true,
+      data: {
+        amount: amt,
+        grossDebit,
+        charge: commission.charge,
+        gst: commission.gst,
+        tds: commission.tds,
+        retailerCommission: commission.retailer,
+        availableBalance,
+      },
+    });
+  } catch (err) {
+    console.error("AEPS Pre-check Error:", err);
+    return res.status(500).json({
+      status: false,
+      message: err.message || "AEPS pre-check failed",
+    });
+  }
+};
+

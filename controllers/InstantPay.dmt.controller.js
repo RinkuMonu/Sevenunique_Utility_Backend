@@ -16,7 +16,7 @@ const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
-const encryptionKey =  process.env.INSTANTPAY_AES_KEY
+const encryptionKey = process.env.INSTANTPAY_AES_KEY
 const getHeaders = () => {
 
     return {
@@ -84,25 +84,36 @@ async function parsePidXML(pidXml) {
 }
 
 
-async function findReportByRef(externalRef, session) {
+async function findReportsByRef(externalRef, session) {
     const allReports = [
-        { model: AEPSTransaction, service: "AEPS" },
-        { model: DmtReport, service: "DMT" },
-        { model: bbpsModel, service: "BBPS" },
-        { model: matmModel, service: "MATM" },
-        { model: payInModel, service: "PAYIN" },
-        { model: payOutModel, service: "PAYOUT" },
-        { model: Transaction, service: "Transaction" }
+        { model: Transaction, ref: "transaction_reference_id", service: "Transaction" },
+        { model: AEPSTransaction, ref: "clientrefno", service: "AEPS" },
+        { model: DmtReport, ref: "referenceid", service: "DMT" },
+        { model: bbpsModel, ref: "transactionId", service: "BBPS" },
+        { model: matmModel, ref: "clientRefID", service: "MATM" },
+        { model: payInModel, ref: "reference", service: "PAYIN" },
+        { model: payOutModel, ref: "reference", service: "PAYOUT" }
     ];
 
+    const results = [];
+
     for (const item of allReports) {
-        const report = await item.model.findOne({ externalRef }).session(session);
+        const report = await item.model
+            .findOne({ [item.ref]: externalRef })
+            .session(session);
+
         if (report) {
-            return { report, service: item.service };
+            results.push({
+                ...report.toObject(),
+                service: item.service,
+                model: item.model
+            });
         }
     }
-    return null;
+
+    return results.length ? results : null;
 }
+
 
 
 // 1️⃣ Get Bank List
@@ -680,6 +691,7 @@ exports.makeTransaction = async (req, res) => {
                 tds: commission.tds,
                 amount: transferAmount,
                 totalDebit: required,
+                provider: "instantPay"
             }], { session });
 
             // Sequential updates instead of Promise.all
@@ -744,148 +756,156 @@ exports.makeTransaction = async (req, res) => {
 
 // Transaction Status
 exports.TransactionStatus = async (req, res) => {
+    const { externalRef, transactionDate } = req.body;
+
+    if (!externalRef || !transactionDate) {
+        return res.status(400).json({
+            status: false,
+            message: "externalRef and transactionDate are required!",
+        });
+    }
+
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-        const { externalRef, transactionDate } = req.body;
-
-        if (!externalRef) {
-            return res.status(400).json({
-                status: false,
-                message: "externalRef are required!",
-            });
-        }
-        if (!transactionDate) {
-            return res.status(400).json({
-                status: false,
-                message: "transactionDate are required!",
-            });
-        }
-
         const user = await userModel.findById(req.user.id).session(session);
         if (!user) throw new Error("User not found");
 
-        // ❇️ FIND REPORT FROM ANY SERVICE
-        const result = await findReportByRef(externalRef, session);
-        if (!result) throw new Error("No matching report found!");
+        const reports = await findReportsByRef(externalRef, session);
+        if (!reports?.length) throw new Error("No matching report found");
 
-        console.log(result);
-        return;
+        const pendingReports = reports.filter(r =>
+            ["pending", "tup"].includes(String(r.status).toLowerCase())
+        );
 
-
-        const report = result.report;
-        const serviceType = result.service;
-
-        // 🟡 Only pending allowed
-        if (!["Pending", "TUP", "pending"].includes(report.status)) {
+        if (!pendingReports.length) {
             return res.status(400).json({
                 status: false,
-                message: `Status check allowed only for PENDING/TUP transactions.`,
-                currentStatus: report.status,
-                serviceType,
+                message: "Status check allowed only for PENDING/TUP transactions",
             });
         }
 
-        // 📦 Payload
-        const payload = {
-            transactionDate,
-            externalRef,
-            source: serviceType === "AEPS" ? "ORDER" : undefined,
-        };
-
-        // 🌐 Hit API
-        const ipayRes = await axios.post(`${BASE_URL}/reports/txnStatus`, payload, {
-            headers: {
-                ...getHeaders(),
-                "X-Ipay-Outlet-Id": user.outletId,
+        const ipayRes = await axios.post(
+            `${BASE_URL}/reports/txnStatus`,
+            { externalRef, transactionDate },
+            {
+                headers: {
+                    ...getHeaders(),
+                    "X-Ipay-Outlet-Id": user.outletId,
+                },
             }
+        );
+
+        logApiCall({
+            tag: "instantpay-txnStatus",
+            responseData: ipayRes.data
         });
 
         const resp = ipayRes.data;
         const txnStatus = resp?.data?.transactionStatusCode;
 
-        // 🔄 Still pending
-        if (txnStatus === "TUP") {
-            report.status = "Pending";
-            await report.save({ session });
-            await session.commitTransaction();
+        console.log(resp);
 
+        if (!txnStatus) {
             return res.json({
-                status: true,
-                message: "Transaction still pending.",
+                status: false,
+                message: resp.status || "Transaction failed",
                 data: resp,
-                serviceType,
             });
         }
 
-        // ✔ SUCCESS CASE
+        if (txnStatus === "TUP") {
+            await session.commitTransaction();
+            return res.json({
+                status: true,
+                message: "Transaction still pending",
+                data: resp,
+            });
+        }
+
         if (txnStatus === "TXN") {
-            report.status = "Success";
-            report.gatewayResponse = resp;
-
-            await report.save({ session });
-
-
-            await Transaction.updateOne(
-                { externalRef },
-                { status: "Success", gatewayResponse: resp },
-                { session }
-            );
+            for (const r of pendingReports) {
+                const updateData = { status: "Success" };
+                if (r.service === "Transaction") {
+                    updateData.meta = {
+                        ...(r.meta || {}),
+                        instantpay: resp,
+                    };
+                }
+                await r.model.updateOne(
+                    { _id: r._id },
+                    updateData,
+                    { session }
+                );
+            }
 
             await session.commitTransaction();
             return res.json({
                 status: true,
                 message: "Transaction successful",
                 data: resp,
-                serviceType,
             });
         }
 
-        // ❌ FAILED → REFUND
-        const refundAmount = Number(report.amount);
 
-        const updatedUser = await userModel.findOneAndUpdate(
-            {
-                _id: req.user.id,
-            },
-            {
-                $inc: { eWallet: -report.amount }
-            },
-            { new: true, session }
-        );
+        const isDebit = String(pendingReports[0].type).toUpperCase() === "DEBIT";
 
-        report.status = "Failed";
-        report.gatewayResponse = resp;
-        report.refunded = true;
-        await report.save({ session });
+        const alreadyFailed = await pendingReports[0].model.findOne({
+            _id: pendingReports[0]._id,
+            status: "Failed"
+        }).session(session);
 
+        if (isDebit && !alreadyFailed) {
+            const refundAmount = Number(pendingReports[0].totalDebit || 0);
 
-        // Transaction Report Update
-        await Transaction.updateOne(
-            { externalRef },
-            { status: "Failed", refunded: true },
-            { session }
-        );
+            if (refundAmount > 0) {
+                await userModel.updateOne(
+                    { _id: user._id },
+                    { $inc: { eWallet: refundAmount } },
+                    { session }
+                );
+            }
+        }
+
+        for (const r of pendingReports) {
+            const updateData = { status: "Failed" };
+            if (r.service === "Transaction") {
+                updateData.meta = {
+                    ...(r.meta || {}),
+                    instantpay: resp,
+                };
+            }
+            await r.model.updateOne(
+                { _id: r._id },
+                updateData,
+                { session }
+            );
+        }
 
         await session.commitTransaction();
-
         return res.json({
             status: true,
-            message: `${serviceType} Transaction failed & refund processed.`,
+            message: resp?.data?.transactionStatus || "Transaction failed",
             data: resp,
         });
 
     } catch (err) {
+        console.log(err);
+
         await session.abortTransaction();
         return res.status(500).json({
             status: false,
             message: err.message,
-            error: err.response?.data || err.message
+            error: err.response?.data || err.message,
         });
     } finally {
         session.endSession();
     }
 };
+
+
+
+
 
 
