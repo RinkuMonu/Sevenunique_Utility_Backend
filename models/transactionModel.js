@@ -75,8 +75,8 @@ const TransactionSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ["instantPay", "paySprint", "iserveu"],
-      default: "instantPay",
+      enum: ["instantPay", "paySprint", "iserveu", ""],
+      default: "",
     },
     meta: {
       type: Map,

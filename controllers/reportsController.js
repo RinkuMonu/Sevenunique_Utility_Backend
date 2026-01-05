@@ -111,17 +111,17 @@ exports.getBbpsReport = async (req, res) => {
       // Search by user name
       ...(search
         ? [
-            {
-              $match: {
-                $or: [
-                  { "user.name": { $regex: search, $options: "i" } },
-                  { "user.UserId": { $regex: search, $options: "i" } },
-                  { transactionId: { $regex: search, $options: "i" } },
-                  { customerNumber: { $regex: search, $options: "i" } },
-                ],
-              },
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                { transactionId: { $regex: search, $options: "i" } },
+                { customerNumber: { $regex: search, $options: "i" } },
+              ],
             },
-          ]
+          },
+        ]
         : []),
 
       {
@@ -135,6 +135,7 @@ exports.getBbpsReport = async (req, res) => {
           charges: 1,
           gst: 1,
           tds: 1,
+          totalDebit: 1,
           totalCommission: 1,
           adminCommission: 1,
           distributorCommission: 1,
@@ -238,9 +239,11 @@ exports.getAllDmtReports = async (req, res, next) => {
     }
     if (typeof status !== "undefined" && status !== "") {
       if (status === "1" || status === 1 || status === true) {
-        filter.status = true;
+        filter.status = "Success";
       } else if (status === "0" || status === 0 || status === false) {
-        filter.status = false;
+        filter.status = "Failed";
+      } else if (status === "2" || status === 2) {
+        filter.status = "Pending";
       }
     }
 
@@ -425,10 +428,8 @@ exports.getAllDmtReports = async (req, res, next) => {
             doc
               .fontSize(10)
               .text(
-                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${
-                  report.benename
-                } (${report.account_number}) - ₹${
-                  report.gatewayCharges?.txn_amount || 0
+                `${index + 1}. ${report.referenceid} - ${report.remitter} → ${report.benename
+                } (${report.account_number}) - ₹${report.gatewayCharges?.txn_amount || 0
                 } - ${report.status ? "Success" : "Failed"}`,
                 50,
                 yPosition
