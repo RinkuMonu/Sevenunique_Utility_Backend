@@ -89,6 +89,8 @@ exports.getWalletTransactions = async (req, res) => {
           charge: 1,
           totalDebit: 1,
           totalCredit: 1,
+          provider: 1,
+          type: 1,
         },
       },
       { $sort: { createdAt: -1 } }
