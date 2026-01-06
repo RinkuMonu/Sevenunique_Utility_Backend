@@ -810,7 +810,7 @@ exports.performTransaction = async (req, res, next) => {
 
 
 
-const trackTransactionStatus = async (referenceid) => {
+exports.trackTransactionStatus = async (referenceid) => {
     if (!referenceid) {
         throw new Error("referenceid is required");
     }
