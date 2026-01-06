@@ -92,6 +92,15 @@ const { response } = require("express");
 const { getApplicableServiceCharge, calculateCommissionFromSlabs, logApiCall } = require("../utils/chargeCaluate");
 const DmtReport = require('../models/dmtTransactionModel');
 
+const cleanName = (name = "") => {
+  return name
+    .replace(/\b(mr|mrs|ms|miss|shri|smt|dr)\b\.?/gi, "")
+    .replace(/[^a-zA-Z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+
 exports.initiatePayout = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -128,6 +137,15 @@ exports.initiatePayout = async (req, res) => {
       session.endSession();
       return res.status(404).json({ success: false, message: "User not found or inactive" });
     }
+    if (Number(amount) <= 1000) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Minimum withdrawal amount is ₹1001",
+      });
+    }
+
 
 
     if (user.mpin != mpin) {
@@ -231,38 +249,38 @@ exports.initiatePayout = async (req, res) => {
     );
 
     // Create DMT report
-    const [dmtTransaction] = await DmtReport.create(
-      [
-        {
-          user_id: userId,
-          status: "Pending",
-          type: service._id,
-          referenceid: referenceId,
-          txn_status: "0",
-          benename: beneName,
-          remarks: "Cash Withdraw",
-          message: "Cash Withdraw",
-          remitter: benePhoneNo,
-          account_number: beneAccountNo,
-          gatewayCharges: {
-            txn_amount: parseFloat(amount),
-            customercharge: parseFloat(commission.charge),
-            gst: parseFloat(commission.gst),
-            tds: parseFloat(commission.tds),
-            netcommission: parseFloat(
-              commission.retailer + commission.distributor + commission.admin
-            ),
-          },
-          charges: commission.charge,
-          commission: { distributor: commission.distributor, admin: commission.admin },
-          gst: commission.gst,
-          tds: commission.tds,
-          amount,
-          totalDebit: required,
-        },
-      ],
-      { session }
-    );
+    // const [dmtTransaction] = await DmtReport.create(
+    //   [
+    //     {
+    //       user_id: userId,
+    //       status: "Pending",
+    //       type: service._id,
+    //       referenceid: referenceId,
+    //       txn_status: "0",
+    //       benename: beneName,
+    //       remarks: "Cash Withdraw",
+    //       message: "Cash Withdraw",
+    //       remitter: benePhoneNo,
+    //       account_number: beneAccountNo,
+    //       gatewayCharges: {
+    //         txn_amount: parseFloat(amount),
+    //         customercharge: parseFloat(commission.charge),
+    //         gst: parseFloat(commission.gst),
+    //         tds: parseFloat(commission.tds),
+    //         netcommission: parseFloat(
+    //           commission.retailer + commission.distributor + commission.admin
+    //         ),
+    //       },
+    //       charges: commission.charge,
+    //       commission: { distributor: commission.distributor, admin: commission.admin },
+    //       gst: commission.gst,
+    //       tds: commission.tds,
+    //       amount,
+    //       totalDebit: required,
+    //     },
+    //   ],
+    //   { session }
+    // );
 
 
 
@@ -294,7 +312,7 @@ exports.initiatePayout = async (req, res) => {
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: "Failed to fetch token" });
       await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: user.eWallet });
-      await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
+      // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
 
@@ -308,7 +326,7 @@ exports.initiatePayout = async (req, res) => {
     formData.append("trans_mode", fundTransferType || "imps");
     formData.append("account", beneAccountNo);
     formData.append("ifsc", beneifsc);
-    formData.append("name", beneName);
+    formData.append("name", cleanName(beneName));
     formData.append("email", paramA || "");
     formData.append("mobile", custMobNo);
     formData.append("address", paramB || "");
@@ -324,7 +342,7 @@ exports.initiatePayout = async (req, res) => {
         },
       });
       console.log(response);
-      
+
 
       return res.status(response.status).json({
         success: true,
@@ -339,7 +357,7 @@ exports.initiatePayout = async (req, res) => {
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: response.message || "Failed to fetch token" });
       await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: user.eWallet });
-      await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
+      // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
       return res.status(400).json({
@@ -379,7 +397,7 @@ exports.payoutCallback = async (req, res) => {
 
     const payout = await payOutModel.findOne({ reference: reference }).session(session);
     const transaction = await Transaction.findOne({ transaction_reference_id: reference }).session(session);
-    // const dmtReport = await DmtReport.findOne({ referenceid: reference });
+    // const dmtReport = await DmtReport.findOne({ referenceid: reference }).session(session);;
 
 
 
@@ -409,6 +427,7 @@ exports.payoutCallback = async (req, res) => {
     if (status.toLowerCase() == "success") {
       payout.status = "Success";
       transaction.status = "Success";
+      transaction.utr = utr || "";
       // dmtReport.status = "Success";
       // dmtReport.txn_status = "1";
       // dmtReport.utr = utr || "";
@@ -427,7 +446,7 @@ exports.payoutCallback = async (req, res) => {
       payout.status = "Failed";
       transaction.status = "Failed";
       transaction.balance_after = updatedUser.eWallet;
-      //   dmtReport.status = "Failed";
+      // dmtReport.status = "Failed";
       // dmtReport.remarks = message || "Transaction failed";
       // dmtReport.message = message || "Transaction failed";
       payout.remark = message || "Transaction failed";
@@ -441,7 +460,7 @@ exports.payoutCallback = async (req, res) => {
 
     await payout.save({ session });
     await transaction.save({ session });
-    // await dmtReport.save();
+    // await dmtReport.save({ session });
 
     await session.commitTransaction();
 

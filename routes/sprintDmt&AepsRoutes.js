@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/verifyToken.js');
-const { queryRemitter, remitterEkyc, registerRemitter, registerBeneficiary, fetchBeneficiary, BeneficiaryById, deleteBeneficiary, PennyDrop, sendTransactionOtp, performTransaction, TrackTransaction, RefundOtp, Refund } = require('../controllers/SprintVerify/dmtController.js');
+const { queryRemitter, remitterEkyc, registerRemitter, registerBeneficiary, fetchBeneficiary, BeneficiaryById, deleteBeneficiary, PennyDrop, sendTransactionOtp, performTransaction, RefundOtp, Refund, trackTransactionStatus } = require('../controllers/SprintVerify/dmtController.js');
 const { generateOnboardURL, transactionCallback, onboardResponseCallback, checkOnboardStatus, activateMerchant, registerMerchant, authenticateMerchant, balanceEnquiry, withdrawWithAuth, getMiniStatement, getAepsBankList, updateOnboardTransaction } = require('../controllers/SprintVerify/aepsController.js');
 const reportController = require('../controllers/reportsController.js');
 
@@ -16,7 +16,7 @@ router.get("/d1/bene_id", authenticateToken, BeneficiaryById);
 router.post('/d1/pennydrop', authenticateToken, PennyDrop);
 router.post('/d1/send-otp', authenticateToken, sendTransactionOtp);
 router.post('/d1/perform-transaction', authenticateToken, performTransaction);
-// router.post('/d1/track-transaction', authenticateToken, TrackTransaction);
+router.post('/d1/track-transaction', authenticateToken, trackTransactionStatus);
 router.post('/d1/refund-otp', authenticateToken, RefundOtp);
 router.post('/d1/refund', authenticateToken, Refund);
 

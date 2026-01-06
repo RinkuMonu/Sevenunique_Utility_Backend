@@ -1,3 +1,4 @@
+const { default: mongoose } = require("mongoose");
 const Form = require("../models/queryModel.js");
 
 // Create a new form submission
