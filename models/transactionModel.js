@@ -69,6 +69,10 @@ const TransactionSchema = new mongoose.Schema(
     transaction_reference_id: {
       type: String,
     },
+    utr: {
+      type: String,
+      default: ""
+    },
     description: {
       type: String,
       default: "",
