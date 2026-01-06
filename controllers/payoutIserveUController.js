@@ -129,14 +129,6 @@ exports.initiatePayout = async (req, res) => {
 
     const userId = req.user.id;
     const referenceId = `CW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const user = await userModel.findOne({ _id: userId, status: true }).session(session);
-
-    if (!user) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ success: false, message: "User not found or inactive" });
-    }
     if (Number(amount) <= 1000) {
       await session.abortTransaction();
       session.endSession();
@@ -145,6 +137,15 @@ exports.initiatePayout = async (req, res) => {
         message: "Minimum withdrawal amount is ₹1001",
       });
     }
+
+    const user = await userModel.findOne({ _id: userId, status: true }).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ success: false, message: "User not found or inactive" });
+    }
+
 
 
 
@@ -292,8 +293,8 @@ exports.initiatePayout = async (req, res) => {
 
     // Now generate token (outside transaction)
     const formDataToken = new FormData();
-    formDataToken.append("authKey", "BBPehk1wdz");
-    formDataToken.append("authSecret", "qkxwzvslxzhnkxej");
+    formDataToken.append("authKey", process.env.ZYNKR_AUTH_KEY);
+    formDataToken.append("authSecret", process.env.ZYNKR_AUTH_SECRET);
 
     const tokenResponse = await axios.post(
       "https://zynkrpay.com/api/v1.1/t1/oauth/token",
@@ -308,10 +309,10 @@ exports.initiatePayout = async (req, res) => {
     const accessToken = tokenResponse?.data?.data?.access_token;
 
     if (!accessToken) {
-      const user = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
+      const userRef = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: "Failed to fetch token" });
-      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: user.eWallet });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: userRef.eWallet });
       // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
@@ -352,11 +353,11 @@ exports.initiatePayout = async (req, res) => {
       console.log("err", err);
 
       response = { data: { success: false, message: err.response.data.message || "API failed" } };
-      const user = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
+      const refundedUser = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
 
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: response.message || "Failed to fetch token" });
-      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: user.eWallet });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: refundedUser.eWallet });
       // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
