@@ -150,6 +150,7 @@ exports.getBbpsReport = async (req, res) => {
           "distributor.email": 1,
           createdAt: 1,
           updatedAt: 1,
+          provider: 1,
         },
       },
     ];
