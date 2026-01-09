@@ -12,19 +12,20 @@ const sendOtp = async (mobileNumber, otp, type) => {
       console.error("Missing MSG91 Auth Key or Template ID");
       throw new Error("MSG91 Auth Key or Template ID is missing");
     }
-    let templateId = "";
-    if (type === "password") {
-      templateId = templateIdForForgot_password;
-    }
-    else if (type === "mpin") {
-      templateId = templateIdForReset_MPIN;
-    }
-    else if (type === "login" || type === "register") {
-      templateId = templateIdForLogREG;
-    }
-    else {
-      templateId = templatedDEFALUT;
-    }
+    // let templateId = "forgot-password-otp";
+    let templateId = "68e8b458c1192039a2006fe3";
+    // if (type === "password") {
+    //   templateId = templateIdForForgot_password;
+    // }
+    // else if (type === "mpin") {
+    //   templateId = templateIdForReset_MPIN;
+    // }
+    // else if (type === "login" || type === "register") {
+    //   templateId = templateIdForLogREG;
+    // }
+    // else {
+    //   templateId = templatedDEFALUT;
+    // }
     console.log(mobileNumber, otp, type)
     console.log(templateId)
     const payload = {
@@ -49,7 +50,7 @@ const sendOtp = async (mobileNumber, otp, type) => {
       }
 
     );
-    console.log(response)
+    // console.log(response)
     if (response.data.type === "success") {
       return { success: true, message: "OTP sent successfully" };
     } else {

@@ -18,49 +18,20 @@ const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
 const { getISTDayRange } = require("../services/timeZone.js");
 const PermissionByRole = require("../models/PermissionByRole.js");
-
-
-
-// utils/getDeviceName.js
-
-// const verifyEmail7Unique = async (email) => {
-//   try {
-//     const res = await axios.post(
-//       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-//       {
-//         refid: `${Date.now()}`,
-//         email,
-//       },
-//       {
-//         headers: {
-//           "Content-Type": "application/json",
-//           "x-env": "production",
-//           "client-id": "Seven012",
-//           Authorization: `Bearer ${generateToken()}`,
-//         },
-//       }
-//     );
-
-//     const data = res?.data;
-
-//     console.log("Email Verify Cron Response:", data);
-
-//     if (!data) return { valid: false, reason: "no_response" };
-//     return {
-//       valid:
-//         data?.data?.status &&
-//         data?.data?.data?.valid_syntax &&
-//         data?.data?.data?.valid,
-//       reason: data?.data?.data?.status || "unknown",
-//     };
-//   } catch (err) {
-//     console.error("Email Verify Cron Error:", err.message);
-//     return { valid: false, reason: "api_error" };
-//   }
-// };
-
-
-
+const CounterModal = require("../models/Counter.modal.js");
+const CommissionTransaction = require("../models/CommissionTransaction.js");
+const payOutModel = require("../models/payOutModel.js");
+const payInModel = require("../models/payInModel.js");
+const otpModel = require("../models/otpModel.js");
+const LoginHistory = require("../models/LoginHistory.js");
+const userModel = require("../models/userModel.js");
+const { generateToken } = require("./kycController.js");
+const scratchCouponModel = require("../models/scratchCoupon.model.js");
+const Transaction = require("../models/transactionModel.js");
+const servicesModal = require("../models/servicesModal.js");
+const userModalActionModal = require("../models/userModalAction.modal.js");
+const redis = require("../middleware/redis.js");
+const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache } = require("../middleware/redisValidation.js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -135,12 +106,12 @@ const sendLoginEmail = async (
   deviceName
 ) => {
   try {
-    const check = await verifyEmail7Unique(user.email || "");
-    if (!check.valid) {
-      console.log("⚠ Skipping login email. Invalid email:", user.email);
-      return;
-    }
-    console.log("✅ Email verified by 7Unique:", check);
+    // const check = await verifyEmail7Unique(user.email || "");
+    // if (!check.valid) {
+    //   console.log("⚠ Skipping login email. Invalid email:", user.email);
+    //   return;
+    // }
+    // console.log("✅ Email verified by 7Unique:", check);
     const loginTime = new Date().toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
@@ -207,7 +178,7 @@ const sendLoginEmail = async (
 
 const sendOtpController = async (req, res) => {
   try {
-    const { mobileNumber, isRegistered, ifLogin } = req.body;
+    const { mobileNumber, isRegistered, ifLogin, type } = req.body;
     console.log("📩 Request Body:", req.body);
 
     // ✅ Validation
@@ -245,7 +216,7 @@ const sendOtpController = async (req, res) => {
     const otp = await generateOtp(mobileNumber);
 
     // ✅ Send OTP
-    const smsResult = await sendOtp(mobileNumber, otp);
+    const smsResult = await sendOtp(mobileNumber, otp, type);
 
     if (smsResult.success) {
       return res.status(200).json({
@@ -295,23 +266,19 @@ const verifyOTPController = async (req, res) => {
     let nextStep = outerRegister ? 3 : 2;
 
     if (user) {
-      if (user.forceLogout || user.forceLogout === true || user.forceLogout == "true") {
-        nextStep = outerRegister ? 3 : 2
-      } else {
+      if (user.name && user.email && user.password)
+        nextStep = outerRegister ? 4 : 3;
 
-        if (user.name && user.email && user.password)
-          nextStep = outerRegister ? 4 : 3;
+      if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
+        nextStep = outerRegister ? 5 : 4;
 
-        if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-          nextStep = outerRegister ? 5 : 4;
+      if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
+        nextStep = outerRegister ? 6 : 5;
 
-        if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-          nextStep = outerRegister ? 6 : 5;
-
-        if (user.panDetails && Object.keys(user.panDetails).length > 0)
-          nextStep = outerRegister ? 7 : 6;
-      }
+      if (user.panDetails && Object.keys(user.panDetails).length > 0)
+        nextStep = outerRegister ? 7 : 6;
     }
+
     const token = user
       ? generateJwtToken(user._id, user.role, user.mobileNumber)
       : null;
@@ -362,15 +329,16 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
-
-    if (user.forceLogout || user.forceLogout === true || user.forceLogout == "true" || user.isKycVerified === false && user.role !== "User") {
-      return res.status(403).json({
-        message: "Please complete your KYC and required documents to access your account.",
-      });
+    if (user.isKycVerified === false) {
+      return res
+        .status(403)
+        .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
     }
+
     if (user.role === "User" && user.clientSource === "PANEL") {
       return res.status(403).json({
-        message: "This panel is not for users; Only retailers and distributors can access it.",
+        message:
+          "This panel is not for users; Only retailers and distributors can access it.",
       });
     }
 
@@ -392,14 +360,13 @@ const loginController = async (req, res) => {
         .status(400)
         .json({ message: "Password or OTP is required to login" });
     }
-
-    // if (user.forceLogout || user.forceLogout == "true" || user.forceLogout == true) {
-    //   user.forceLogout = false
-    //   await user.save();
-    // }
-    // ✅ Generate JWT 
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
     const deviceName = getDeviceName(req.headers["user-agent"]);
+
+    if (user.forceLogout === true) {
+      user.forceLogout = false
+      await user.save();
+    }
 
     sendLoginEmail(
       user,
@@ -570,6 +537,20 @@ const registerUser = async (req, res) => {
   session.startTransaction();
   try {
     let userData = { ...req.body };
+    let { isBecomeRetailer } = userData
+    // console.log("register body", userData)
+    // console.log("register auth", req.user)
+    isBecomeRetailer = isBecomeRetailer === true || isBecomeRetailer === "true";
+
+    if (isBecomeRetailer === true && !req.user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({
+        success: false,
+        code: "FORCE_LOGOUT",
+        message: "Please login again to continue become a retailer process",
+      });
+    }
 
     const clientSource = userData.clientSource?.toUpperCase() || "PANEL";
 
@@ -579,19 +560,22 @@ const registerUser = async (req, res) => {
 
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
+    }).select({
+      _id: 1,
+      mobileNumber: 1,
+      email: 1
     }).session(session);
-
 
     let userToSave = null;
 
     if (existingUser) {
       if (
-        existingUser.forceLogout === true &&
-        existingUser.isKycVerified === false
+        isBecomeRetailer === true &&
+        req.user &&
+        (String(existingUser._id) == String(req.user.id))
       ) {
         delete userData.mobileNumber;
         delete userData.email;
-
         userToSave = existingUser;
       } else {
         await session.abortTransaction();
@@ -599,17 +583,16 @@ const registerUser = async (req, res) => {
 
         if (existingUser.mobileNumber === userData.mobileNumber) {
           return res.status(400).json({
-            message: "User Mobile Number already exists"
+            message: "User Mobile Number already exists",
           });
         }
         if (existingUser.email === userData.email) {
           return res.status(400).json({
-            message: "User Email already exists"
+            message: "User Email already exists",
           });
         }
       }
     }
-
     let referredByUser = null;
 
     if (clientSource === "APP" && userData.referal) {
@@ -735,19 +718,10 @@ const registerUser = async (req, res) => {
       }
     }
 
-    // ✅ Create user
-    // userData.UserId = await CounterModal.getNextUserId();
-    // const rolePerm = await PermissionByRole.findOne({ role: userData.role });
-    // console.log("rolePerm", rolePerm)
-    // if (rolePerm) {
-    //   userData.rolePermissions = rolePerm._id;
-    // }
-
     let savedUser;
     if (userToSave) {
       // 🔵 STEP-3: UPDATE EXISTING USER
       Object.assign(userToSave, userData);
-      userToSave.forceLogout = false;
       savedUser = await userToSave.save({ session });
     } else {
       // 🟢 BRAND NEW USER
@@ -755,7 +729,6 @@ const registerUser = async (req, res) => {
       const newUser = new User(userData);
       savedUser = await newUser.save({ session });
     }
-
 
     await session.commitTransaction();
     session.endSession();
@@ -766,7 +739,6 @@ const registerUser = async (req, res) => {
       savedUser.role,
       savedUser.mobileNumber
     );
-
 
     return res.status(200).json({
       message: "Registration successful",
@@ -807,6 +779,7 @@ const updateProfileController = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+
     if (name) user.name = name;
     if (email) user.email = email;
     if (mpin) user.mpin = mpin;
@@ -821,15 +794,12 @@ const updateProfileController = async (req, res) => {
       };
     }
     if (pinCode) user.pinCode = pinCode;
-    if (role) {
-      user.role = role
-      user.forceLogout = true
-      user.isKycVerified = false
-      user.agreement = false
-      roleChanged = true;
+    if (role && role !== user.role) {
+      user.role = role;
+      user.forceLogout = true;
     }
-    if (!roleChanged && isKycVerified !== undefined) {
-      user.isKycVerified = isKycVerified
+    if (isKycVerified !== undefined) {
+      user.isKycVerified = isKycVerified;
     }
     if (agreement !== undefined) user.agreement = agreement;
     if (isVideoKyc !== undefined) user.isVideoKyc = isVideoKyc;
@@ -838,6 +808,8 @@ const updateProfileController = async (req, res) => {
     if (shopName) user.shopName = shopName;
 
     await user.save();
+    await invalidateUsersCache();
+    await invalidateProfileCache(user._id || user.id);
 
     return res.status(200).json({
       message: "Profile updated successfully",
@@ -851,6 +823,21 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
+    // const cacheKey = 
+    let cacheKey = null
+    if (redis) {
+      try {
+        cacheKey = `profile:self:${req.user.id}`;
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          console.log("UserSelfProfile Hit from Redis")
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (error) {
+        console.log("redis error from get UserSelfProfile api")
+      }
+    }
+
     let userDoc = await User.findById(
       req.user.id,
       "-mpin -commissionPackage -meta -password"
@@ -894,9 +881,27 @@ const getUserController = async (req, res) => {
       const diffTime = endDate.getTime() - today.getTime();
       remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
     }
-    return res
-      .status(200)
-      .json({ user, userMeta, effectivePermissions, remainingDays });
+    // return res
+    //   .status(200)
+    //   .json({ user, userMeta, effectivePermissions, remainingDays });
+
+    const responseData = {
+      user, userMeta, effectivePermissions, remainingDays
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          3600,
+          JSON.stringify(responseData),
+        );
+        console.log("🔥 MongoDB UserSelfProfile HIT");
+      } catch (error) {
+        console.log("redies set faild from UserSelfProfile api")
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -905,6 +910,19 @@ const getUserController = async (req, res) => {
 
 const getUserId = async (req, res) => {
   try {
+    let cacheKey = null
+    if (redis) {
+      try {
+        cacheKey = `profile:user:${req.params.id}`;
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          console.log("UserProfile Hit from Redis")
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (error) {
+        console.log("redis error from get UserProfile api")
+      }
+    }
     let userDoc = await User.findById(
       req.params.id,
       "-mpin -commissionPackage -meta -password"
@@ -939,10 +957,28 @@ const getUserId = async (req, res) => {
 
     const userMeta =
       (await userMetaModel
-        .findOne({ userId: req.user.id })
+        .findOne({ userId: req.params.id })
         .populate("services.serviceId")) || {};
 
-    return res.status(200).json({ user, userMeta, effectivePermissions });
+    // return res.status(200).json({ user, userMeta, effectivePermissions });
+
+    const responseData = {
+      user, userMeta, effectivePermissions
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          100,
+          JSON.stringify(responseData),
+        );
+        console.log("🔥 MongoDB UserProfile(BY ID) HIT");
+      } catch (error) {
+        console.log("redies set faild from UserProfile api")
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -968,6 +1004,21 @@ const getUsersWithFilters = async (req, res) => {
       district,
       distributorId,
     } = req.query;
+    let cacheKey = null
+    if (exportType == "false") {
+      if (redis) {
+        try {
+          cacheKey = `users:${req.user.role}:${req.user.id}:${req.originalUrl}`;
+          const cachedData = await redis.get(cacheKey);
+          if (cachedData) {
+            console.log("User Hit from Redis")
+            return res.status(200).json(JSON.parse(cachedData));
+          }
+        } catch (error) {
+          console.log("redis error from get all user api")
+        }
+      }
+    }
 
     const andConditions = [];
     if (state) {
@@ -1009,12 +1060,10 @@ const getUsersWithFilters = async (req, res) => {
       if (isKycVerified)
         andConditions.push({ isKycVerified: isKycVerified === "true" });
     }
-
     // 🔹 Role filter
     if (role) {
       andConditions.push({ role });
     }
-
     // 🔹 Date range filter
     if (from || to) {
       const dateFilter = {};
@@ -1022,16 +1071,13 @@ const getUsersWithFilters = async (req, res) => {
       if (to) dateFilter.$lte = new Date(to);
       andConditions.push({ createdAt: dateFilter });
     }
-
     // 🔹 Distributor restriction
     const loggedInUser = req.user;
     if (loggedInUser.role === "Distributor") {
       andConditions.push({ distributorId: loggedInUser.id });
     }
-
     // Final filter
     const filter = andConditions.length > 0 ? { $and: andConditions } : {};
-
     const sort = {};
     sort[sortBy] = order === "asc" ? 1 : -1;
 
@@ -1042,10 +1088,6 @@ const getUsersWithFilters = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
-    // .skip(exportType !== "false" ? 0 : skip)
-    // .limit(
-    //   exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
-    // );
 
     // ✅ Effective Permissions add karo
     users = await Promise.all(
@@ -1063,8 +1105,6 @@ const getUsersWithFilters = async (req, res) => {
         };
       })
     );
-    // console.log(users);
-
     let fields = [];
 
     if (inactiveOrUnverified) {
@@ -1201,7 +1241,17 @@ const getUsersWithFilters = async (req, res) => {
 
     // Normal API response (pagination ke sath)
     const totalUsers = await User.countDocuments(filter);
-    res.status(200).json({
+
+    // res.status(200).json({
+    //   success: true,
+    //   data: users,
+    //   pagination: {
+    //     currentPage: parseInt(page),
+    //     totalPages: Math.ceil(totalUsers / limit),
+    //     totalUsers,
+    //   },
+    // });
+    const responseData = {
       success: true,
       data: users,
       pagination: {
@@ -1209,7 +1259,25 @@ const getUsersWithFilters = async (req, res) => {
         totalPages: Math.ceil(totalUsers / limit),
         totalUsers,
       },
-    });
+    };
+
+    // ================= REDIS SAVE (START) =================
+    if (exportType === "false") {
+      if (cacheKey && redis) {
+        try {
+          await redis.setex(
+            cacheKey,
+            200,
+            JSON.stringify(responseData),
+          );
+          console.log("🔥 MongoDB HIT");
+        } catch (error) {
+          console.log("redies set faild from user get api")
+        }
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUsersWithFilters:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -1228,11 +1296,16 @@ const updateUserStatus = async (req, res) => {
     }
     const user = await User.findById(userId);
 
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
     user.status = status;
+    user.forceLogout = true;
     await user.save();
+    await invalidateUsersCache();
+    await invalidateProfileCache(userId);
+
     return res.status(200).json({
       message: "User status updated successfully",
       user: {
@@ -1252,42 +1325,34 @@ const updateUserDetails = async (req, res) => {
     const userId = req.params.id;
 
     const {
-      role,
       status,
       isAccountActive,
       commissionPackage,
-      cappingMoney,
-      eWallet,
       meta,
-      password,
-      mpin,
       outletId,
       callbackUrl,
     } = req.body;
 
-
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
     }
+
 
     let user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    if (role) user.role = role;
     if (status !== undefined) user.status = status;
     if (commissionPackage) user.commissionPackage = commissionPackage;
     if (isAccountActive !== undefined) user.isAccountActive = isAccountActive;
-    if (cappingMoney !== undefined) user.cappingMoney = cappingMoney;
-    if (eWallet !== undefined) user.eWallet = eWallet;
     if (meta) user.meta = meta;
-    if (password) user.password = password;
-    if (mpin) user.mpin = mpin;
     if (outletId) user.outletId = outletId;
     if (callbackUrl || callbackUrl == "") user.callbackUrl = callbackUrl;
 
     await user.save();
+    await invalidateProfileCache(user._id || user.id);
+    await invalidateUsersCache();
     return res.status(200).json({
       message: "User details updated successfully",
     });
@@ -1329,18 +1394,26 @@ const updateCredential = async (req, res) => {
   }
 };
 
-const Transaction = require("../models/transactionModel.js");
-const servicesModal = require("../models/servicesModal.js");
-
-
-
 const getDashboardStats = async (req, res, next) => {
   try {
     const userRole = req.query.userRole;
     const user = req.user;
     // console.log("Dashboard user:", user);
     const role = user.role;
-
+    let cacheKey = null
+    if (redis) {
+      cacheKey = `dashboard:${role}:${user.id}`;
+      // console.log("CACHE KEY:", cacheKey);
+      try {
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          console.log("⚡DASHBOARD REDIS HIT");
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (e) {
+        console.log("Redis dashboard get failed, skipping cache");
+      }
+    }
     let stats = {
       userInfo: {
         name: user.name,
@@ -1351,16 +1424,14 @@ const getDashboardStats = async (req, res, next) => {
     const { startUTC, endUTC } = getISTDayRange();
 
     const matchToday = {
-      createdAt: { $gte: startUTC, $lte: endUTC }
+      createdAt: { $gte: startUTC, $lte: endUTC },
     };
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
       [field]: user.id,
-      createdAt: { $gte: startUTC, $lte: endUTC }
+      createdAt: { $gte: startUTC, $lte: endUTC },
     });
-    console.log("matchTodayUser", matchTodayUser);
-
 
     let todayEarning = 0;
     let todayCharges = 0;
@@ -1441,7 +1512,6 @@ const getDashboardStats = async (req, res, next) => {
         return res.status(400).json({ status: false, message: "Invalid role" });
       }
     }
-    console.log(query);
 
     const users = await User.find(query).select(
       "_id name email eWallet phone UserId"
@@ -1477,11 +1547,21 @@ const getDashboardStats = async (req, res, next) => {
         DmtReport.countDocuments(),
         BbpsHistory.countDocuments(),
         PayOut.aggregate([
-          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              status: "Success",
+            },
+          },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         PayIn.aggregate([
-          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              status: "Success",
+            },
+          },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         User.aggregate([
@@ -1490,7 +1570,12 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchToday),
         PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, status: "Success" } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              status: "Success",
+            },
+          },
           {
             $facet: {
               byType: [
@@ -1588,7 +1673,13 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, distributorId: new mongoose.Types.ObjectId(user.id), status: "Success" } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              distributorId: new mongoose.Types.ObjectId(user.id),
+              status: "Success",
+            },
+          },
           {
             $facet: {
               byType: [
@@ -1674,7 +1765,13 @@ const getDashboardStats = async (req, res, next) => {
         PayIn.countDocuments(matchTodayUser()),
         PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startUTC, $lte: endUTC }, user_id: new mongoose.Types.ObjectId(user.id), status: "Success" } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              user_id: new mongoose.Types.ObjectId(user.id),
+              status: "Success",
+            },
+          },
           {
             $facet: {
               byType: [
@@ -1736,10 +1833,29 @@ const getDashboardStats = async (req, res, next) => {
       };
     }
 
-    return res.status(200).json({
+    // return res.status(200).json({
+    //   success: true,
+    //   data: stats,
+    // });
+    const responseData = {
       success: true,
       data: stats,
-    });
+    };
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          60,
+          JSON.stringify(responseData),
+        );
+        console.log("⚡DASHBOARD HIT FROM DB");
+      } catch (e) {
+        console.log("Redis dashboard set failed", e.message);
+      }
+    }
+
+    return res.status(200).json(responseData);
+
   } catch (err) {
     console.error("Dashboard Error:", err);
     return next(err);
@@ -1864,58 +1980,6 @@ const getPayInPayOutReport = async (req, res) => {
   }
 };
 
-const CounterModal = require("../models/Counter.modal.js");
-const CommissionTransaction = require("../models/CommissionTransaction.js");
-const payOutModel = require("../models/payOutModel.js");
-const payInModel = require("../models/payInModel.js");
-const otpModel = require("../models/otpModel.js");
-const LoginHistory = require("../models/LoginHistory.js");
-const userModel = require("../models/userModel.js");
-const { generateToken } = require("./kycController.js");
-const scratchCouponModel = require("../models/scratchCoupon.model.js");
-
-
-// const updateUserPermissions = async (req, res) => {
-//   try {
-//     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
-
-//     const Permission = mongoose.model("Permission");
-
-//     const resolveIdsFromKeys = async (items) => {
-//       // Agar item string aur ObjectId valid nahi hai, assume it's a key
-//       const docs = await Permission.find({
-//         $or: [
-//           { _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } },
-//           { key: { $in: items } },
-//         ],
-//       });
-
-//       return docs.map((p) => p._id.toString());
-//     };
-
-//     extraPermissions = await resolveIdsFromKeys(extraPermissions);
-//     restrictedPermissions = await resolveIdsFromKeys(restrictedPermissions);
-
-//     const user = await User.findByIdAndUpdate(
-//       req.params.id,
-//       { extraPermissions, restrictedPermissions },
-//       { new: true }
-//     );
-
-//     if (!user) return res.status(404).json({ message: "User not found" });
-
-//     res.json({
-//       ...user.toObject(),
-//       effectivePermissions: await user.getEffectivePermissions(),
-//     });
-//   } catch (err) {
-//     console.error("Error in updateUserPermissions:", err);
-//     return res.status(500).json({ message: err.message });
-//   }
-// };
-
-// GET /users/:id/permissions
-
 const updateUserPermissions = async (req, res) => {
   try {
     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
@@ -1935,6 +1999,8 @@ const updateUserPermissions = async (req, res) => {
     );
 
     if (!user) return res.status(404).json({ message: "User not found" });
+    await invalidateProfileCache(req.params.id)
+    await invalidateUserPermissionsCache(req.params.id)
 
     res.json({
       success: true,
@@ -1951,6 +2017,8 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const getUserPermissions = async (req, res) => {
+  console.log("hitssss auth")
+
   try {
     // 1️⃣ DB se user nikal lo
     const user = await User.findById(req.params.id)
@@ -1987,6 +2055,7 @@ const updateProgress = async (req, res) => {
           lastUpdated: new Date(),
         };
         await user.save();
+        // await invalidateUsersCache()
       } else {
         console.log("User not found, skipping progress update");
       }
@@ -2079,6 +2148,8 @@ const updateUserDocs = async (req, res) => {
       { new: true }
     );
 
+    await invalidateProfileCache(userId)
+
     res.json({
       success: true,
       message: "Documents updated successfully",
@@ -2093,7 +2164,6 @@ const updateUserDocs = async (req, res) => {
   }
 };
 
-
 const getCouponHistory = async (req, res) => {
   try {
     const { status, userId } = req.query;
@@ -2104,13 +2174,11 @@ const getCouponHistory = async (req, res) => {
     // 🔐 Role based filter
     if (role === "User") {
       filter.userId = new mongoose.Types.ObjectId(req.user.id);
-    }
-    else if (role === "Admin") {
+    } else if (role === "Admin") {
       if (userId) {
         filter.userId = new mongoose.Types.ObjectId(userId);
       }
-    }
-    else {
+    } else {
       return res.status(403).json({
         success: false,
         message: "Access denied",
@@ -2123,9 +2191,7 @@ const getCouponHistory = async (req, res) => {
     }
 
     // 📄 Coupon list
-    const query = scratchCouponModel
-      .find(filter)
-      .sort({ createdAt: -1 });
+    const query = scratchCouponModel.find(filter).sort({ createdAt: -1 });
 
     if (role === "Admin") {
       query.populate("userId", "name email mobileNumber");
@@ -2160,7 +2226,6 @@ const getCouponHistory = async (req, res) => {
       totalCashback,
       data: coupons,
     });
-
   } catch (err) {
     console.error("Coupon history error:", err);
     res.status(500).json({
@@ -2169,7 +2234,6 @@ const getCouponHistory = async (req, res) => {
     });
   }
 };
-
 
 const scratchCashback = async (req, res) => {
   const session = await mongoose.startSession();
@@ -2184,22 +2248,22 @@ const scratchCashback = async (req, res) => {
     console.log(id);
     console.log(userId);
 
-
     // 1️⃣ Find valid coupon
-    const coupon = await scratchCouponModel.findOne({
-      _id: id,
-      userId: user,
-      status: "UNSCRATCHED",
-      expiresAt: { $gt: new Date() }
-    }).session(session);
+    const coupon = await scratchCouponModel
+      .findOne({
+        _id: id,
+        userId: user,
+        status: "UNSCRATCHED",
+        expiresAt: { $gt: new Date() },
+      })
+      .session(session);
     console.log(coupon);
-
 
     if (!coupon) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: "Invalid, expired or already scratched coupon"
+        message: "Invalid, expired or already scratched coupon",
       });
     }
 
@@ -2221,36 +2285,377 @@ const scratchCashback = async (req, res) => {
     await coupon.save({ session });
 
     // 4️⃣ Create transaction entry
-    await Transaction.create([{
-      user_id: userId,
-      transaction_type: "credit",
-      type2: "CASHBACK",
-      amount: coupon.cashbackAmount,
-      totalCredit: coupon.cashbackAmount,
-      balance_after: updatedUser.eWallet,
-      payment_mode: "wallet",
-      transaction_reference_id: `CB-${coupon.serviceTxnId}`,
-      status: "Success",
-      description: `Scratch cashback for ${coupon.serviceName}`
-    }], { session });
+    await Transaction.create(
+      [
+        {
+          user_id: userId,
+          transaction_type: "credit",
+          type2: "CASHBACK",
+          amount: coupon.cashbackAmount,
+          totalCredit: coupon.cashbackAmount,
+          balance_after: updatedUser.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `CB-${coupon.serviceTxnId}`,
+          status: "Success",
+          description: `Scratch cashback for ${coupon.serviceName}`,
+        },
+      ],
+      { session }
+    );
 
     await session.commitTransaction();
 
     return res.json({
       success: true,
       cashbackAmount: coupon.cashbackAmount,
-      walletBalance: updatedUser.eWallet
+      walletBalance: updatedUser.eWallet,
     });
-
   } catch (error) {
     await session.abortTransaction();
     console.error("❌ Scratch Cashback Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to scratch coupon"
+      message: "Failed to scratch coupon",
     });
   } finally {
     session.endSession();
+  }
+};
+
+// become ret
+
+const getUserActions = async (req, res) => {
+  try {
+    // 🔐 Admin check
+    if (!["Admin", "Sub Admin", "superAdmin"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    let {
+      page = 1,
+      limit = 10,
+      search,
+      actionType,
+      status,
+    } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+    const skip = (page - 1) * limit;
+
+    const matchStage = {};
+
+    // 🔎 filter by actionType
+    if (actionType) {
+      matchStage.actionType = actionType;
+    }
+
+    // 🔎 filter by status
+    if (status) {
+      matchStage.status = status;
+    }
+
+    const pipeline = [
+      // 1️⃣ join user
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      // 2️⃣ search (UserId / mobile / email)
+      ...(search
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.UserId": { $regex: search, $options: "i" } },
+                { "user.mobileNumber": { $regex: search, $options: "i" } },
+                { "user.email": { $regex: search, $options: "i" } },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      // 3️⃣ action filters
+      { $match: matchStage },
+
+      // 4️⃣ sort latest first
+      { $sort: { createdAt: -1 } },
+
+      // 5️⃣ pagination
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                actionType: 1,
+                fromRole: 1,
+                toRole: 1,
+                status: 1,
+                createdAt: 1,
+                actedAt: 1,
+                user: {
+                  _id: "$user._id",
+                  UserId: "$user.UserId",
+                  name: "$user.name",
+                  mobileNumber: "$user.mobileNumber",
+                  email: "$user.email",
+                  role: "$user.role",
+                },
+              },
+            },
+          ],
+          totalCount: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const result = await userModalActionModal.aggregate(pipeline);
+
+    const actions = result[0].data;
+    const total = result[0].totalCount[0]?.count || 0;
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      data: actions,
+    });
+  } catch (error) {
+    console.error("getUserActions error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const createUserAction = async (req, res) => {
+  try {
+    const { actionType, toRole } = req.body;
+
+    if (!actionType || !toRole) {
+      return res.status(400).json({
+        success: false,
+        message: "missing required fields (actionType, toRole)",
+      });
+    }
+    const user = await userModel.findById(req.user.id).select({
+      _id: 1,
+      role: 1,
+      UserActionStatus: 1,
+    });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "user not found",
+      });
+    }
+
+    if (user.UserActionStatus === true) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Your request is already under review. Our admin team is currently verifying your details. You will be notified once a decision is made.",
+      });
+    }
+
+    const existing = await userModalActionModal.findOne({
+      userId: user._id,
+      actionType,
+      status: "PENDING",
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Request already submitted"
+      });
+    }
+
+    const response = await userModalActionModal.create({
+      userId: user._id,
+      actionType,
+      fromRole: user.role,
+      toRole,
+    });
+
+    user.UserActionStatus = true;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      response,
+      message: "request submitted successfully",
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message || "Please Try again Later",
+    });
+  }
+};
+
+const sendRoleApprovalEmail = async (user, role) => {
+  try {
+    const payload = {
+      recipients: [
+        {
+          to: [
+            {
+              name: user?.name || "User",
+              // email: user?.email,
+              email: "niranjan@7unique.in",
+            },
+          ],
+          variables: {
+            userName: user?.name ?? "User",
+            role: role ?? "User",
+            company_name: "Finunique Small Private Limited",
+            currentYear: new Date().getFullYear(),
+          },
+        },
+      ],
+      from: {
+        name: "Finunique Small Private Limited",
+        email: "info@sevenunique.com",
+      },
+      domain: "mail.sevenunique.com",
+      template_id: "user_notification",
+    };
+    const res = await axios.post(
+      "https://control.msg91.com/api/v5/email/send",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
+        },
+      }
+    );
+    console.log(" Role approval email sent:", res.data);
+  } catch (error) {
+    console.error(" Error sending role approval email:", error.message);
+  }
+};
+
+const approveUserAction = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { actionId, status } = req.body;
+
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false, message: "Invalid status value"
+      });
+    }
+
+    if (!["Admin", "Sub Admin", "superAdmin"].includes(req.user.role)) {
+      await session.abortTransaction();
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    const action = await userModalActionModal.findOneAndUpdate(
+      { _id: actionId, status: "PENDING" },
+      { status, actedAt: new Date(), actedBy: req.user.id },
+      { new: true, session }
+    );
+
+    if (!action) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Action already processed",
+      });
+    }
+
+    let user = null;
+
+    if (status === "APPROVED") {
+      user = await userModel.findById(action.userId).select({
+        role: 1,
+        forceLogout: 1,
+        isKycVerified: 1,
+        agreement: 1,
+        isVideoKyc: 1,
+        email: 1,
+        name: 1,
+      }).session(session);
+
+
+      if (!user) {
+        await session.abortTransaction();
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      user.role = action.toRole;
+      user.forceLogout = true;
+      user.isKycVerified = true;
+      user.isVideoKyc = false;
+      user.agreement = false;
+      await user.save({ session });
+    } else if (status === "REJECTED") {
+      user = await userModel.findById(action.userId).select({
+        UserActionStatus: 1
+      }).session(session);
+
+      if (!user) {
+        await session.abortTransaction();
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+      user.UserActionStatus = false;
+      await user.save({ session });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    if (status === "APPROVED" && user) {
+      sendRoleApprovalEmail(user, action.toRole).catch(() => { });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        status === "APPROVED"
+          ? "Action approved successfully"
+          : "Action rejected successfully",
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Network busy please try after some time",
+    });
   }
 };
 
@@ -2277,5 +2682,8 @@ module.exports = {
   verifyEmail7Unique,
   updateUserDocs,
   getCouponHistory,
-  scratchCashback
+  scratchCashback,
+  createUserAction,
+  approveUserAction,
+  getUserActions
 };
