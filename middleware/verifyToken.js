@@ -10,7 +10,7 @@ const authenticateToken = async (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("decoded", decoded)
+    // console.log("decoded", decoded)
     const user = await userModel.findById(decoded.id);
 
     if (!user) {
@@ -24,7 +24,7 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         code: "FORCE_LOGOUT",
-        message: "Role updated. Please login again.",
+        message: "Session expried. Please login again.",
       });
     }
     req.user = decoded;

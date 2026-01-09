@@ -686,11 +686,15 @@ const busbookingDirectUrlCallback = async (req, res) => {
     }
 
     console.log("Encrypted Callback Data:", encryptedData);
+    logApiCall({
+      tag: "/bus/ticket/callback",
+      requestData: encryptedData
+    });
 
 
     // Store decrypted data in DB if required...
 
-    return res.json({ success: true, data: decrypted });
+    return res.json({ success: true, data: encryptedData });
   } catch (err) {
     console.error("Callback Error:", err.message);
     return res.status(500).json({
