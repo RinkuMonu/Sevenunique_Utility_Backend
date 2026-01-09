@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { format, min } = require("date-fns");
+const { invalidateProfileCache } = require("../middleware/redisValidation");
 
 const userSchema = new mongoose.Schema(
   {
@@ -390,6 +391,10 @@ const userSchema = new mongoose.Schema(
     forceLogout: {
       type: Boolean,
       default: false
+    },
+    UserActionStatus: {
+      type: Boolean,
+      default: false
     }
 
   },
@@ -422,8 +427,6 @@ userSchema.pre("save", function (next) {
 
   next();
 });
-
-
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
@@ -497,8 +500,27 @@ userSchema.methods.getEffectivePermissions = async function () {
   return Array.from(perms);
 };
 
+userSchema.pre("save", async function (next) {
+  if (this.isNew) return next();
+
+  const fields = [
+    "mobileNumber",
+    "plan",
+    "rolePermissions",
+    "eWallet",
+  ];
+
+  if (fields.some(f => this.isModified(f))) {
+    await invalidateProfileCache(this._id);
+  }
+
+  next();
+});
+
+
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
+
 module.exports = mongoose.model("User", userSchema);
