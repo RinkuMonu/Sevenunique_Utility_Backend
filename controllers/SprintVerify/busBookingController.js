@@ -679,7 +679,7 @@ const jwt = require("jsonwebtoken");
 const busbookingDirectUrlCallback = async (req, res) => {
   try {
     console.log("bus booking response", req)
-    const encryptedData = req.body.data;
+    const encryptedData = req.body;
 
     if (!encryptedData) {
       return res.status(400).json({ success: false, message: "No data received" });
@@ -687,13 +687,6 @@ const busbookingDirectUrlCallback = async (req, res) => {
 
     console.log("Encrypted Callback Data:", encryptedData);
 
-    const secretKey = process.env.PAYSPRINT_JWT_SECRET_P;
-    const actualSecret = Buffer.from(secretKey, "base64").toString("utf8");
-
-    // Decrypt JWT sent by Paysprint
-    const decrypted = jwt.verify(encryptedData, actualSecret);
-
-    console.log("Decrypted Callback:", decrypted);
 
     // Store decrypted data in DB if required...
 

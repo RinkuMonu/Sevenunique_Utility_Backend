@@ -274,7 +274,7 @@ const buyPlan = async (req, res) => {
       });
     }
 
-    const cappingMoney = userfind.cappingMoney || 500;
+    const cappingMoney = userfind.cappingMoney || 0;
 
     const updatedUser = await userModel.findOneAndUpdate(
       {

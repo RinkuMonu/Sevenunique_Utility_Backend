@@ -1539,6 +1539,8 @@ const getDashboardStats = async (req, res, next) => {
         activeServices,
         activeRetailers,
         activeDistributors,
+        activeUser,
+        totalSpeUser
       ] = await Promise.all([
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
@@ -1614,6 +1616,14 @@ const getDashboardStats = async (req, res, next) => {
           status: true,
           isKycVerified: true,
         }),
+        User.countDocuments({
+          role: "User",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "User",
+        }),
       ]);
 
       const successRate =
@@ -1628,8 +1638,10 @@ const getDashboardStats = async (req, res, next) => {
         totalUsers,
         totalRetailers,
         totalDistributors,
+        totalSpeUser,
         activeRetailers,
         activeDistributors,
+        activeUser,
         totalAEPS: totalAepsTxns,
         totalDMT: totalDmtTxns,
         totalBBPS: totalBbpsTxns,
@@ -1728,7 +1740,7 @@ const getDashboardStats = async (req, res, next) => {
         users,
         todayEarning,
         todayCharges,
-        totalUsers: 0, // distributors ko total users nahi dikhana
+        totalUsers: 0,
         totalRetailers: myRetailers,
         totalDistributors: 0,
         activeRetailers,

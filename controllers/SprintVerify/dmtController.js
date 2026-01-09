@@ -399,7 +399,8 @@ exports.PennyDrop = async (req, res, next) => {
                 },
                 totalDebit: amount,
                 NPCI_response_code: result.response_code,
-                bank_status: result.message || ""
+                bank_status: result.message || "",
+                provider: "paySprint"
             }], { session });
 
             await Promise.all([
@@ -657,7 +658,8 @@ exports.performTransaction = async (req, res, next) => {
                 amount: amount,
                 totalDebit: required,
                 NPCI_response_code: result.NPCI_response_code || '',
-                bank_status: result.bank_status || ''
+                bank_status: result.bank_status || '',
+                provider: "paySprint"
             }], { session });
 
 
@@ -808,7 +810,7 @@ exports.performTransaction = async (req, res, next) => {
 
 
 
-const trackTransactionStatus = async (referenceid) => {
+exports.trackTransactionStatus = async (referenceid) => {
     if (!referenceid) {
         throw new Error("referenceid is required");
     }

@@ -277,7 +277,8 @@ exports.cashWithdrawal = async (req, res) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction
@@ -518,7 +519,8 @@ exports.balanceEnquiry = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -729,7 +731,8 @@ exports.miniStatement = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -880,6 +883,8 @@ exports.deposite = async (req, res, next) => {
 
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
+    const externalRef = `ACD${new mongoose.Types.ObjectId()}`;
+
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,
@@ -887,7 +892,7 @@ exports.deposite = async (req, res, next) => {
       longitude: user.aepsInstantPayLng || longitude,
       mobile,
       amount,
-      externalRef: `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
+      externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -919,7 +924,6 @@ exports.deposite = async (req, res, next) => {
       });
     }
 
-    const externalRef = `ACD-${new mongoose.Types.ObjectId()}`;
     // Create AEPS Report (Pending)
     const aepsReport = await AEPSTransaction.create([{
       userId,
@@ -939,7 +943,8 @@ exports.deposite = async (req, res, next) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction

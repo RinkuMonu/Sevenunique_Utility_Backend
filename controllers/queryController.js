@@ -1,3 +1,4 @@
+const { default: mongoose } = require("mongoose");
 const Form = require("../models/queryModel.js");
 
 // Create a new form submission
@@ -39,64 +40,98 @@ exports.getAllForms = async (req, res) => {
       order = "desc",
     } = req.query;
 
-    const filter = {};
+    const skip = (page - 1) * limit;
+    const sortOptions = { [sortBy]: order === "asc" ? 1 : -1 };
+
+    const matchStage = {};
 
     // ✅ Role-based filter
     if (req.user.role !== "Admin") {
-      filter.userId = req.user.id;
+      matchStage.userId = new mongoose.Types.ObjectId(req.user.id);
     }
 
     // ✅ Status filter
-    if (status) filter.status = status;
+    if (status) matchStage.status = status;
 
     // ✅ Date filter
     if (from || to) {
-      filter.createdAt = {};
-      if (from) filter.createdAt.$gte = new Date(from);
-      if (to) filter.createdAt.$lte = new Date(to);
+      matchStage.createdAt = {};
+      if (from) matchStage.createdAt.$gte = new Date(from);
+      if (to) matchStage.createdAt.$lte = new Date(to);
     }
 
-    // ✅ Search filter
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$userId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            {
+              $project: {
+                UserId: 1,
+              },
+            },
+          ],
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+    ];
+
+    // 🔍 SEARCH (Form fields + User Name)
     if (search) {
       const regex = new RegExp(search, "i");
-      filter.$or = [
-        { fullName: regex },
-        { email: regex },
-        { mobileNumber: regex },
-        { regarding: regex },
-        { message: regex },
-        { enquiryId: regex },
-      ];
+      pipeline.push({
+        $match: {
+          $or: [
+            { fullName: regex },
+            { email: regex },
+            { mobileNumber: regex },
+            { regarding: regex },
+            { message: regex },
+            { enquiryId: regex },
+
+            // ✅ USER NAME SEARCH
+            { "user.UserId": regex },
+          ],
+        },
+      });
     }
 
-    // ✅ Pagination & Sorting
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sortOptions = {};
-    sortOptions[sortBy] = order === "asc" ? 1 : -1;
+    pipeline.push(
+      { $match: matchStage },
+      { $sort: sortOptions },
+      { $skip: skip },
+      { $limit: Number(limit) }
+    );
 
-    const [data, total] = await Promise.all([
-      Form.find(filter).sort(sortOptions).skip(skip).limit(parseInt(limit)),
-      Form.countDocuments(filter),
-    ]);
+    const data = await Form.aggregate(pipeline);
+
+    // 🔢 Count
+    const countPipeline = pipeline.filter(
+      stage => !stage.$skip && !stage.$limit && !stage.$sort
+    );
+    countPipeline.push({ $count: "total" });
+
+    const countResult = await Form.aggregate(countPipeline);
+    const total = countResult[0]?.total || 0;
 
     res.status(200).json({
-      flag: 1, // ✅ success flag
       success: true,
       total,
-      page: parseInt(page),
-      pageSize: parseInt(limit),
+      page: Number(page),
+      pageSize: Number(limit),
       totalPages: Math.ceil(total / limit),
       data,
     });
   } catch (err) {
-    console.error("Error in getAllForms:", err);
-    res.status(500).json({
-      flag: 0, // ❌ error flag
-      success: false,
-      error: "Server Error",
-    });
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
+
 
 // Get single form by ID
 exports.getFormById = async (req, res) => {
