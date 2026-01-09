@@ -688,7 +688,7 @@ const busbookingDirectUrlCallback = async (req, res) => {
     console.log("Encrypted Callback Data:", encryptedData);
     logApiCall({
       tag: "/bus/ticket/callback",
-      requestData: encryptedData,
+      requestData: encryptedData
     });
 
 
