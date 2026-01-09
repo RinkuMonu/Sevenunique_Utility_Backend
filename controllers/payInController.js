@@ -266,7 +266,7 @@ exports.createPayIn = async (req, res, next) => {
 };
 
 
-// zacapay
+// zackpay
 exports.generatePayment = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -416,8 +416,8 @@ exports.generatePayment = async (req, res, next) => {
 
 
     console.log(responseUpi.data);
-    payIn.remark = "Redirect to Zaakpay for payment";
-    transaction.description = "Redirect to Zaakpay for payment";
+    payIn.remark = "Redirect to payment page";
+    transaction.description = "Redirect to payment page";
 
     await user.save({ session });
     await payIn.save({ session });

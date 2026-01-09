@@ -69,14 +69,18 @@ const TransactionSchema = new mongoose.Schema(
     transaction_reference_id: {
       type: String,
     },
+    utr: {
+      type: String,
+      default: ""
+    },
     description: {
       type: String,
       default: "",
     },
     provider: {
       type: String,
-      enum: ["instantPay", "paySprint", "iserveu"],
-      default: "instantPay",
+      enum: ["instantPay", "paySprint", "iserveu", ""],
+      default: "",
     },
     meta: {
       type: Map,

@@ -61,12 +61,12 @@ class InstantPay_payout {
         try {
             session.startTransaction();
             const {
-                payeeName,
-                payeeAccount,
-                payeeIFSC,
+                beneName,
+                beneAccountNo,
+                beneifsc,
                 paymentMode,
-                transferMode,
-                transferAmount,
+                transferMode = "IMPS",
+                amount,
                 externalRef,
                 latitude,
                 longitude,
@@ -97,16 +97,16 @@ class InstantPay_payout {
             const user = await userModel.findOne({ _id: userId, status: true });
             if (!user) throw new Error("User not found or inactive");
 
-            if (user.mpin !== mpin) throw new Error("Invalid MPIN");
+            if (user.mpin != mpin) throw new Error("Invalid MPIN");
 
             const { commissions, service } = await getApplicableServiceCharge(userId, category);
 
             const commission = commissions?.slabs?.length
-                ? calculateCommissionFromSlabs(transferAmount, commissions)
+                ? calculateCommissionFromSlabs(amount, commissions)
                 : { charge: 0, gst: 0, tds: 0, retailer: 0 };
 
             const required =
-                Number(transferAmount) +
+                Number(amount) +
                 commission.charge +
                 commission.gst +
                 commission.tds -
@@ -123,12 +123,12 @@ class InstantPay_payout {
             const payoutDoc = await payOutModel.create({
                 userId,
                 reference: externalRef,
-                amount: transferAmount,
+                amount: amount,
                 type: service?._id,
                 trans_mode: "WALLET",
-                name: payeeName,
-                account: payeeAccount,
-                ifsc: payeeIFSC,
+                name: beneName,
+                account: beneAccountNo,
+                ifsc: beneifsc,
                 mobile: custMobNo,
                 email: user.email,
                 charges: commission.charge,
@@ -149,12 +149,12 @@ class InstantPay_payout {
                     instantPayPayload = {
                         payer: { bankProfileId: "0", accountNumber: "9660339514" },
                         payee: {
-                            name: payeeName,
-                            accountNumber: payeeAccount,
-                            bankIfsc: payeeIFSC
+                            name: beneName,
+                            accountNumber: beneAccountNo,
+                            bankIfsc: beneifsc
                         },
                         transferMode,
-                        transferAmount,
+                        transferAmount: amount,
                         externalRef,
                         latitude,
                         longitude,
@@ -174,11 +174,11 @@ class InstantPay_payout {
                             referenceNumber
                         },
                         payee: {
-                            accountNumber: encrypt(payeeAccount, encryptionKey),
+                            accountNumber: encrypt(beneAccountNo, encryptionKey),
                             name: payeeCardHolderName
                         },
                         transferMode: "CREDITCARD",
-                        transferAmount,
+                        transferAmount: amount,
                         externalRef,
                         latitude,
                         longitude,
@@ -252,18 +252,19 @@ class InstantPay_payout {
                     user_id: userId,
                     transaction_type: "debit",
                     type: service?._id || "",
-                    amount: transferAmount,
+                    amount: amount,
                     totalDebit: 0,
                     balance_after: user.eWallet,
                     transaction_reference_id: externalRef,
-                    description: `Payout failed to ${payeeName}`,
+                    description: `Payout failed to ${beneName}`,
                     status: "Failed",
                     "meta.apiResponse": apiResponse.data
                 });
 
                 return res.status(400).json({
                     success: false,
-                    message: "Transaction failed",
+                    message: apiResponse.data.status || "Transaction failed",
+                    data: apiResponse.data
                 });
             }
 
@@ -297,14 +298,14 @@ class InstantPay_payout {
                     {
                         user_id: userId,
                         transaction_type: "debit",
-                        amount: transferAmount,
+                        amount: amount,
                         charge: commission.charge,
                         gst: commission.gst,
                         tds: commission.tds,
                         totalDebit: debitAmount,
                         balance_after: updatedUser.eWallet,
                         transaction_reference_id: externalRef,
-                        description: `Money transfer to ${payeeName}`,
+                        description: `Money transfer to ${beneName}`,
                         status: "Success",
                         "meta.apiResponse": apiResponse.data
                     },
