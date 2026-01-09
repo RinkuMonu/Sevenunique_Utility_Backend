@@ -23,10 +23,14 @@ const {
   updateUserDocs,
   scratchCashback,
   getCouponHistory,
+  createUserAction,
+  approveUserAction,
+  getUserActions,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
 const upload = require("../utils/uplods.js");
+const optAuth = require("../middleware/optAuth.js");
 
 const multerErrorHandler = (err, req, res, next) => {
   if (err.code === "LIMIT_FILE_SIZE") {
@@ -65,6 +69,7 @@ router.post(
     { name: "panCard", maxCount: 1 },
     { name: "bankDocument", maxCount: 1 },
   ]),
+  optAuth,
   multerErrorHandler,
   registerUser
 );
@@ -133,7 +138,7 @@ router.get(
 router.put(
   "/users/:id/permissions",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("Admin", "Sub Admin"),
   updateUserPermissions
 );
 router.put(
@@ -166,6 +171,26 @@ router.post(
   authenticateToken,
   authorizeRoles("User"),
   scratchCashback
+);
+//become
+
+router.get(
+  "/admin/user-actions",
+  authenticateToken,
+  authorizeRoles("Admin"),
+  getUserActions
+);
+router.post(
+  "/user_action/create",
+  authenticateToken,
+  authorizeRoles("User"),
+  createUserAction
+);
+router.post(
+  "/user_action/approve",
+  authenticateToken,
+  authorizeRoles("Admin"),
+  approveUserAction
 );
 
 
