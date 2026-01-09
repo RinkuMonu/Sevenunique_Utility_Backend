@@ -299,6 +299,7 @@ exports.makePayment = async (req, res, next) => {
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
@@ -320,6 +321,7 @@ exports.makePayment = async (req, res, next) => {
       transactionId: referenceid,
       extraDetails: { mobileNumber: inputParameters.param1 },
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
