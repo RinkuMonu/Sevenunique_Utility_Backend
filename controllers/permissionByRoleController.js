@@ -1,6 +1,8 @@
 const PermissionByRole = require("../models/PermissionByRole");
 const Permission = require("../models/Permission");
 const userModel = require("../models/userModel");
+const { invalidateProfileCache, invalidatePermissionsCache, invalidateUserPermissionsCache } = require("../middleware/redisValidation");
+const redis = require("../middleware/redis");
 
 // 🔹 Create role permissions
 exports.createPermissionByRole = async (req, res) => {
@@ -96,12 +98,20 @@ exports.updatePermissionByRole = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Role not found" });
     }
-
     // 2️⃣ Sab users jinke paas ye role hai, unko link karo
     await userModel.updateMany(
       { role: roleName },
       { rolePermissions: updated._id }
     );
+    // 🔥 Cache invalidation
+
+    const users = await userModel.find({ role: roleName }, { _id: 1 });
+
+    for (const u of users) {
+      await invalidateProfileCache(u._id || u.id);
+      await invalidateUserPermissionsCache(u._id || u.id);
+    }
+
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -154,7 +164,7 @@ exports.deletePermissionByRole = async (req, res) => {
 // 🔹 Create new global permission
 exports.createPermission = async (req, res) => {
   try {
-    const { key, description ,parentKey} = req.body;
+    const { key, description, parentKey } = req.body;
 
     const existing = await Permission.findOne({ key });
     if (existing) {
@@ -163,8 +173,9 @@ exports.createPermission = async (req, res) => {
         .json({ success: false, message: "Permission already exists" });
     }
 
-    const perm = new Permission({ key, description , parentKey: parentKey || null,});
+    const perm = new Permission({ key, description, parentKey: parentKey || null, });
     await perm.save();
+    await invalidatePermissionsCache()
 
     res.status(201).json({ success: true, data: perm });
   } catch (error) {
@@ -182,6 +193,7 @@ exports.createPermission = async (req, res) => {
 
 // 🔹 Get all global permissions
 exports.getAllPermissions = async (req, res) => {
+  console.log("hitssss perrr")
   try {
     const { key } = req.query;
     const filter = {};
@@ -275,8 +287,21 @@ exports.deletePermission = async (req, res) => {
 // 🔹 Get user permissions (rolePer + extraPer - restrictedPer)
 
 exports.getUserPermissions = async (req, res) => {
-   try {
+  try {
     const userId = req.params.id;
+    const cacheKey = `permissions:user:${userId}`;
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log("⚡ SINGL USER PERMISSIONS REDIS HIT");
+          return res.json(JSON.parse(cached));
+        }
+        console.log("❌ USER PERMISSIONS REDIS MISS");
+      } catch {
+        console.log("Redis get failed, fallback to DB");
+      }
+    }
 
     // ✅ 1. USER FETCH
     const user = await userModel
@@ -331,9 +356,7 @@ exports.getUserPermissions = async (req, res) => {
         grouped[perm.parentKey].children.push(perm);
       }
     });
-
-    // ✅ 5. RESPONSE (USER + GROUP SATH ME)
-    res.json({
+    const responseData = {
       success: true,
       role: user.role,
 
@@ -347,7 +370,38 @@ exports.getUserPermissions = async (req, res) => {
       totalRolePermissions: rolePerms.length,
       totalExtraPermissions: extraPerms.length,
       totalRestrictedPermissions: restrictedPerms.length,
-    });
+    }
+
+    // ✅ 5. RESPONSE (USER + GROUP SATH ME)
+    // res.json({
+    //   success: true,
+    //   role: user.role,
+
+    //   rolePermissions: rolePerms,
+    //   extraPermissions: extraPerms,
+    //   restrictedPermissions: restrictedPerms,
+
+    //   effectivePermissionIds, // ✅ checkbox ke liye
+    //   groupedPermissions: grouped, // ✅ menu + sub menu ke liye
+
+    //   totalRolePermissions: rolePerms.length,
+    //   totalExtraPermissions: extraPerms.length,
+    //   totalRestrictedPermissions: restrictedPerms.length,
+    // });
+
+    if (redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          30000,
+          JSON.stringify(responseData)
+        );
+      } catch {
+        console.log("Redis set failed for user permissions");
+      }
+    }
+    return res.json(responseData);
+
   } catch (err) {
     console.log("Permission API Error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -359,6 +413,21 @@ exports.getUserPermissions = async (req, res) => {
 
 exports.getGroupedPermissions = async (req, res) => {
   try {
+    let cacheKey = null
+    if (redis) {
+      cacheKey = `getAllPermission:`;
+      // console.log("CACHE KEY:", cacheKey);
+      try {
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          console.log("Get all Permission Hit from REDIS");
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (e) {
+        console.log("Redis Permission get failed, skipping cache");
+      }
+    }
+
     const all = await Permission.find().lean();
 
     const grouped = {};
@@ -383,11 +452,22 @@ exports.getGroupedPermissions = async (req, res) => {
         grouped[perm.parentKey].children.push(perm);
       }
     });
-
-    res.json({
+    const responseData = {
       success: true,
       data: grouped,
-    });
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          32450,
+          JSON.stringify(responseData)
+        )
+      } catch {
+        console.log("redis set failed from all permisson get api")
+      }
+    }
+    return res.json(responseData)
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
