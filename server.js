@@ -24,7 +24,7 @@ const { default: router } = require("./routes/instantpayPpiRoutes.js");
 const bannerRoutes = require("./routes/bannerRoutes.js");
 const blogRoutes = require("./routes/blogRouter.js");
 const panroute = require("./routes/pan.routes.js");
-// const redisRateLimit = require("./middleware/ratelimiter.js");
+const redis = require("./middleware/redis.js");
 const app = express();
 planCheckCronJob();
 
@@ -39,12 +39,10 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: allowedOrigins,
-
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   })
 );
 
-// app.use(redisRateLimit)
 
 app.use(bodyParser.json());
 app.use("/uploads", express.static("/var/www/uploads"));
@@ -53,6 +51,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // app.use(apiLogger); 
+// app.use((req, res, next) => {
+//   const start = Date.now();
+//   res.on("finish", () => {
+//     const duration = Date.now() - start;
+//     if (duration > 500) {
+//       console.log(`⚠️ SLOW API: ${req.method} ${req.originalUrl} - ${duration}ms`);
+//     } else {
+//       console.log(`☺☺ GOOD API RES: ${req.method} ${req.originalUrl} - ${duration}ms`);
+//     }
+//   });
+//   next();
+// });
+
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
@@ -68,7 +79,6 @@ app.use("/api/v1/billAvenue", require("./routes/bbps/billAvenueRoutes.js"));
 app.use("/api/v1/bbps", require("./routes/bbpsRoutes.js"));
 app.use("/api/v1/s3", require("./routes/sprintRoutes.js"));
 app.use("/api/v1/kyc", authenticateToken, require("./routes/kycvideo.js"));
-app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1", require("./routes/sprintDmt&AepsRoutes.js"));
 app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
@@ -88,8 +98,24 @@ app.use("/api/banners", bannerRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
 app.get("/health", (req, res) =>
-  res.json({ ip: req.ip, message: "Welcome to the SEVEN UNIQUE API" })
+  res.json({ ip: req.ip, message: "Welcome to the FINUNIQUE api's" })
 );
+
+app.get("/health/redis", async (req, res) => {
+  if (!redis) {
+    return res.json({ redis: "disabled by .env" });
+  }
+  try {
+    const start = Date.now();
+    await redis.ping();
+    res.json({
+      redis: "up",
+      latency: `${Date.now() - start}ms`
+    });
+  } catch {
+    res.status(503).json({ redis: "DOWN" });
+  }
+});
 
 // 🟢 React build (JS/CSS) → cache OK
 app.use(
@@ -106,6 +132,9 @@ app.get("*", (req, res) => {
   res.setHeader("Expires", "0");
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
+
+
+
 
 mongoose
   .connect(process.env.MONGO_URI)

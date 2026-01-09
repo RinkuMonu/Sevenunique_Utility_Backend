@@ -464,7 +464,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
         status: recharge.status.toLowerCase(),
         message:
           recharge.status === "Success"
-            ? "Recharge successful" :
+            ? "Your Recharge Already successful" :
             recharge.status === "Refunded" ?
               "Recharge failed. Amount Already has been refunded." : "Your recharge Failed",
         data: recharge,
