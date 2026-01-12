@@ -395,6 +395,10 @@ const userSchema = new mongoose.Schema(
     UserActionStatus: {
       type: Boolean,
       default: false
+    },
+    hasPurchasedPlan: {
+      type: Boolean,
+      default: false
     }
 
   },
