@@ -375,6 +375,7 @@ exports.doRecharge = async (req, res, next) => {
           type: "credit",
           status: "Success",
           sourceRetailerId: userId,
+          commissionDistributed: true,
         }], { session });
 
         console.log("💸 CommissionTransaction created for all roles");
@@ -399,6 +400,67 @@ exports.doRecharge = async (req, res, next) => {
 
     }
 
+
+    if (
+      status === "Success" &&
+      user.role === "User" &&
+      user.referredBy &&
+      !user.referralRewardGiven &&
+      Number(amount) >= 50
+    ) {
+      const referrerReward = 50;
+      const newUserReward = 20;
+
+
+      const referrer = await userModel.findByIdAndUpdate(
+        user.referredBy,
+        {
+          $inc: {
+            eWallet: referrerReward,
+            referralCount: 1,
+            referralEarnings: referrerReward,
+          },
+        },
+        { new: true, session }
+      );
+
+      const rewardedUser = await userModel.findByIdAndUpdate(
+        userId,
+        {
+          $inc: { eWallet: newUserReward },
+          $set: { referralRewardGiven: true },
+        },
+        { new: true, session }
+      );
+
+      await Transaction.create([
+        {
+          user_id: referrer._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: referrerReward,
+          totalCredit: referrerReward,
+          balance_after: referrer.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `REFERRER-${referenceid}`,
+          description: "Referral reward (first successful transaction)",
+          status: "Success",
+        },
+        {
+          user_id: rewardedUser._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: newUserReward,
+          totalCredit: newUserReward,
+          balance_after: rewardedUser.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `USER-${referenceid}`,
+          description: "Signup referral reward",
+          status: "Success",
+        },
+      ], { session });
+    }
+
     let scratchCoupon = null;
 
     if (status === "Success" && user.role === "User") {
@@ -413,7 +475,7 @@ exports.doRecharge = async (req, res, next) => {
 
     return res.status(status === "Success" ? 200 : status === "Pending" ? 202 : 400).json({
       status: status.toLowerCase(),
-      message: message || `Recharge ${status.toLowerCase()}`,
+      message: response_code === 16 ? "Finunique service is under maintenance. Kindly try again after some time." : message || `Recharge ${status.toLowerCase()}`,
       refid: referenceid,
       scratchCoupon
     });
@@ -508,7 +570,14 @@ exports.checkRechargeStatus = async (req, res, next) => {
       recharge.userId,
       null,
       { session }
-    ).select("eWallet")
+    ).select({
+      eWallet: 1,
+      name: 1,
+      email: 1,
+      mobileNumber: 1,
+      role: 1,
+      distributorId: 1,
+    })
 
     if (txnStatus === "1" && recharge.status === "Pending" && !recharge.commissionDistributed) {
       recharge.status = "Success";
@@ -594,6 +663,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
           ],
           type: "credit",
           status: "Success",
+          commissionDistributed: true,
           sourceRetailerId: recharge.userId || transaction.user_id,
         }], { session });
 
@@ -603,7 +673,7 @@ exports.checkRechargeStatus = async (req, res, next) => {
           user: recharge.userId || transaction.user_id,
           distributer: user.distributorId,
           service: service,
-          amount,
+          amount: recharge.amount,
           commission,
           reference: recharge.transactionId || transaction.transaction_reference_id,
           description: `Commission for recharge of ${recharge.extraDetails.mobileNumber || ""}`,
@@ -614,7 +684,12 @@ exports.checkRechargeStatus = async (req, res, next) => {
         await recharge.save({ session });
 
       }
-
+      await session.commitTransaction();
+      return res.status(200).json({
+        status: "Success",
+        message: "Recharge is Success... have fun.",
+        data: apiRes.data,
+      });
 
     }
 
