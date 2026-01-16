@@ -223,7 +223,6 @@ exports.makePayment = async (req, res, next) => {
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       initChannel: Joi.string().required(),
-      paymentMode: Joi.string().required(),
       user_id: Joi.string().required(),
       mpin: Joi.string().required(),
       category: Joi.string().required(),
@@ -299,6 +298,7 @@ exports.makePayment = async (req, res, next) => {
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
@@ -320,6 +320,7 @@ exports.makePayment = async (req, res, next) => {
       transactionId: referenceid,
       extraDetails: { mobileNumber: inputParameters.param1 },
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
