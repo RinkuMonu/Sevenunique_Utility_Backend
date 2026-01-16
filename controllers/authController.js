@@ -626,9 +626,9 @@ const registerUser = async (req, res) => {
 
     const clientSource = userData.clientSource?.toUpperCase() || "PANEL";
 
-    if (clientSource !== "APP") {
-      delete userData.referal;
-    }
+    // if (clientSource !== "APP") {
+    //   delete userData.referal;
+    // }
 
     const existingUser = await User.findOne({
       $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
@@ -667,7 +667,7 @@ const registerUser = async (req, res) => {
     }
     let referredByUser = null;
 
-    if (clientSource === "APP" && userData.referal) {
+    if (userData.referal) {
       referredByUser = await User.findOne({
         referralCode: userData.referal,
       }).session(session);
