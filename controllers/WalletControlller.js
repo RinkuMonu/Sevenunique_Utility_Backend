@@ -324,14 +324,14 @@ exports.getUsersUnderAdmin = async (req, res) => {
 
     const userData = await Promise.all(
       users.map(async (user) => {
-        const payInAgg = await payInModel.aggregate([
-          { $match: { userId: user._id, status: "Success" } },
+        const payInAgg = await Transaction.aggregate([
+          { $match: { user_id: user._id, status: "Success", transaction_type: "credit" } },
           { $group: { _id: null, totalPayIn: { $sum: "$amount" } } },
         ]);
 
         // Total PayOut
-        const payOutAgg = await payOutModel.aggregate([
-          { $match: { userId: user._id, status: "Success" } },
+        const payOutAgg = await Transaction.aggregate([
+          { $match: { user_id: user._id, status: "Success", transaction_type: "debit" } },
           { $group: { _id: null, totalPayOut: { $sum: "$amount" } } },
         ]);
 

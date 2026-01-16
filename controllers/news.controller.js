@@ -1,3 +1,5 @@
+const redis = require("../middleware/redis");
+const { invalidateNEWSCache } = require("../middleware/redisValidation");
 const News = require("../models/news.model");
 
 // ✅ Create News
@@ -16,7 +18,7 @@ exports.createNews = async (req, res) => {
       type,
       target,
     });
-
+    await invalidateNEWSCache()
     return res.status(201).json({ success: true, data: news });
   } catch (err) {
     console.error("createNews error:", err);
@@ -30,22 +32,52 @@ exports.createNews = async (req, res) => {
 exports.getAllNews = async (req, res) => {
   try {
     const { target } = req.query;
-    const filter = {};
 
-    if (target) {
-      filter.target = target;
+    // 🔑 SAFE cache key
+    const cacheKey = target ? `news:${target}` : `news:all`;
+
+    if (redis) {
+      try {
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          // console.log("⚡ NEWS REDIS HIT:", cacheKey);
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+        console.log("❌ NEWS REDIS MISS:", cacheKey);
+      } catch {
+        console.log("Redis get failed, fallback to DB");
+      }
     }
 
-    const newsList = await News.find(filter).sort({ createdAt: -1 });
+    const filter = target ? { target } : {};
+    const newsList = await News.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
 
-    return res.status(200).json({ success: true, data: newsList });
+    const responseData = {
+      success: true,
+      data: newsList,
+    };
+
+    if (redis) {
+      try {
+        await redis.setex(cacheKey, 2000, JSON.stringify(responseData));
+        console.log("🔥 NEWS DB HIT:", cacheKey);
+      } catch (e) {
+        console.log("Redis set failed", e.message);
+      }
+    }
+
+    return res.status(200).json(responseData);
   } catch (err) {
     console.error("getAllNews error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
+
 
 // ✅ Get Single News by ID
 exports.getNewsById = async (req, res) => {
@@ -75,7 +107,7 @@ exports.updateNews = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "News not found" });
-
+    await invalidateNEWSCache()
     return res.status(200).json({ success: true, data: updatedNews });
   } catch (err) {
     console.error("updateNews error:", err);
@@ -93,7 +125,7 @@ exports.deleteNews = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "News not found" });
-
+    await invalidateNEWSCache()
     return res
       .status(200)
       .json({ success: true, message: "News deleted successfully" });
