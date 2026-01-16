@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const userModel = require('../models/userModel');
+const redis = require('./redis');
 
 
 const authenticateToken = async (req, res, next) => {
@@ -11,16 +12,19 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     // console.log("decoded", decoded)
-    const user = await userModel.findById(decoded.id);
+    let user = await userModel.findById(decoded.id);
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        code: "TOKEN_INVALID",
+        code: "FORCE_LOGOUT",
         message: "User not found",
       });
     }
-    if (user.forceLogout) {
+
+    const redisToken = await redis.get(`USER_SESSION:${user._id || user.id}`);
+
+    if (user.forceLogout || !redisToken || redisToken !== token) {
       return res.status(401).json({
         success: false,
         code: "FORCE_LOGOUT",

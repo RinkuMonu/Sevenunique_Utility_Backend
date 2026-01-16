@@ -26,6 +26,7 @@ const {
   createUserAction,
   approveUserAction,
   getUserActions,
+  logoutController,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -93,6 +94,7 @@ router.put(
 );
 
 router.post("/login", loginController);
+router.post("/logout", authenticateToken, logoutController);
 router.get("/last-logins", authenticateToken, getLoginHistory);
 router.put("/profile", authenticateToken, updateProfileController);
 router.get("/profile", authenticateToken, getUserController);

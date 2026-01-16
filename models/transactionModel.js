@@ -68,6 +68,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     transaction_reference_id: {
       type: String,
+
     },
     utr: {
       type: String,
@@ -91,6 +92,13 @@ const TransactionSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+TransactionSchema.index({ createdAt: -1 });
+TransactionSchema.index({ user_id: 1, createdAt: -1 });
+TransactionSchema.index({ status: 1, createdAt: -1 });
+TransactionSchema.index(
+  { transaction_reference_id: 1 },
+  { unique: true, sparse: true }
 );
 
 const Transaction = mongoose.model("Transaction", TransactionSchema);
