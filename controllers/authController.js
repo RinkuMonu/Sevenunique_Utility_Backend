@@ -31,7 +31,7 @@ const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const userModalActionModal = require("../models/userModalAction.modal.js");
 const redis = require("../middleware/redis.js");
-const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache } = require("../middleware/redisValidation.js");
+const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -213,7 +213,6 @@ const logoutController = async (req, res) => {
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin, type } = req.body;
-    console.log("📩 Request Body:", req.body);
 
     // ✅ Validation
     if (!mobileNumber) {
@@ -221,6 +220,17 @@ const sendOtpController = async (req, res) => {
         success: false,
         message: "Mobile number is required",
       });
+    }
+    let otpKey = null
+    if (redis) {
+      otpKey = `otp:send:mobile:${mobileNumber}`;
+      const allowed = await checkOtpLimit(otpKey);
+      if (!allowed) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many OTP requests. Try again after 10 minutes.",
+        });
+      }
     }
 
     // ✅ Find user once and reuse
@@ -251,12 +261,15 @@ const sendOtpController = async (req, res) => {
 
     // ✅ Send OTP
     const smsResult = await sendOtp(mobileNumber, otp, type);
+    if (redis && smsResult.success) {
+      await incrementOtpCount(otpKey);
+    }
 
     if (smsResult.success) {
       return res.status(200).json({
         success: true,
         message: "OTP sent successfully",
-        data: { mobileNumber }, // optional, can remove if you want
+        data: { mobileNumber },
       });
     } else {
       return res.status(400).json({
@@ -294,6 +307,9 @@ const verifyOTPController = async (req, res) => {
         success: false,
         message: verificationResult.message || "Invalid OTP",
       });
+    }
+    if (redis && verificationResult.success) {
+      await redis.del(`otp:send:mobile:${mobileNumber}`);
     }
     let user = await User.findOne({ mobileNumber });
 
@@ -337,6 +353,180 @@ const verifyOTPController = async (req, res) => {
   }
 };
 
+// const loginController = async (req, res) => {
+//   try {
+//     const {
+//       mobileNumber,
+//       password,
+//       otp,
+//       lat,
+//       long,
+//       pincode,
+//       ipAddress,
+//       deviceLocation,
+//     } = req.body;
+//     if (!mobileNumber) {
+//       return res.status(400).json({ message: "Mobile number is required" });
+//     }
+//     const ip = req.ip;
+
+//     const ipKey = `login:attempt:ip:${ip}`;
+//     if (redis) {
+//       const ipAllowed = await checkLoginAttempts(ipKey);
+//       if (!ipAllowed) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Too many attempts. Try after 10 min.",
+//         });
+//       }
+//     }
+
+//     const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
+//     if (!user) {
+//       await incrementLoginAttempts(ipKey);
+//       return res.status(404).json({ message: "No user found" });
+//     }
+//     let userKey = null;
+//     if (user) {
+//       userKey = `login:attempt:user:${user._id}`;
+//     }
+//     const userAllowed = await checkLoginAttempts(userKey);
+//     if (!userAllowed) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Too many failed attempts. Try after 10 min.",
+//       });
+//     }
+
+
+//     if (user.status === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your account is blocked. Please contact support." });
+//     }
+//     if (user.isKycVerified === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
+//     }
+//     if (user.role === "User" && user.clientSource === "PANEL") {
+//       return res.status(403).json({
+//         message:
+//           "This panel is not for users; Only retailers and distributors can access it.",
+//       });
+//     }
+
+//     // ✅ OTP login
+//     if (otp) {
+//       const verificationResult = await verifyOtp(mobileNumber, otp);
+//       if (!verificationResult.success) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: verificationResult.message });
+//       }
+//     }
+//     // ✅ Password login
+//     else if (password) {
+//       const isMatch = await user.comparePassword(password);
+
+//       if (!isMatch) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: "Invalid password" });
+//       }
+//     } else {
+//       return res
+//         .status(400)
+//         .json({ message: "Password or OTP is required to login" });
+//     }
+//     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
+//     const deviceName = getDeviceName(req.headers["user-agent"]);
+
+//     if (user.forceLogout === true) {
+//       user.forceLogout = false
+//       await user.save();
+//     }
+//     if (redis) {
+//       try {
+//         const SESSION_TTL = 60 * 60 * 24;
+//         await redis.multi()
+//           .del(`USER_SESSION:${user._id}`)
+//           .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
+//           .exec();
+//       } catch (error) {
+//         console.error("FAILED TO SET USER_SESSION", error);
+//       }
+//     }
+
+//     // sendLoginEmail(
+//     //   user,
+//     //   lat,
+//     //   long,
+//     //   pincode,
+//     //   ipAddress,
+//     //   deviceLocation,
+//     //   deviceName
+//     // );
+//     // await LoginHistory.create({
+//     //   userId: user._id ?? null,
+//     //   mobileNumber: user.mobileNumber ?? "",
+//     //   loginTime: new Date() ?? Date.now(),
+//     //   ipAddress: ipAddress ?? req.ip,
+//     //   userAgent: req.headers["user-agent"] ?? "",
+//     //   deviceLocation: deviceLocation ?? "",
+//     //   deviceName: deviceName ?? "",
+//     //   location: {
+//     //     lat: lat ?? "",
+//     //     long: long ?? "",
+//     //     pincode: pincode ?? "",
+//     //   },
+//     // });
+//     // await invalidateLoginHistoryCache(user._id)
+//     if (userKey) {
+//       await resetLoginAttempts(userKey);
+//     }
+//     await resetLoginAttempts(ipKey);
+//     console.log(
+//       {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       })
+//     return res.status(200).json({
+//       message: "Login successfully",
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in loginController:", error);
+//     return res.status(500).json({ message: "please try again later" });
+//   }
+// };
+
+
 const loginController = async (req, res) => {
   try {
     const {
@@ -352,11 +542,38 @@ const loginController = async (req, res) => {
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
+    const ip = req.ip;
+
+    const ipKey = `login:attempt:ip:${ip}`;
+    if (redis) {
+      const ipAllowed = await checkLoginAttempts(ipKey);
+      if (!ipAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many attempts. Try after 10 min.",
+        });
+      }
+    }
 
     const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
     if (!user) {
+      await incrementLoginAttempts(ipKey);
       return res.status(404).json({ message: "No user found" });
     }
+    let userKey = null;
+    if (redis) {
+      if (user) {
+        userKey = `login:attempt:user:${user._id}`;
+      }
+      const userAllowed = await checkLoginAttempts(userKey);
+      if (!userAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many failed attempts. Try after 10 min.",
+        });
+      }
+    }
+
 
     if (user.status === false) {
       return res
@@ -368,7 +585,6 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
     }
-
     if (user.role === "User" && user.clientSource === "PANEL") {
       return res.status(403).json({
         message:
@@ -380,6 +596,10 @@ const loginController = async (req, res) => {
     if (otp) {
       const verificationResult = await verifyOtp(mobileNumber, otp);
       if (!verificationResult.success) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: verificationResult.message });
       }
     }
@@ -387,8 +607,13 @@ const loginController = async (req, res) => {
     else if (password) {
       const isMatch = await user.comparePassword(password);
 
-      if (!isMatch)
+      if (!isMatch) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: "Invalid password" });
+      }
     } else {
       return res
         .status(400)
@@ -408,11 +633,11 @@ const loginController = async (req, res) => {
           .del(`USER_SESSION:${user._id}`)
           .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
           .exec();
+        // console.log("✅ USER_SESSION set in Redis");
       } catch (error) {
         console.error("FAILED TO SET USER_SESSION", error);
       }
     }
-
     sendLoginEmail(
       user,
       lat,
@@ -437,8 +662,12 @@ const loginController = async (req, res) => {
       },
     });
     await invalidateLoginHistoryCache(user._id)
+    if (userKey) {
+      await resetLoginAttempts(userKey);
+    }
+    await resetLoginAttempts(ipKey);
     return res.status(200).json({
-      message: "Login successful",
+      message: "Login successfully",
       user: {
         id: user._id,
         name: user.name,
@@ -458,6 +687,9 @@ const loginController = async (req, res) => {
     return res.status(500).json({ message: "please try again later" });
   }
 };
+
+
+
 
 const getLoginHistory = async (req, res) => {
   try {
@@ -3257,4 +3489,4 @@ module.exports = {
   createUserAction,
   approveUserAction,
   getUserActions
-};
+}

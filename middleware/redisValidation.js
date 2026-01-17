@@ -72,8 +72,6 @@ exports.invalidateUserProfileCacheByService = async (serviceId) => {
     }
 };
 
-
-
 exports.invalidateProfileCache = async (userId) => {
     if (!redis) return;
 
@@ -148,6 +146,7 @@ exports.invalidateNEWSCache = async () => {
         console.log("❌ News cache invalidate failed", e.message);
     }
 };
+
 exports.invalidateBannerCache = async () => {
     if (!redis) return;
     try {
@@ -159,7 +158,6 @@ exports.invalidateBannerCache = async () => {
         console.log("❌ getAllBanner cache invalidate failed", e.message);
     }
 };
-
 
 exports.invalidateLoginHistoryCache = async (userId) => {
     if (!redis) return;
@@ -212,4 +210,72 @@ exports.invalidateLoginHistoryCache = async (userId) => {
         console.log("Login history cache clear failed", e.message);
     }
 
+};
+
+
+const MAX_ATTEMPTS = 5;
+const BLOCK_TIME = 10 * 60;
+
+exports.checkLoginAttempts = async (key) => {
+    if (!redis) return;
+    try {
+        const attempts = await redis.get(key);
+        if (attempts && Number(attempts) >= MAX_ATTEMPTS) {
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error("Error checking login attempts:", error);
+        return true;
+    }
+};
+
+exports.incrementLoginAttempts = async (key) => {
+    if (!redis) return;
+    try {
+        const attempts = await redis.incr(key);
+        if (attempts === 1) {
+            await redis.expire(key, BLOCK_TIME); //ttl set only first time
+        }
+    } catch (error) {
+        console.error("Error incrementing login attempts:", error);
+    }
+};
+
+exports.resetLoginAttempts = async (key) => {
+    if (!redis) return;
+    try {
+        await redis.del(key);
+    } catch (error) {
+        console.error("Error resetting login attempts:", error);
+    }
+};
+
+const OTP_MAX_ATTEMPTS = 3;
+const OTP_BLOCK_TIME = 10 * 60;
+
+exports.checkOtpLimit = async (key) => {
+    if (!redis) return;
+    try {
+        const count = await redis.get(key);
+        if (count && Number(count) >= OTP_MAX_ATTEMPTS) {
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error("Error checking OTP limit:", error);
+        return true;
+    }
+};
+
+exports.incrementOtpCount = async (key) => {
+    if (!redis) return;
+    try {
+        const count = await redis.incr(key);
+        if (count === 1) {
+            await redis.expire(key, OTP_BLOCK_TIME);// ttl set only first time
+        }
+    } catch (error) {
+        console.error("Error incrementing OTP count:", error);
+    }
 };

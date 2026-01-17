@@ -40,10 +40,8 @@ exports.getAllNews = async (req, res) => {
       try {
         const cachedData = await redis.get(cacheKey);
         if (cachedData) {
-          // console.log("⚡ NEWS REDIS HIT:", cacheKey);
           return res.status(200).json(JSON.parse(cachedData));
         }
-        console.log("❌ NEWS REDIS MISS:", cacheKey);
       } catch {
         console.log("Redis get failed, fallback to DB");
       }
@@ -61,8 +59,8 @@ exports.getAllNews = async (req, res) => {
 
     if (redis) {
       try {
-        await redis.setex(cacheKey, 2000, JSON.stringify(responseData));
-        console.log("🔥 NEWS DB HIT:", cacheKey);
+        await redis.setex(cacheKey, 20000, JSON.stringify(responseData));
+        // console.log("🔥 NEWS DB HIT:", cacheKey);
       } catch (e) {
         console.log("Redis set failed", e.message);
       }
