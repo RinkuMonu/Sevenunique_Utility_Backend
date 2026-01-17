@@ -31,7 +31,7 @@ const Transaction = require("../models/transactionModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const userModalActionModal = require("../models/userModalAction.modal.js");
 const redis = require("../middleware/redis.js");
-const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache } = require("../middleware/redisValidation.js");
+const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -165,21 +165,54 @@ const sendLoginEmail = async (
           },
         }
       );
-      console.log("✅ Login email sent", res.data);
+      // console.log("✅ Login email sent", res.data);
     } catch (error) {
       console.error("❌ Error sending login email:", error.message);
     }
 
-    console.log("✅ Login email sent to:", user.email);
+    // console.log("✅ Login email sent to:", user.email);
   } catch (error) {
     console.error("❌ Error sending login email:", error.message);
   }
 };
 
+const logoutController = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        code: "FORCE_LOGOUT",
+        message: "Invalid session",
+      });
+    }
+
+    if (redis) {
+      try {
+        await redis.del(`USER_SESSION:${userId}`);
+      } catch (err) {
+        console.error("REDIS LOGOUT FAILED:", err.message);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed. Please try again.",
+    });
+  }
+};
+
+
 const sendOtpController = async (req, res) => {
   try {
     const { mobileNumber, isRegistered, ifLogin, type } = req.body;
-    console.log("📩 Request Body:", req.body);
 
     // ✅ Validation
     if (!mobileNumber) {
@@ -187,6 +220,17 @@ const sendOtpController = async (req, res) => {
         success: false,
         message: "Mobile number is required",
       });
+    }
+    let otpKey = null
+    if (redis) {
+      otpKey = `otp:send:mobile:${mobileNumber}`;
+      const allowed = await checkOtpLimit(otpKey);
+      if (!allowed) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many OTP requests. Try again after 10 minutes.",
+        });
+      }
     }
 
     // ✅ Find user once and reuse
@@ -217,12 +261,15 @@ const sendOtpController = async (req, res) => {
 
     // ✅ Send OTP
     const smsResult = await sendOtp(mobileNumber, otp, type);
+    if (redis && smsResult.success) {
+      await incrementOtpCount(otpKey);
+    }
 
     if (smsResult.success) {
       return res.status(200).json({
         success: true,
         message: "OTP sent successfully",
-        data: { mobileNumber }, // optional, can remove if you want
+        data: { mobileNumber },
       });
     } else {
       return res.status(400).json({
@@ -260,6 +307,9 @@ const verifyOTPController = async (req, res) => {
         success: false,
         message: verificationResult.message || "Invalid OTP",
       });
+    }
+    if (redis && verificationResult.success) {
+      await redis.del(`otp:send:mobile:${mobileNumber}`);
     }
     let user = await User.findOne({ mobileNumber });
 
@@ -303,6 +353,180 @@ const verifyOTPController = async (req, res) => {
   }
 };
 
+// const loginController = async (req, res) => {
+//   try {
+//     const {
+//       mobileNumber,
+//       password,
+//       otp,
+//       lat,
+//       long,
+//       pincode,
+//       ipAddress,
+//       deviceLocation,
+//     } = req.body;
+//     if (!mobileNumber) {
+//       return res.status(400).json({ message: "Mobile number is required" });
+//     }
+//     const ip = req.ip;
+
+//     const ipKey = `login:attempt:ip:${ip}`;
+//     if (redis) {
+//       const ipAllowed = await checkLoginAttempts(ipKey);
+//       if (!ipAllowed) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Too many attempts. Try after 10 min.",
+//         });
+//       }
+//     }
+
+//     const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
+//     if (!user) {
+//       await incrementLoginAttempts(ipKey);
+//       return res.status(404).json({ message: "No user found" });
+//     }
+//     let userKey = null;
+//     if (user) {
+//       userKey = `login:attempt:user:${user._id}`;
+//     }
+//     const userAllowed = await checkLoginAttempts(userKey);
+//     if (!userAllowed) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Too many failed attempts. Try after 10 min.",
+//       });
+//     }
+
+
+//     if (user.status === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your account is blocked. Please contact support." });
+//     }
+//     if (user.isKycVerified === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
+//     }
+//     if (user.role === "User" && user.clientSource === "PANEL") {
+//       return res.status(403).json({
+//         message:
+//           "This panel is not for users; Only retailers and distributors can access it.",
+//       });
+//     }
+
+//     // ✅ OTP login
+//     if (otp) {
+//       const verificationResult = await verifyOtp(mobileNumber, otp);
+//       if (!verificationResult.success) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: verificationResult.message });
+//       }
+//     }
+//     // ✅ Password login
+//     else if (password) {
+//       const isMatch = await user.comparePassword(password);
+
+//       if (!isMatch) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: "Invalid password" });
+//       }
+//     } else {
+//       return res
+//         .status(400)
+//         .json({ message: "Password or OTP is required to login" });
+//     }
+//     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
+//     const deviceName = getDeviceName(req.headers["user-agent"]);
+
+//     if (user.forceLogout === true) {
+//       user.forceLogout = false
+//       await user.save();
+//     }
+//     if (redis) {
+//       try {
+//         const SESSION_TTL = 60 * 60 * 24;
+//         await redis.multi()
+//           .del(`USER_SESSION:${user._id}`)
+//           .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
+//           .exec();
+//       } catch (error) {
+//         console.error("FAILED TO SET USER_SESSION", error);
+//       }
+//     }
+
+//     // sendLoginEmail(
+//     //   user,
+//     //   lat,
+//     //   long,
+//     //   pincode,
+//     //   ipAddress,
+//     //   deviceLocation,
+//     //   deviceName
+//     // );
+//     // await LoginHistory.create({
+//     //   userId: user._id ?? null,
+//     //   mobileNumber: user.mobileNumber ?? "",
+//     //   loginTime: new Date() ?? Date.now(),
+//     //   ipAddress: ipAddress ?? req.ip,
+//     //   userAgent: req.headers["user-agent"] ?? "",
+//     //   deviceLocation: deviceLocation ?? "",
+//     //   deviceName: deviceName ?? "",
+//     //   location: {
+//     //     lat: lat ?? "",
+//     //     long: long ?? "",
+//     //     pincode: pincode ?? "",
+//     //   },
+//     // });
+//     // await invalidateLoginHistoryCache(user._id)
+//     if (userKey) {
+//       await resetLoginAttempts(userKey);
+//     }
+//     await resetLoginAttempts(ipKey);
+//     console.log(
+//       {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       })
+//     return res.status(200).json({
+//       message: "Login successfully",
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in loginController:", error);
+//     return res.status(500).json({ message: "please try again later" });
+//   }
+// };
+
+
 const loginController = async (req, res) => {
   try {
     const {
@@ -318,11 +542,38 @@ const loginController = async (req, res) => {
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
+    const ip = req.ip;
 
-    const user = await User.findOne({ mobileNumber });
+    const ipKey = `login:attempt:ip:${ip}`;
+    if (redis) {
+      const ipAllowed = await checkLoginAttempts(ipKey);
+      if (!ipAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many attempts. Try after 10 min.",
+        });
+      }
+    }
+
+    const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
     if (!user) {
+      await incrementLoginAttempts(ipKey);
       return res.status(404).json({ message: "No user found" });
     }
+    let userKey = null;
+    if (redis) {
+      if (user) {
+        userKey = `login:attempt:user:${user._id}`;
+      }
+      const userAllowed = await checkLoginAttempts(userKey);
+      if (!userAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many failed attempts. Try after 10 min.",
+        });
+      }
+    }
+
 
     if (user.status === false) {
       return res
@@ -334,7 +585,6 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
     }
-
     if (user.role === "User" && user.clientSource === "PANEL") {
       return res.status(403).json({
         message:
@@ -346,6 +596,10 @@ const loginController = async (req, res) => {
     if (otp) {
       const verificationResult = await verifyOtp(mobileNumber, otp);
       if (!verificationResult.success) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: verificationResult.message });
       }
     }
@@ -353,8 +607,13 @@ const loginController = async (req, res) => {
     else if (password) {
       const isMatch = await user.comparePassword(password);
 
-      if (!isMatch)
+      if (!isMatch) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: "Invalid password" });
+      }
     } else {
       return res
         .status(400)
@@ -367,7 +626,18 @@ const loginController = async (req, res) => {
       user.forceLogout = false
       await user.save();
     }
-
+    if (redis) {
+      try {
+        const SESSION_TTL = 60 * 60 * 24;
+        await redis.multi()
+          .del(`USER_SESSION:${user._id}`)
+          .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
+          .exec();
+        // console.log("✅ USER_SESSION set in Redis");
+      } catch (error) {
+        console.error("FAILED TO SET USER_SESSION", error);
+      }
+    }
     sendLoginEmail(
       user,
       lat,
@@ -391,9 +661,13 @@ const loginController = async (req, res) => {
         pincode: pincode ?? "",
       },
     });
-
+    await invalidateLoginHistoryCache(user._id)
+    if (userKey) {
+      await resetLoginAttempts(userKey);
+    }
+    await resetLoginAttempts(ipKey);
     return res.status(200).json({
-      message: "Login successful",
+      message: "Login successfully",
       user: {
         id: user._id,
         name: user.name,
@@ -414,115 +688,144 @@ const loginController = async (req, res) => {
   }
 };
 
+
+
+
 const getLoginHistory = async (req, res) => {
   try {
     let { page = 1, limit = 10, search = "", role = "", date = "" } = req.query;
 
     page = Number(page);
     limit = Number(limit);
-    const loginUser = req.user;
     const skip = (page - 1) * limit;
-    let loginFilter = {}; // Final filter
 
-    if (loginUser.role === "Admin") {
-      // No filter → Admin sees all logs
-    } else if (loginUser.role === "Distributor") {
-      // Distributor → its own retailers + self
-      const retailers = await userModel.find(
-        { parendistributorIdtId: loginUser.id },
-        "_id"
-      );
+    const loginUser = req.user;
+    const ttl =
+      loginUser.role === "Admin"
+        ? 50000
+        : 12 * 60 * 60
+    const loginFilter = {};
+    let cacheKey = null;
 
-      const retailerIds = retailers.map((r) => r._id);
+    if (redis) {
+      if (loginUser.role === "Admin") {
+        cacheKey = `loginHistory:admin:p${page}:l${limit}:s${search}:r${role}:d${date}`
+      } else {
+        cacheKey = `loginHistory:user:${loginUser.id}:p${page}:l${limit}:s${search}:r${role}:d${date}`;
+      }
+
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          // console.log("⚡ LOGIN HISTORY REDIS HIT");
+          return res.json(JSON.parse(cached));
+        }
+      } catch {
+        console.log("Redis get failed");
+      }
+    }
+
+    // 🔹 1. ROLE BASE FILTER
+    if (loginUser.role === "Distributor") {
+      const retailerIds = await userModel
+        .find({ distributorId: loginUser.id })
+        .distinct("_id");
 
       loginFilter.userId = { $in: [...retailerIds, loginUser.id] };
-    } else {
-      // Retailer / Normal User
+    } else if (loginUser.role !== "Admin") {
       loginFilter.userId = loginUser.id;
     }
-    // ---------------------------------------------
-    // 1️⃣ USER SEARCH BY NAME OR MOBILE
-    // ---------------------------------------------
+
+    // 🔹 2. SEARCH USER IDS (only when needed)
     let matchedUserIds = [];
-
-    if (search.trim() !== "" || role !== "") {
-      const regex = new RegExp(search.trim(), "i");
-
+    if (search || role) {
       const userFilter = {};
+      const regex = new RegExp(search, "i");
 
-      if (search.trim() !== "") {
+      if (search) {
         userFilter.$or = [
           { name: regex },
           { mobile: regex },
           { UserId: regex },
         ];
       }
+      if (role) userFilter.role = role;
 
-      if (role !== "") userFilter.role = role;
-
-      const matchedUsers = await userModel.find(userFilter).select("_id");
-      matchedUserIds = matchedUsers.map((u) => u._id);
+      matchedUserIds = await userModel
+        .find(userFilter)
+        .distinct("_id");
     }
 
-    // ---------------------------------------------
-    // 2️⃣ LOGIN HISTORY SEARCH FIELDS
-    // ---------------------------------------------
-    const regex = new RegExp(search.trim(), "i");
+    // 🔹 3. LOGIN SEARCH CONDITIONS
+    const loginSearch = [];
+    const regex = new RegExp(search, "i");
 
-    const loginSearchConditions = [];
-
-    if (search.trim() !== "") {
-      loginSearchConditions.push(
+    if (search) {
+      loginSearch.push(
         { mobileNumber: regex },
         { ipAddress: regex },
         { "location.pincode": regex }
       );
     }
 
-    if (matchedUserIds.length > 0) {
-      loginSearchConditions.push({ userId: { $in: matchedUserIds } });
+    if (matchedUserIds.length) {
+      loginSearch.push({ userId: { $in: matchedUserIds } });
     }
 
-    if (loginSearchConditions.length > 0) {
-      loginFilter.$or = loginSearchConditions;
+    if (loginSearch.length) {
+      loginFilter.$or = loginSearch;
     }
 
-    // ---------------------------------------------
-    // 3️⃣ DATE FILTER (YYYY-MM-DD)
-    // ---------------------------------------------
-    if (date && date !== "") {
+    // 🔹 4. DATE FILTER
+    if (date) {
       const start = new Date(date);
       const end = new Date(date);
       end.setHours(23, 59, 59, 999);
 
-      loginFilter.loginTime = {
-        $gte: start,
-        $lte: end,
-      };
+      loginFilter.loginTime = { $gte: start, $lte: end };
     }
 
-    // ---------------------------------------------
-    // 4️⃣ FETCH LOGS
-    // ---------------------------------------------
-    const logs = await LoginHistory.find(loginFilter)
-      .populate("userId", "name mobile role UserId")
-      .sort({ loginTime: -1 })
-      .skip(skip)
-      .limit(limit);
+    // 🔹 5. PARALLEL DB CALLS (BIG WIN 🔥)
+    const [logs, totalLogs] = await Promise.all([
+      LoginHistory.find(loginFilter)
+        .populate("userId", "name mobile role UserId")
+        .sort({ loginTime: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-    // ---------------------------------------------
-    // 5️⃣ COUNT TOTAL FOR PAGINATION
-    // ---------------------------------------------
-    const totalLogs = await LoginHistory.countDocuments(loginFilter);
-
-    return res.status(200).json({
+      LoginHistory.countDocuments(loginFilter),
+    ]);
+    const responseData = {
       success: true,
       page,
       limit,
       totalLogs,
       totalPages: Math.ceil(totalLogs / limit),
       logs,
-    });
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          ttl,
+          JSON.stringify(responseData),
+        );
+        console.log("🔥 MongoDB UserHistory(BY ID) HIT");
+      } catch (error) {
+        console.log("redies set faild from UserHistory api")
+      }
+    }
+    res.status(200).json(responseData);
+
+    // return res.status(200).json({
+    //   success: true,
+    //   page,
+    //   limit,
+    //   totalLogs,
+    //   totalPages: Math.ceil(totalLogs / limit),
+    //   logs,
+    // });
   } catch (error) {
     console.error("Error fetching login history:", error);
     return res.status(500).json({
@@ -531,6 +834,7 @@ const getLoginHistory = async (req, res) => {
     });
   }
 };
+
 
 const registerUser = async (req, res) => {
   const session = await mongoose.startSession();
@@ -823,7 +1127,7 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
-    // const cacheKey = 
+    // await invalidateProfileCache(req.user.id);
     let cacheKey = null
     if (redis) {
       try {
@@ -840,12 +1144,12 @@ const getUserController = async (req, res) => {
 
     let userDoc = await User.findById(
       req.user.id,
-      "-mpin -commissionPackage -meta -password"
+      "-mpin -commissionPackage -meta -password -planHistory"
     )
       .populate("role")
       .populate({
         path: "plan.planId",
-        populate: { path: "services", model: "Service" },
+        populate: { path: "services", model: "Service", select: "defaultSwitch _id isActive" },
       })
       .populate({
         path: "distributorId",
@@ -863,16 +1167,20 @@ const getUserController = async (req, res) => {
     let user = userDoc.toObject();
 
     // Filter plan.amount
+    if (user?.aadharDetails?.data) {
+      delete user.aadharDetails.data.profile_image;
+      delete user.aadharDetails.data.raw_xml;
+    }
     if (user.plan?.planId?.amount && user.plan?.planType) {
       user.plan.planId.amount = user.plan.planId.amount.filter(
         (a) => a.type === user.plan.planType
       );
     }
 
-    const userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.user.id })
-        .populate("services.serviceId")) || {};
+    // const userMeta =
+    //   (await userMetaModel
+    //     .findOne({ userId: req.user.id })
+    //     .populate("services.serviceId")) || {};
 
     let remainingDays = null;
     if (user.plan?.startDate && user.plan?.endDate) {
@@ -886,13 +1194,13 @@ const getUserController = async (req, res) => {
     //   .json({ user, userMeta, effectivePermissions, remainingDays });
 
     const responseData = {
-      user, userMeta, effectivePermissions, remainingDays
+      user, effectivePermissions, remainingDays
     }
     if (cacheKey && redis) {
       try {
         await redis.setex(
           cacheKey,
-          3600,
+          7200,
           JSON.stringify(responseData),
         );
         console.log("🔥 MongoDB UserSelfProfile HIT");
@@ -916,7 +1224,7 @@ const getUserId = async (req, res) => {
         cacheKey = `profile:user:${req.params.id}`;
         const cachedData = await redis.get(cacheKey);
         if (cachedData) {
-          console.log("UserProfile Hit from Redis")
+          // console.log("UserProfile Hit from Redis")
           return res.status(200).json(JSON.parse(cachedData));
         }
       } catch (error) {
@@ -925,51 +1233,49 @@ const getUserId = async (req, res) => {
     }
     let userDoc = await User.findById(
       req.params.id,
-      "-mpin -commissionPackage -meta -password"
-    )
-      .populate("role")
-      .populate({
-        path: "plan.planId",
-        populate: { path: "services", model: "Service" },
-      })
-      .populate({
-        path: "distributorId",
-        select: "id name",
-      })
-      .populate("extraPermissions");
+      "-mpin -commissionPackage -meta -password -rolePermissions -extraPermissions -restrictedPermissions -planHistory"
+    ).populate("role").populate({ path: "plan.planId", select: "name amount" })
+      .populate({ path: "distributorId", select: "id name UserId", })
+      .populate("extraPermissions")
 
     if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
     }
 
     // ✅ Call method safely
-    const effectivePermissions = await userDoc.getEffectivePermissions();
+    // const effectivePermissions = await userDoc.getEffectivePermissions();
 
     // ✅ Convert to object only after calling method
     let user = userDoc.toObject();
 
-    // Filter plan.amount
-    if (user.plan?.planId?.amount && user.plan?.planType) {
-      user.plan.planId.amount = user.plan.planId.amount.filter(
-        (a) => a.type === user.plan.planType
-      );
+    // Remove heavy / sensitive Aadhaar fields
+    if (user?.aadharDetails?.data) {
+      delete user.aadharDetails.data.profile_image;
+      delete user.aadharDetails.data.raw_xml;
     }
 
-    const userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.params.id })
-        .populate("services.serviceId")) || {};
+    // Filter plan.amount
+    // if (user.plan?.planId?.amount && user.plan?.planType) {
+    //   user.plan.planId.amount = user.plan.planId.amount.filter(
+    //     (a) => a.type === user.plan.planType
+    //   );
+    // }
+
+    // const userMeta =
+    //   (await userMetaModel
+    //     .findOne({ userId: req.params.id })
+    //     .populate("services.serviceId")) || {};
 
     // return res.status(200).json({ user, userMeta, effectivePermissions });
 
     const responseData = {
-      user, userMeta, effectivePermissions
+      user
     }
     if (cacheKey && redis) {
       try {
         await redis.setex(
           cacheKey,
-          100,
+          3600,
           JSON.stringify(responseData),
         );
         console.log("🔥 MongoDB UserProfile(BY ID) HIT");
@@ -986,6 +1292,7 @@ const getUserId = async (req, res) => {
 };
 
 const getUsersWithFilters = async (req, res) => {
+
   try {
     const {
       keyword,
@@ -1003,15 +1310,56 @@ const getUsersWithFilters = async (req, res) => {
       state,
       district,
       distributorId,
+      includePermissions,
+      forList
     } = req.query;
+
+    const isDistributorOnly =
+      role === "Distributor" && forList == "true" &&
+      !keyword &&
+      !from &&
+      !to &&
+      exportType === "false";
+    let cacheKeyDis = null
+    if (isDistributorOnly && redis) {
+      try {
+        cacheKeyDis = `users:distributor:list`;
+        const cached = await redis.get(cacheKeyDis);
+        if (cached) {
+          return res.status(200).json(JSON.parse(cached));
+        }
+      } catch (error) {
+        console.log("Distributor List Redis HIT Failed")
+      }
+
+      const distributors = await User.find({ role: "Distributor" })
+        .select("_id name UserId")
+        .sort({ name: 1 })
+        .lean();
+
+      const responseData = {
+        success: true,
+        data: distributors,
+      };
+      if (redis) {
+        try {
+          await redis.setex(cacheKeyDis, 35000, JSON.stringify(responseData));
+        } catch (error) {
+          console.log("Distributor List Set in Redis failed")
+        }
+      }
+      return res.status(200).json(responseData);
+    }
+
+
     let cacheKey = null
     if (exportType == "false") {
       if (redis) {
         try {
-          cacheKey = `users:${req.user.role}:${req.user.id}:${req.originalUrl}`;
+          cacheKey = `users:${req.user.role}:${req.user.id}:${JSON.stringify(req.query)}`;
           const cachedData = await redis.get(cacheKey);
           if (cachedData) {
-            console.log("User Hit from Redis")
+            // console.log("User List Hit from Redis")
             return res.status(200).json(JSON.parse(cachedData));
           }
         } catch (error) {
@@ -1083,28 +1431,31 @@ const getUsersWithFilters = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    let users = await User.find(filter)
-      .select("-mpin")
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
+    let [users, totalUsers] = await Promise.all([
+      User.find(filter).select("UserId name email mobileNumber role status isKycVerified eWallet createdAt registrationProgress address")
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ])
+
 
     // ✅ Effective Permissions add karo
-    users = await Promise.all(
-      users.map(async (u) => {
-        const effectivePermissions = await u.getEffectivePermissions();
-        const userObj = u.toObject();
+    if (includePermissions) {
+      users = await Promise.all(
+        users.map(async (u) => {
+          const userDoc = await User.findById(u._id);
+          const permissions = await userDoc.getEffectivePermissions();
 
-        delete userObj.extraPermissions;
-        delete userObj.restrictedPermissions;
-        delete userObj.rolePermissions;
+          return {
+            ...u,
+            effectivePermissions: permissions,
+          };
+        })
+      );
+    }
 
-        return {
-          ...userObj,
-          effectivePermissions,
-        };
-      })
-    );
     let fields = [];
 
     if (inactiveOrUnverified) {
@@ -1239,18 +1590,6 @@ const getUsersWithFilters = async (req, res) => {
       return res.json(users);
     }
 
-    // Normal API response (pagination ke sath)
-    const totalUsers = await User.countDocuments(filter);
-
-    // res.status(200).json({
-    //   success: true,
-    //   data: users,
-    //   pagination: {
-    //     currentPage: parseInt(page),
-    //     totalPages: Math.ceil(totalUsers / limit),
-    //     totalUsers,
-    //   },
-    // });
     const responseData = {
       success: true,
       data: users,
@@ -1267,10 +1606,10 @@ const getUsersWithFilters = async (req, res) => {
         try {
           await redis.setex(
             cacheKey,
-            200,
+            500,
             JSON.stringify(responseData),
           );
-          console.log("🔥 MongoDB HIT");
+          // console.log("🔥 Get all user MongoDB HIT");
         } catch (error) {
           console.log("redies set faild from user get api")
         }
@@ -1305,6 +1644,13 @@ const updateUserStatus = async (req, res) => {
     await user.save();
     await invalidateUsersCache();
     await invalidateProfileCache(userId);
+    if (redis) {
+      try {
+        await redis.del(`USER_SESSION:${userId}`);
+      } catch (error) {
+        console.log("Nothing", error.message)
+      }
+    }
 
     return res.status(200).json({
       message: "User status updated successfully",
@@ -1384,6 +1730,13 @@ const updateCredential = async (req, res) => {
     }
 
     await user.save();
+    if (redis) {
+      try {
+        await redis.del(`USER_SESSION:${userId}`);
+      } catch (error) {
+        console.log("Nothing", error.message)
+      }
+    }
 
     await OTP.deleteMany({ mobileNumber });
 
@@ -1394,20 +1747,502 @@ const updateCredential = async (req, res) => {
   }
 };
 
+// const getDashboardStats = async (req, res, next) => {
+//   try {
+//     const userRole = req.query.userRole;
+//     const user = req.user;
+//     // console.log("Dashboard user:", user);
+//     const role = user.role;
+//     let cacheKey = null
+//     if (redis) {
+//       cacheKey = `dashboard:${role}:${user.id}`;
+//       // console.log("CACHE KEY:", cacheKey);
+//       try {
+//         const cachedData = await redis.get(cacheKey);
+//         if (cachedData) {
+//           console.log("⚡DASHBOARD REDIS HIT");
+//           return res.status(200).json(JSON.parse(cachedData));
+//         }
+//       } catch (e) {
+//         console.log("Redis dashboard get failed, skipping cache");
+//       }
+//     }
+//     let stats = {
+//       userInfo: {
+//         name: user.name,
+//         role: user.role,
+//         wallet: user.eWallet,
+//       },
+//     };
+//     const { startUTC, endUTC } = getISTDayRange();
+
+//     const matchToday = {
+//       createdAt: { $gte: startUTC, $lte: endUTC },
+//     };
+
+//     const matchUser = (field = "userId") => ({ [field]: user._id });
+//     const matchTodayUser = (field = "userId") => ({
+//       [field]: user.id,
+//       createdAt: { $gte: startUTC, $lte: endUTC },
+//     });
+
+//     let todayEarning = 0;
+//     let todayCharges = 0;
+
+//     if (["Admin", "Distributor", "Retailer"].includes(role)) {
+//       // Today Earnings
+//       const earningResult = await CommissionTransaction.aggregate([
+//         { $unwind: "$roles" },
+//         {
+//           $match: {
+//             "roles.role": role,
+//             "roles.userId": new mongoose.Types.ObjectId(user.id),
+//             status: "Success",
+//             createdAt: { $gte: startUTC, $lte: endUTC },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             todayEarning: { $sum: "$roles.commission" },
+//           },
+//         },
+//       ]);
+
+//       todayEarning = earningResult[0]?.todayEarning || 0;
+
+//       // Today Charges
+//       const chargeResult = await CommissionTransaction.aggregate([
+//         { $unwind: "$roles" },
+//         {
+//           $match: {
+//             "roles.role": role,
+//             "roles.userId": new mongoose.Types.ObjectId(user.id),
+//             status: "Success",
+//             createdAt: { $gte: startUTC, $lte: endUTC },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             todayCharges: { $sum: "$roles.chargeShare" },
+//           },
+//         },
+//       ]);
+
+//       todayCharges = chargeResult[0]?.todayCharges || 0;
+//     }
+
+//     // 🔹 Last 10 transactions
+//     let last5Txns = [];
+//     if (role === "Admin") {
+//       last5Txns = await Transaction.find({})
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     } else if (role === "Distributor") {
+//       const retailers = await User.find({ distributorId: user.id }, { _id: 1 });
+//       const retailerIds = retailers.map((r) => r._id);
+
+//       last5Txns = await Transaction.find({ user_id: { $in: retailerIds } })
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     } else if (role === "Retailer") {
+//       last5Txns = await Transaction.find({ user_id: user.id })
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     }
+
+//     let query = {};
+//     if (role === "Admin") {
+//       query.role = userRole;
+//     } else if (role === "Distributor") {
+//       if (role === "Distributor") {
+//         query = { distributorId: req.user.id };
+//       } else {
+//         return res.status(400).json({ status: false, message: "Invalid role" });
+//       }
+//     }
+
+//     const users = await User.find(query).select(
+//       "_id name email eWallet phone UserId"
+//     );
+//     // 🔹 Admin Dashboard
+//     if (role === "Admin") {
+//       const [
+//         totalUsers,
+//         totalRetailers,
+//         totalDistributors,
+//         totalAepsTxns,
+//         totalDmtTxns,
+//         totalBbpsTxns,
+
+//         totalPayouts,
+//         totalPayIn,
+
+//         totalWalletBalance,
+//         todayPayins,
+//         todayPayouts,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//         activeUsers,
+//         activeServices,
+//         activeRetailers,
+//         activeDistributors,
+//         activeUser,
+//         totalSpeUser
+//       ] = await Promise.all([
+//         User.countDocuments(),
+//         User.countDocuments({ role: "Retailer" }),
+//         User.countDocuments({ role: "Distributor" }),
+//         AEPSWithdrawal.countDocuments(),
+//         DmtReport.countDocuments(),
+//         BbpsHistory.countDocuments(),
+//         PayOut.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           { $group: { _id: null, total: { $sum: "$amount" } } },
+//         ]),
+//         PayIn.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           { $group: { _id: null, total: { $sum: "$amount" } } },
+//         ]),
+//         User.aggregate([
+//           { $group: { _id: null, total: { $sum: "$eWallet" } } },
+//         ]),
+//         PayIn.countDocuments(matchToday),
+//         PayOut.countDocuments(matchToday),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
+//         Transaction.countDocuments({ ...matchToday, status: "Success" }),
+//         User.countDocuments({ status: true, isKycVerified: true }),
+//         servicesModal.countDocuments({ isActive: true }),
+//         User.countDocuments({
+//           role: "Retailer",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "Distributor",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "User",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "User",
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         users,
+//         todayEarning,
+//         todayCharges,
+//         totalUsers,
+//         totalRetailers,
+//         totalDistributors,
+//         totalSpeUser,
+//         activeRetailers,
+//         activeDistributors,
+//         activeUser,
+//         totalAEPS: totalAepsTxns,
+//         totalDMT: totalDmtTxns,
+//         totalBBPS: totalBbpsTxns,
+//         totalPayoutAmount: totalPayouts[0]?.total || 0,
+//         totalPayInAmount: totalPayIn[0]?.total || 0,
+//         totalWalletBalance: totalWalletBalance[0]?.total || 0,
+//         activeUsers,
+//         activeServices,
+//         today: {
+//           payinCount: todayPayins,
+//           payoutCount: todayPayouts,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // 🔹 Distributor Dashboard
+//     else if (role === "Distributor") {
+//       const [
+//         myRetailers,
+//         aepsTxns,
+//         dmtTxns,
+//         totalWallet,
+//         todayPayin,
+//         todayPayout,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//         activeRetailers,
+//       ] = await Promise.all([
+//         User.countDocuments({ distributorId: user.id, role: "Retailer" }),
+//         AEPSWithdrawal.countDocuments({ userId: user.id }),
+//         DmtReport.countDocuments({ user_id: user.id }),
+//         User.aggregate([
+//           { $match: { distributorId: user.id } },
+//           { $group: { _id: null, total: { $sum: "$eWallet" } } },
+//         ]),
+//         PayIn.countDocuments(matchTodayUser()),
+//         PayOut.countDocuments(matchTodayUser()),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               distributorId: new mongoose.Types.ObjectId(user.id),
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Failed",
+//         }),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Success",
+//         }),
+//         User.countDocuments({
+//           distributorId: user.id,
+//           role: "Retailer",
+//           status: true,
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         users,
+//         todayEarning,
+//         todayCharges,
+//         totalUsers: 0,
+//         totalRetailers: myRetailers,
+//         totalDistributors: 0,
+//         activeRetailers,
+//         activeDistributors: 0,
+//         totalRetailerWallet: totalWallet[0]?.total || 0,
+//         totalAEPS: aepsTxns,
+//         totalDMT: dmtTxns,
+//         today: {
+//           payinCount: todayPayin,
+//           payoutCount: todayPayout,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // 🔹 Retailer/User Dashboard
+//     else if (["Retailer", "User"].includes(role)) {
+//       const [
+//         aeps,
+//         dmt,
+//         bbps,
+//         todayPayin,
+//         todayPayout,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//       ] = await Promise.all([
+//         AEPSWithdrawal.countDocuments({ userId: user.id }),
+//         DmtReport.countDocuments({ user_id: user.id }),
+//         BbpsHistory.countDocuments({ userId: user.id }),
+//         PayIn.countDocuments(matchTodayUser()),
+//         PayOut.countDocuments(matchTodayUser()),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               user_id: new mongoose.Types.ObjectId(user.id),
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Failed",
+//         }),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Success",
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         todayEarning,
+//         todayCharges,
+//         totalUsers: 0,
+//         totalRetailers: 0,
+//         totalDistributors: 0,
+//         activeRetailers: 0,
+//         activeDistributors: 0,
+//         totalAEPS: aeps,
+//         totalDMT: dmt,
+//         totalBBPS: bbps,
+//         today: {
+//           payinCount: todayPayin,
+//           payoutCount: todayPayout,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // return res.status(200).json({
+//     //   success: true,
+//     //   data: stats,
+//     // });
+//     const responseData = {
+//       success: true,
+//       data: stats,
+//     };
+//     if (cacheKey && redis) {
+//       try {
+//         await redis.setex(
+//           cacheKey,
+//           60,
+//           JSON.stringify(responseData),
+//         );
+//         console.log("⚡DASHBOARD HIT FROM DB");
+//       } catch (e) {
+//         console.log("Redis dashboard set failed", e.message);
+//       }
+//     }
+
+//     return res.status(200).json(responseData);
+
+//   } catch (err) {
+//     console.error("Dashboard Error:", err);
+//     return next(err);
+//   }
+// };
+
+//get service usege
+
+
 const getDashboardStats = async (req, res, next) => {
+  // invalidateAllDashboardCache()
   try {
     const userRole = req.query.userRole;
     const user = req.user;
-    // console.log("Dashboard user:", user);
     const role = user.role;
     let cacheKey = null
     if (redis) {
       cacheKey = `dashboard:${role}:${user.id}`;
-      // console.log("CACHE KEY:", cacheKey);
       try {
         const cachedData = await redis.get(cacheKey);
         if (cachedData) {
-          console.log("⚡DASHBOARD REDIS HIT");
+          // console.log("⚡DASHBOARD REDIS HIT");
           return res.status(200).json(JSON.parse(cachedData));
         }
       } catch (e) {
@@ -1416,9 +2251,7 @@ const getDashboardStats = async (req, res, next) => {
     }
     let stats = {
       userInfo: {
-        name: user.name,
         role: user.role,
-        wallet: user.eWallet,
       },
     };
     const { startUTC, endUTC } = getISTDayRange();
@@ -1429,74 +2262,80 @@ const getDashboardStats = async (req, res, next) => {
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
-      [field]: user.id,
+      [field]: new mongoose.Types.ObjectId(user.id),
       createdAt: { $gte: startUTC, $lte: endUTC },
     });
 
     let todayEarning = 0;
     let todayCharges = 0;
 
-    if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      // Today Earnings
-      const earningResult = await CommissionTransaction.aggregate([
-        { $unwind: "$roles" },
-        {
-          $match: {
-            "roles.role": role,
-            "roles.userId": new mongoose.Types.ObjectId(user.id),
-            status: "Success",
-            createdAt: { $gte: startUTC, $lte: endUTC },
-          },
+    const result = await CommissionTransaction.aggregate([
+      { $unwind: "$roles" },
+      {
+        $match: {
+          "roles.userId": new mongoose.Types.ObjectId(user.id),
+          status: "Success",
+          createdAt: { $gte: startUTC, $lte: endUTC },
         },
-        {
-          $group: {
-            _id: null,
-            todayEarning: { $sum: "$roles.commission" },
-          },
+      },
+      {
+        $group: {
+          _id: null,
+          todayEarning: { $sum: "$roles.commission" },
+          todayCharges: { $sum: "$roles.chargeShare" },
         },
-      ]);
+      },
+    ]);
+    todayEarning = result[0]?.todayEarning || 0;
+    todayCharges = result[0]?.todayCharges || 0;
 
-      todayEarning = earningResult[0]?.todayEarning || 0;
 
-      // Today Charges
-      const chargeResult = await CommissionTransaction.aggregate([
-        { $unwind: "$roles" },
-        {
-          $match: {
-            "roles.role": role,
-            "roles.userId": new mongoose.Types.ObjectId(user.id),
-            status: "Success",
-            createdAt: { $gte: startUTC, $lte: endUTC },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            todayCharges: { $sum: "$roles.chargeShare" },
-          },
-        },
-      ]);
-
-      todayCharges = chargeResult[0]?.todayCharges || 0;
-    }
-
-    // 🔹 Last 10 transactions
+    // 🔹 Last 5 transactions
     let last5Txns = [];
     if (role === "Admin") {
-      last5Txns = await Transaction.find({})
+      last5Txns = await Transaction.find({}).select({
+        transaction_reference_id: 1,
+        transaction_type: 1,
+        amount: 1,
+        balance_after: 1,
+        status: 1,
+        payment_mode: 1,
+        description: 1,
+        createdAt: 1
+      })
         .sort({ createdAt: -1 })
         .limit(7)
         .lean();
     } else if (role === "Distributor") {
-      const retailers = await User.find({ distributorId: user.id }, { _id: 1 });
-      const retailerIds = retailers.map((r) => r._id);
-
-      last5Txns = await Transaction.find({ user_id: { $in: retailerIds } })
-        .sort({ createdAt: -1 })
-        .limit(7)
-        .lean();
+      const retailers = await User.find({ distributorId: user.id }).distinct("_id");
+      if (!retailers.length) {
+        last5Txns = [];
+      } else {
+        last5Txns = await Transaction.find({ user_id: { $in: retailers } }).select({
+          transaction_reference_id: 1,
+          transaction_type: 1,
+          amount: 1,
+          balance_after: 1,
+          status: 1,
+          payment_mode: 1,
+          description: 1,
+          createdAt: 1
+        })
+          .sort({ createdAt: -1 })
+          .limit(7)
+          .lean();
+      }
     } else if (role === "Retailer") {
-      last5Txns = await Transaction.find({ user_id: user.id })
+      last5Txns = await Transaction.find({ user_id: user.id }).select({
+        transaction_reference_id: 1,
+        transaction_type: 1,
+        amount: 1,
+        balance_after: 1,
+        status: 1,
+        payment_mode: 1,
+        description: 1,
+        createdAt: 1
+      })
         .sort({ createdAt: -1 })
         .limit(7)
         .lean();
@@ -1513,25 +2352,12 @@ const getDashboardStats = async (req, res, next) => {
       }
     }
 
-    const users = await User.find(query).select(
-      "_id name email eWallet phone UserId"
-    );
     // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
         totalUsers,
         totalRetailers,
         totalDistributors,
-        totalAepsTxns,
-        totalDmtTxns,
-        totalBbpsTxns,
-
-        totalPayouts,
-        totalPayIn,
-
-        totalWalletBalance,
-        todayPayins,
-        todayPayouts,
         todayTxns,
         failedTxns,
         successTxns,
@@ -1545,32 +2371,6 @@ const getDashboardStats = async (req, res, next) => {
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
         User.countDocuments({ role: "Distributor" }),
-        AEPSWithdrawal.countDocuments(),
-        DmtReport.countDocuments(),
-        BbpsHistory.countDocuments(),
-        PayOut.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startUTC, $lte: endUTC },
-              status: "Success",
-            },
-          },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        PayIn.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: startUTC, $lte: endUTC },
-              status: "Success",
-            },
-          },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        User.aggregate([
-          { $group: { _id: null, total: { $sum: "$eWallet" } } },
-        ]),
-        PayIn.countDocuments(matchToday),
-        PayOut.countDocuments(matchToday),
         Transaction.aggregate([
           {
             $match: {
@@ -1589,7 +2389,7 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+              // byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1632,7 +2432,6 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        users,
         todayEarning,
         todayCharges,
         totalUsers,
@@ -1642,53 +2441,36 @@ const getDashboardStats = async (req, res, next) => {
         activeRetailers,
         activeDistributors,
         activeUser,
-        totalAEPS: totalAepsTxns,
-        totalDMT: totalDmtTxns,
-        totalBBPS: totalBbpsTxns,
-        totalPayoutAmount: totalPayouts[0]?.total || 0,
-        totalPayInAmount: totalPayIn[0]?.total || 0,
-        totalWalletBalance: totalWalletBalance[0]?.total || 0,
         activeUsers,
         activeServices,
         today: {
-          payinCount: todayPayins,
-          payoutCount: todayPayouts,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
         },
         recentTransactions: last5Txns,
       };
     }
 
     // 🔹 Distributor Dashboard
+
     else if (role === "Distributor") {
+      const retailerIds = await User
+        .find({ distributorId: user.id })
+        .distinct("_id")
+      console.log(retailerIds)
       const [
         myRetailers,
-        aepsTxns,
-        dmtTxns,
-        totalWallet,
-        todayPayin,
-        todayPayout,
         todayTxns,
         failedTxns,
         successTxns,
         activeRetailers,
       ] = await Promise.all([
         User.countDocuments({ distributorId: user.id, role: "Retailer" }),
-        AEPSWithdrawal.countDocuments({ userId: user.id }),
-        DmtReport.countDocuments({ user_id: user.id }),
-        User.aggregate([
-          { $match: { distributorId: user.id } },
-          { $group: { _id: null, total: { $sum: "$eWallet" } } },
-        ]),
-        PayIn.countDocuments(matchTodayUser()),
-        PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
           {
             $match: {
               createdAt: { $gte: startUTC, $lte: endUTC },
-              distributorId: new mongoose.Types.ObjectId(user.id),
+              user_id: { $in: retailerIds },
               status: "Success",
             },
           },
@@ -1703,7 +2485,6 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1717,17 +2498,21 @@ const getDashboardStats = async (req, res, next) => {
           },
         ]),
         Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
+          createdAt: { $gte: startUTC, $lte: endUTC },
+          user_id: { $in: retailerIds },
           status: "Failed",
         }),
+
         Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
+          createdAt: { $gte: startUTC, $lte: endUTC },
+          user_id: { $in: retailerIds },
           status: "Success",
         }),
         User.countDocuments({
           distributorId: user.id,
           role: "Retailer",
           status: true,
+          isKycVerified: true
         }),
       ]);
 
@@ -1737,23 +2522,15 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        users,
         todayEarning,
         todayCharges,
         totalUsers: 0,
         totalRetailers: myRetailers,
         totalDistributors: 0,
         activeRetailers,
-        activeDistributors: 0,
-        totalRetailerWallet: totalWallet[0]?.total || 0,
-        totalAEPS: aepsTxns,
-        totalDMT: dmtTxns,
         today: {
-          payinCount: todayPayin,
-          payoutCount: todayPayout,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
         },
         recentTransactions: last5Txns,
       };
@@ -1762,20 +2539,10 @@ const getDashboardStats = async (req, res, next) => {
     // 🔹 Retailer/User Dashboard
     else if (["Retailer", "User"].includes(role)) {
       const [
-        aeps,
-        dmt,
-        bbps,
-        todayPayin,
-        todayPayout,
         todayTxns,
         failedTxns,
         successTxns,
       ] = await Promise.all([
-        AEPSWithdrawal.countDocuments({ userId: user.id }),
-        DmtReport.countDocuments({ user_id: user.id }),
-        BbpsHistory.countDocuments({ userId: user.id }),
-        PayIn.countDocuments(matchTodayUser()),
-        PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
           {
             $match: {
@@ -1826,29 +2593,15 @@ const getDashboardStats = async (req, res, next) => {
       stats.common = {
         todayEarning,
         todayCharges,
-        totalUsers: 0,
-        totalRetailers: 0,
-        totalDistributors: 0,
-        activeRetailers: 0,
-        activeDistributors: 0,
-        totalAEPS: aeps,
-        totalDMT: dmt,
-        totalBBPS: bbps,
         today: {
-          payinCount: todayPayin,
-          payoutCount: todayPayout,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
         },
         recentTransactions: last5Txns,
       };
     }
 
-    // return res.status(200).json({
-    //   success: true,
-    //   data: stats,
-    // });
+
     const responseData = {
       success: true,
       data: stats,
@@ -1857,10 +2610,10 @@ const getDashboardStats = async (req, res, next) => {
       try {
         await redis.setex(
           cacheKey,
-          60,
+          120,
           JSON.stringify(responseData),
         );
-        console.log("⚡DASHBOARD HIT FROM DB");
+        // console.log("⚡DASHBOARD HIT FROM DB");
       } catch (e) {
         console.log("Redis dashboard set failed", e.message);
       }
@@ -1874,7 +2627,6 @@ const getDashboardStats = async (req, res, next) => {
   }
 };
 
-//get service usege
 
 const getServiceUsage = async (req, res) => {
   try {
@@ -2458,12 +3210,33 @@ const getUserActions = async (req, res) => {
 const createUserAction = async (req, res) => {
   try {
     const { actionType, toRole } = req.body;
-
-    if (!actionType || !toRole) {
+    const ALLOWED_ACTIONS = [
+      "BECOME_RETAILER",
+      "BECOME_DISTRIBUTOR",
+      "BECOME_API_PARTNER",
+      "ACCOUNT_SUSPEND",
+      "ACCOUNT_DEACTIVATE",
+      "ACCOUNT_REACTIVATE",
+    ];
+    if (!actionType) {
       return res.status(400).json({
         success: false,
-        message: "missing required fields (actionType, toRole)",
+        message: "missing required fields (actionType)",
       });
+    }
+    if (!ALLOWED_ACTIONS.includes(actionType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request type",
+      });
+    }
+    if (["BECOME_RETAILER", "BECOME_DISTRIBUTOR", "BECOME_API_PARTNER"].includes(actionType)) {
+      if (!toRole) {
+        return res.status(400).json({
+          success: false,
+          message: "missing required fields (toRole)",
+        });
+      }
     }
     const user = await userModel.findById(req.user.id).select({
       _id: 1,
@@ -2497,14 +3270,15 @@ const createUserAction = async (req, res) => {
         message: "Request already submitted"
       });
     }
-
-    const response = await userModalActionModal.create({
+    const payload = {
       userId: user._id,
       actionType,
       fromRole: user.role,
-      toRole,
-    });
+    };
 
+    if (toRole) payload.toRole = toRole;
+
+    const response = await userModalActionModal.create(payload);
     user.UserActionStatus = true;
     await user.save();
 
@@ -2529,8 +3303,8 @@ const sendRoleApprovalEmail = async (user, role) => {
           to: [
             {
               name: user?.name || "User",
-              // email: user?.email,
-              email: "niranjan@7unique.in",
+              email: user?.email,
+              // email: "niranjan@7unique.in",
             },
           ],
           variables: {
@@ -2612,6 +3386,7 @@ const approveUserAction = async (req, res) => {
         isVideoKyc: 1,
         email: 1,
         name: 1,
+        UserActionStatus: 1
       }).session(session);
 
 
@@ -2622,13 +3397,28 @@ const approveUserAction = async (req, res) => {
           message: "User not found"
         });
       }
-
-      user.role = action.toRole;
+      if (action.actionType === "BECOME_DISTRIBUTOR") {
+        user.role = action.toRole;
+      }
+      if (action.actionType === "BECOME_RETAILER") {
+        user.role = action.toRole;
+      }
+      if (action.actionType === "ACCOUNT_DEACTIVATE") {
+        user.status = false;
+      }
       user.forceLogout = true;
       user.isKycVerified = true;
       user.isVideoKyc = false;
       user.agreement = false;
+      user.UserActionStatus = false
       await user.save({ session });
+      if (redis) {
+        try {
+          await redis.del(`USER_SESSION:${action.userId || user._id || user.id}`);
+        } catch (error) {
+          console.log("Nothing")
+        }
+      }
     } else if (status === "REJECTED") {
       user = await userModel.findById(action.userId).select({
         UserActionStatus: 1
@@ -2677,6 +3467,7 @@ module.exports = {
   verifyOTPController,
   registerUser,
   loginController,
+  logoutController,
   updateProfileController,
   getUserController,
   getUsersWithFilters,
@@ -2698,4 +3489,4 @@ module.exports = {
   createUserAction,
   approveUserAction,
   getUserActions
-};
+}

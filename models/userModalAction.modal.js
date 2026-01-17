@@ -15,6 +15,7 @@ const userActionSchema = new mongoose.Schema(
                 "BECOME_DISTRIBUTOR",
                 "BECOME_API_PARTNER",
                 "ACCOUNT_SUSPEND",
+                "ACCOUNT_DEACTIVATE",
                 "ACCOUNT_REACTIVATE",
             ],
             required: true,
