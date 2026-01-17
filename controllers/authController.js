@@ -552,7 +552,7 @@ const registerUser = async (req, res) => {
       });
     }
 
-    const clientSource = userData.clientSource?.toUpperCase() || "PANEL";
+    const clientSource = userData?.clientSource?.toUpperCase() || "PANEL";
 
     // if (clientSource !== "APP") {
     //   delete userData.referal;
@@ -595,7 +595,7 @@ const registerUser = async (req, res) => {
     }
     let referredByUser = null;
 
-    if (userData.referal) {
+    if (userData.referal && userData.referal !== "") {
       referredByUser = await User.findOne({
         referralCode: userData.referal,
       }).session(session);
