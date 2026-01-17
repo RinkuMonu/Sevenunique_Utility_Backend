@@ -526,5 +526,11 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
+userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ distributorId: 1 });
+userSchema.index({ status: 1 });
+userSchema.index({ isKycVerified: 1 });
+userSchema.index({ "address.state": 1 });
+userSchema.index({ "address.city": 1 });
 
 module.exports = mongoose.model("User", userSchema);
