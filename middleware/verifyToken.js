@@ -21,10 +21,18 @@ const authenticateToken = async (req, res, next) => {
         message: "User not found",
       });
     }
-
-    const redisToken = await redis.get(`USER_SESSION:${user._id || user.id}`);
-
-    if (user.forceLogout || !redisToken || redisToken !== token) {
+    let redisToken = null
+    if (redis) {
+      redisToken = await redis.get(`USER_SESSION:${user._id || user.id}`);
+      if (!redisToken || redisToken !== token) {
+        return res.status(401).json({
+          success: false,
+          code: "FORCE_LOGOUT",
+          message: "Session expried. Please login again.",
+        });
+      }
+    }
+    if (user.forceLogout) {
       return res.status(401).json({
         success: false,
         code: "FORCE_LOGOUT",
