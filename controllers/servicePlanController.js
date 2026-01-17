@@ -5,6 +5,7 @@ const userModel = require("../models/userModel");
 const servicesModal = require("../models/servicesModal");
 const { default: mongoose } = require("mongoose");
 const { processReferralCommission } = require("../middleware/referralCommission");
+const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/redisValidation");
 
 const createPlan = async (req, res) => {
   try {
@@ -361,6 +362,9 @@ const buyPlan = async (req, res) => {
       },
     });
     await transaction.save({ session });
+
+    await invalidateUsersCache();
+    await invalidateProfileCache(userId);
 
     if (!userfind.hasPurchasedPlan) {
       await processReferralCommission(userfind, transactionRef, planId, session);
