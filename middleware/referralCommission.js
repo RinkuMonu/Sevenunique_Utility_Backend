@@ -27,7 +27,7 @@ const processReferralCommission = async (buyer, transactionRef, planId, session)
 
         const updateReferrer = await userModel
             .findByIdAndUpdate(referrer._id,
-                { $inc: { eWallet: commission } },
+                { $inc: { eWallet: commission, referralEarnings: commission, ...(level === 1 && { referralCount: 1 }) } },
                 { new: true, session }
             )
 

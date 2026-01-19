@@ -51,18 +51,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // app.use(apiLogger); 
-// app.use((req, res, next) => {
-//   const start = Date.now();
-//   res.on("finish", () => {
-//     const duration = Date.now() - start;
-//     if (duration > 500) {
-//       console.log(`⚠️ SLOW API: ${req.method} ${req.originalUrl} - ${duration}ms`);
-//     } else {
-//       console.log(`☺☺ GOOD API RES: ${req.method} ${req.originalUrl} - ${duration}ms`);
-//     }
-//   });
-//   next();
-// });
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (duration > 500) {
+      console.log(`⚠️ SLOW API: ${req.method} ${req.originalUrl} - ${duration}ms`);
+    } else {
+      console.log(`☺☺ GOOD API RES: ${req.method} ${req.originalUrl} - ${duration}ms`);
+    }
+  });
+  next();
+});
 
 
 app.use("/api/v1/auth", authRoutes);
