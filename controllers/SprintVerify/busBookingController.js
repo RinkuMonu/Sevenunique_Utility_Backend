@@ -9,12 +9,13 @@ const {
   getApplicableServiceCharge,
   applyServiceCharges,
   logApiCall,
+  calculateCommissionFromSlabs,
+  generateRandomCashback,
 } = require("../../utils/chargeCaluate");
 
 function getPaysprintHeaders() {
   return {
     Token: generatePaysprintJWT(),
-    // Authorisedkey: "MjE1OWExZTIwMDFhM2Q3NGNmZGE2MmZkN2EzZWZkODQ="
     Authorisedkey: process.env.PAYSPRINT_AUTH_KEY,
   };
 }
@@ -56,8 +57,6 @@ const handleResponse = (res, data, successMessage) => {
 
 const getSourceCities = async (req, res, next) => {
   const headers = getPaysprintHeaders();
-  // console.log(headers);
-  // return;
 
   try {
     const response = await axios.post(
@@ -67,7 +66,7 @@ const getSourceCities = async (req, res, next) => {
     );
     // logApiCall({
     //   tag: "/bus/ticket/source",
-    //   // requestData: req.body,
+    //   requestData: req.body,
     // });
     handleResponse(res, response.data, "Source cities fetched successfully");
   } catch (error) {
@@ -199,56 +198,114 @@ const bookTicket = async (req, res) => {
   session.startTransaction();
   try {
     const headers = getPaysprintHeaders();
+    console.log(headers);
+    return;
+
 
     const userId = req.user.id;
-    const { amount, passenger_phone, passenger_email, mpin, ...bookingData } =
+    const { amount, passenger_phone, passenger_email, refid, mpin, base_fare, blockKey, category = "68c936fc8fa1dda33eb541c2" } =
       req.body;
-    let commissions = await getApplicableServiceCharge(
-      req.user.id,
-      "Bus Booking"
+    const { commissions, service } = await getApplicableServiceCharge(
+      userId,
+      category
     );
-    const charges = applyServiceCharges(amount, commissions);
-    const referenceid = generateReferenceId();
+    let commission = commissions?.slabs?.length
+      ? calculateCommissionFromSlabs(amount, commissions)
+      : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
+
 
     const user = await userModel
-      .findOne({ _id: userId, mpin })
+      .findOne({ _id: userId })
       .session(session)
       .exec();
-
-    if (!user || user.eWallet < amount + charges.totalDeducted) {
-      throw new Error("Wrong Mpin or Insufficient wallet balance");
+    if (user.mpin != mpin) {
+      throw new Error("Invalid mpin ! Please enter a vaild mpin");
     }
 
-    user.eWallet -= amount + charges.totalDeducted;
-    await user.save({ session });
+    const usableBalance = user.eWallet - (user.cappingMoney || 0);
+    const retailerBenefit = user.role === "User" ? 0 : Number(commission.retailer || 0);
+    const required = Number((
+      Number(amount) +
+      Number(commission.charge || 0) +
+      Number(commission.gst || 0) + Number(commission.tds || 0) - Number(retailerBenefit || 0)
+    ).toFixed(2));
 
-    const debitTxn = await Transaction.create(
-      [
-        {
-          user_id: userId,
-          transaction_type: "debit",
-          amount: amount + charges.totalDeducted,
-          balance_after: user.eWallet,
-          payment_mode: "wallet",
-          transaction_reference_id: referenceid,
-          description: `Bus ticket booking initiated with referenceId ${referenceid}`,
-          status: "Pending",
-        },
-      ],
-      { session }
+    if (usableBalance < required) {
+      return res.status(400).json({
+        error: true,
+        message: `Insufficient wallet balance. You must maintain ₹${user.cappingMoney} in your wallet. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
+      });
+
+    }
+
+    const updateUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: -required } },
+      { new: true, session }
     );
+
+    const debitTxn = await Transaction.create([{
+      user_id: userId,
+      transaction_type: "debit",
+      amount: Number(amount),
+      type: service._id,
+      gst: Number(commission.gst),
+      tds: Number(commission.tds),
+      charge: Number(commission.charge),
+      totalDebit: Number(required),
+      totalCredit: user.role === "User" ? 0 : Number(commission.retailer || 0),
+      balance_after: updateUser.eWallet,
+      payment_mode: "wallet",
+      transaction_reference_id: refid,
+      description: `Bus ticket booking initiated with referenceId ${refid}`,
+      status: "Pending",
+      provider: "paySprint",
+    }], { session });
+
+    const bookingRecord = await bbpsModel.create([{
+      userId,
+      rechargeType: service?._id,
+      operator: "Bus Booking" || operatorName,
+      customerNumber: passenger_phone,
+      amount: Number(amount),
+
+      charges: Number(commission.charge || 0),
+
+      retailerCommission: user.role === "User" ? 0 : Number(commission.retailer || 0),
+
+      distributorCommission: Number(commission.distributor || 0),
+
+      adminCommission: Number(commission.admin || 0),
+
+      gst: Number(commission.gst || 0),
+      tds: Number(commission.tds || 0),
+      totalCommission: Number(commission.totalCommission || 0),
+      totalDebit: Number(required),
+
+      transactionId: refid,
+      extraDetails: { mobileNumber: passenger_phone, email: passenger_email, blockKey },
+      status: "Pending",
+      provider: "paySprint",
+    }], { session });
+
+    const payload = {
+      amount,
+      base_fare,
+      blockKey,
+      passenger_phone,
+      passenger_email,
+      refid
+    }
+    console.log(payload);
+
 
     const paysprintRes = await axios.post(
       "https://sit.paysprint.in/service-api/api/v1/service/bus/ticket/bookticket",
-      {
-        amount,
-        passenger_phone,
-        passenger_email,
-        ...bookingData,
-        refid: referenceid,
-      },
+      payload,
       { headers }
     );
+    console.log(paysprintRes);
+
 
     logApiCall({
       tag: "bus/ticket/bookticket",
@@ -262,65 +319,117 @@ const bookTicket = async (req, res) => {
     if (response_code === 1) status = "Success";
     else if ([0, 2].includes(response_code)) status = "Pending";
 
-    const bookingRecord = new bbpsModel({
-      userId,
-      rechargeType: "Bus Booking",
-      operator: "Bus",
-      customerNumber: passenger_phone,
-      amount,
-      charges: charges.totalDeducted,
-      transactionId: referenceid,
-      extraDetails: {
-        mobileNumber: passenger_phone,
-        passenger_email,
-      },
-      status,
-    });
-    await bookingRecord.save({ session });
-
     debitTxn[0].status = status;
     await debitTxn[0].save({ session });
 
-    if (status === "Failed") {
-      user.eWallet += amount + charges.totalDeducted;
-      await user.save({ session });
+    bookingRecord[0].status = status;
+    await bookingRecord[0].save({ session });
 
-      await Transaction.create(
-        [
-          {
-            user_id: userId,
-            transaction_type: "credit",
-            amount: amount + charges.totalDeducted,
-            balance_after: user.eWallet,
-            payment_mode: "wallet",
-            transaction_reference_id: referenceid + "-refund",
-            description: "Refund for failed ticket booking",
-            status: "Success",
-          },
-        ],
-        { session }
+
+    if (status === "Failed") {
+      const refundedUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { new: true, session }
       );
 
-      bookingRecord.status = "Refunded";
-      await bookingRecord.save({ session });
+
+      debitTxn[0].balance_after = refundedUser.eWallet;
+      await debitTxn[0].save({ session });
+
+      bookingRecord[0].status = status;
+      await bookingRecord[0].save({ session });
     }
     if (status === "Success") {
       const newPayOut = new PayOut({
         userId,
-        amount,
-        charges: charges.totalDeducted,
-        reference: referenceid,
-        account: null,
-        trans_mode: "WALLET" || "IMPS",
-        ifsc: null,
+        amount: Number(amount),
+        reference: refid,
+        type: service._id,
+        trans_mode: "WALLET",
         name: user.name,
         mobile: user.mobileNumber,
         email: user.email,
         status: "Success",
-        charges: 0,
-        remark: `Bus ticket booking with referenceId ${referenceid}`,
+        charges: commission.charge || 0,
+        gst: commission.gst || 0,
+        tds: commission.tds || 0,
+        totalDebit: required,
+        remark: `Bus ticket booking with referenceId ${refid}`,
       });
       await newPayOut.save({ session });
+
+      if (user.role === "User") {
+        const retailerCommission = Number(commission.retailer || 0);
+
+        if (retailerCommission > 0) {
+
+          const cashbackAmount = generateRandomCashback(retailerCommission);
+
+          if (cashbackAmount > 0) {
+            const expiry = new Date();
+            expiry.setMonth(expiry.getMonth() + 1);
+
+            await scratchCouponModel.findOneAndUpdate(
+              { serviceTxnId: refid },
+              {
+                $setOnInsert: {
+                  userId,
+                  serviceTxnId: refid,
+                  serviceName: "Bus Booking",
+                  baseAmount: required,
+                  cashbackAmount,
+                  expiresAt: expiry,
+                }
+              },
+              { upsert: true, session }
+            );
+
+          }
+        }
+      } else {
+        await CommissionTransaction.create([{
+          referenceId: refid,
+          service: service._id,
+          baseAmount: Number(amount),
+          charge: Number(commission.charge),
+          netAmount: Number(required),
+          roles: [
+            {
+              userId,
+              role: "Retailer",
+              commission: commission.retailer || 0,
+              chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+            },
+            { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+            { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+          ],
+          type: "credit",
+          status: "Success",
+          sourceRetailerId: userId,
+          commissionDistributed: true,
+        }], { session });
+
+        console.log("💸 CommissionTransaction created for all roles");
+
+        await distributeCommission({
+          user: userId,
+          distributer: user.distributorId,
+          service: service,
+          amount,
+          commission,
+          reference: refid,
+          description: `Commission for Bus Booking of ${passenger_phone}`,
+          session
+        });
+        console.log("💸 Commission distributed");
+        if (status === "Success") {
+          rechargeRecord[0].commissionDistributed = true;
+          await rechargeRecord[0].save({ session });
+        }
+
+      }
+
     }
 
     await session.commitTransaction();
@@ -329,7 +438,8 @@ const bookTicket = async (req, res) => {
     return res.status(status === "Success" ? 200 : 400).json({
       status: status.toLowerCase(),
       message: message || `Ticket booking ${status.toLowerCase()}`,
-      refid: referenceid,
+      refid: refid,
+      paysprintRes: paysprintRes.data
     });
   } catch (error) {
     console.log(error);
@@ -474,92 +584,92 @@ const paysprintCallback = async (req, res) => {
   console.log("📢 Paysprint Callback Event:", event);
   console.log("📢 Paysprint Callback data:", data);
 
-  const session = await startSession();
-  session.startTransaction();
+  // const session = await startSession();
+  // session.startTransaction();
 
   try {
-    const userId = await getUserIdFromRefid(param.refid);
-    const user = await userModel.findById(userId).session(session);
+    // const userId = await getUserIdFromRefid(param.refid);
+    // const user = await userModel.findById(userId).session(session);
 
-    if (!user) throw new Error("User not found");
+    // if (!user) throw new Error("User not found");
 
     // Debit (booking deduction)
-    if (event === "BUS_TICKET_BOOKING_DEBIT_CONFIRMATION") {
-      console.log("💸 Debit confirmation callback");
+    // if (event === "BUS_TICKET_BOOKING_DEBIT_CONFIRMATION") {
+    //   console.log("💸 Debit confirmation callback");
 
-      user.eWallet -= parseFloat(param.total_deduction || param.amount);
-      await user.save({ session });
+    //   user.eWallet -= parseFloat(param.total_deduction || param.amount);
+    //   await user.save({ session });
 
-      await Transaction.create(
-        [
-          {
-            user_id: userId,
-            transaction_type: "debit",
-            amount: parseFloat(param.total_deduction || param.amount),
-            balance_after: user.eWallet,
-            payment_mode: "wallet",
-            transaction_reference_id: param.refid,
-            description: `Bus ticket booking debit confirmed for blockId ${param.block_id}`,
-            status: "Success",
-          },
-        ],
-        { session }
-      );
+    //   await Transaction.create(
+    //     [
+    //       {
+    //         user_id: userId,
+    //         transaction_type: "debit",
+    //         amount: parseFloat(param.total_deduction || param.amount),
+    //         balance_after: user.eWallet,
+    //         payment_mode: "wallet",
+    //         transaction_reference_id: param.refid,
+    //         description: `Bus ticket booking debit confirmed for blockId ${param.block_id}`,
+    //         status: "Success",
+    //       },
+    //     ],
+    //     { session }
+    //   );
 
-      await bbpsModel
-        .updateOne({ transactionId: param.refid }, { status: "Success" })
-        .session(session);
-    }
+    //   await bbpsModel
+    //     .updateOne({ transactionId: param.refid }, { status: "Success" })
+    //     .session(session);
+    // }
 
     // Credit (booking cancellation refund)
-    else if (event === "BUS_TICKET_BOOKING_CREDIT_CONFIRMATION") {
-      console.log("💰 Credit confirmation callback");
+    // else if (event === "BUS_TICKET_BOOKING_CREDIT_CONFIRMATION") {
+    //   console.log("💰 Credit confirmation callback");
 
-      user.eWallet += parseFloat(param.total_deduction || param.amount);
-      await user.save({ session });
+    //   user.eWallet += parseFloat(param.total_deduction || param.amount);
+    //   await user.save({ session });
 
-      await Transaction.create(
-        [
-          {
-            user_id: userId,
-            transaction_type: "credit",
-            amount: parseFloat(param.total_deduction || param.amount),
-            balance_after: user.eWallet,
-            payment_mode: "wallet",
-            transaction_reference_id: param.refid + "-refund",
-            description: `Bus ticket booking refund for blockId ${param.block_id}`,
-            status: "Success",
-          },
-        ],
-        { session }
-      );
+    //   await Transaction.create(
+    //     [
+    //       {
+    //         user_id: userId,
+    //         transaction_type: "credit",
+    //         amount: parseFloat(param.total_deduction || param.amount),
+    //         balance_after: user.eWallet,
+    //         payment_mode: "wallet",
+    //         transaction_reference_id: param.refid + "-refund",
+    //         description: `Bus ticket booking refund for blockId ${param.block_id}`,
+    //         status: "Success",
+    //       },
+    //     ],
+    //     { session }
+    //   );
 
-      await bbpsModel
-        .updateOne({ transactionId: param.refid }, { status: "Refunded" })
-        .session(session);
-    }
+    //   await bbpsModel
+    //     .updateOne({ transactionId: param.refid }, { status: "Refunded" })
+    //     .session(session);
+    // }
 
     // Ticket Confirmation (final booking success)
-    else if (event === "BUS_TICKET_BOOKING_CONFIRMATION") {
-      console.log("🎟️ Ticket final confirmation callback");
+    // else if (event === "BUS_TICKET_BOOKING_CONFIRMATION") {
+    //   console.log("🎟️ Ticket final confirmation callback");
 
-      await bbpsModel
-        .updateOne(
-          { transactionId: param.refid },
-          {
-            status: "Confirmed",
-            extraDetails: {
-              pnr_no: param.pnr_no,
-              blockKey: param.blockKey,
-              seatDetails: param.seat_details,
-            },
-          }
-        )
-        .session(session);
-    }
+    //   await bbpsModel
+    //     .updateOne(
+    //       { transactionId: param.refid },
+    //       {
+    //         status: "Confirmed",
+    //         extraDetails: {
+    //           pnr_no: param.pnr_no,
+    //           blockKey: param.blockKey,
+    //           seatDetails: param.seat_details,
+    //         },
+    //       }
+    //     )
+    //     .session(session);
+    // }
 
-    await session.commitTransaction();
-    session.endSession();
+    // await session.commitTransaction();
+    // session.endSession();
 
     return res.status(200).json({
       status: 200,
@@ -674,6 +784,9 @@ const busbookingDirectUrl = async (req, res) => {
 
 // routes/bus.js me hi
 const jwt = require("jsonwebtoken");
+const scratchCouponModel = require("../../models/scratchCoupon.model");
+const CommissionTransaction = require("../../models/CommissionTransaction");
+const { distributeCommission } = require("../../utils/distributerCommission");
 
 // POST /api/bus/callback
 const busbookingDirectUrlCallback = async (req, res) => {
@@ -694,7 +807,7 @@ const busbookingDirectUrlCallback = async (req, res) => {
 
     // Store decrypted data in DB if required...
 
-    return res.json({ success: true, data: encryptedData });
+    return res.json({ status: 200, message: "Transaction completed successfully" });
   } catch (err) {
     console.error("Callback Error:", err.message);
     return res.status(500).json({
