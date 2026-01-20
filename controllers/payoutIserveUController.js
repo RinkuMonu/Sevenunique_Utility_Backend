@@ -563,6 +563,22 @@ exports.getAllWithdrawRequests = async (req, res) => {
       { $sort: { createdAt: -1 } },
       { $skip: Number(skip) },
       { $limit: Number(limit) },
+      {
+        $project: {
+          amount: 1,
+          status: 1,
+          createdAt: 1,
+          message: 1,
+
+          user: {
+            _id: "$user._id",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+            UserId: "$user.UserId",
+          },
+        },
+      },
     ];
 
     const requests = await withdrawRequestModel.aggregate(pipeline);
