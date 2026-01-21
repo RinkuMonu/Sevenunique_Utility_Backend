@@ -477,6 +477,7 @@ exports.getUserTransactions = async (req, res) => {
           transaction_reference_id: 1,
           description: 1,
           createdAt: 1,
+          provider: 1,
         },
       },
       { $sort: { createdAt: -1 } }

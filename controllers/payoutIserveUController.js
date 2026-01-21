@@ -567,15 +567,16 @@ exports.getAllWithdrawRequests = async (req, res) => {
         $project: {
           amount: 1,
           status: 1,
-          createdAt: 1,
           message: 1,
+          createdAt: 1,
 
+          // 👇 sirf required user fields
           user: {
             _id: "$user._id",
+            UserId: "$user.UserId",
             name: "$user.name",
             email: "$user.email",
             mobileNumber: "$user.mobileNumber",
-            UserId: "$user.UserId",
           },
         },
       },
