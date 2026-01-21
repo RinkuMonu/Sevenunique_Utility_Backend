@@ -25,6 +25,7 @@ const bannerRoutes = require("./routes/bannerRoutes.js");
 const blogRoutes = require("./routes/blogRouter.js");
 const panroute = require("./routes/pan.routes.js");
 const redis = require("./middleware/redis.js");
+const aeronpayRouter = require("./routes/aeronpayRoutes.js");
 const app = express();
 planCheckCronJob();
 
@@ -84,6 +85,7 @@ app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
 app.use("/api/v1/instant/payout", require("./routes/InstantPay.payout.js"));
 app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
+app.use("/api/v1/aeronpay",aeronpayRouter);
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
 app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 app.use("/api/InstantPay_PPI", router);
