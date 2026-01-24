@@ -261,10 +261,10 @@ const sendOtpController = async (req, res) => {
 
     // ✅ Send OTP
     const smsResult = await sendOtp(mobileNumber, otp, type);
-    if (redis && smsResult.success) {
-      await incrementOtpCount(otpKey);
-    }
-
+    // if (redis && smsResult.success) {
+    //   await incrementOtpCount(otpKey);
+    // }
+console.log("SMS Result:", smsResult);
     if (smsResult.success) {
       return res.status(200).json({
         success: true,
@@ -569,7 +569,7 @@ const loginController = async (req, res) => {
       if (!userAllowed) {
         return res.status(403).json({
           success: false,
-          message: "Too many failed attempts. Try after 10 min.",
+          message: "Too many log in attempts. Try after 10 min.",
         });
       }
     }
@@ -1203,7 +1203,7 @@ const getUserController = async (req, res) => {
           7200,
           JSON.stringify(responseData),
         );
-        console.log("🔥 MongoDB UserSelfProfile HIT");
+        // console.log("🔥 MongoDB UserSelfProfile HIT");
       } catch (error) {
         console.log("redies set faild from UserSelfProfile api")
       }
@@ -1315,7 +1315,7 @@ const getUsersWithFilters = async (req, res) => {
     } = req.query;
 
     const isDistributorOnly =
-      role === "Distributor" && forList == "true" &&
+      (role === "Distributor" || role === "Retailer") && forList == "true" &&
       !keyword &&
       !from &&
       !to &&
@@ -1323,7 +1323,7 @@ const getUsersWithFilters = async (req, res) => {
     let cacheKeyDis = null
     if (isDistributorOnly && redis) {
       try {
-        cacheKeyDis = `users:distributor:list`;
+        cacheKeyDis = `users:${role}:list`;
         const cached = await redis.get(cacheKeyDis);
         if (cached) {
           return res.status(200).json(JSON.parse(cached));
@@ -1332,7 +1332,7 @@ const getUsersWithFilters = async (req, res) => {
         console.log("Distributor List Redis HIT Failed")
       }
 
-      const distributors = await User.find({ role: "Distributor" })
+      const distributors = await User.find({ role: role })
         .select("_id name UserId")
         .sort({ name: 1 })
         .lean();
@@ -1343,7 +1343,7 @@ const getUsersWithFilters = async (req, res) => {
       };
       if (redis) {
         try {
-          await redis.setex(cacheKeyDis, 35000, JSON.stringify(responseData));
+          await redis.setex(cacheKeyDis, 4000, JSON.stringify(responseData));
         } catch (error) {
           console.log("Distributor List Set in Redis failed")
         }
@@ -3414,6 +3414,7 @@ const approveUserAction = async (req, res) => {
       await user.save({ session });
       if (redis) {
         try {
+          await invalidateUsersCache();
           await redis.del(`USER_SESSION:${action.userId || user._id || user.id}`);
         } catch (error) {
           console.log("Nothing")

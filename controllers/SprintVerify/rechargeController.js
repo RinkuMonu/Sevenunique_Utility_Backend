@@ -1,5 +1,6 @@
 const axios = require("axios");
 require("dotenv").config();
+const { v4: uuid } = require("uuid");
 const generatePaysprintJWT = require("../../services/Dmt&Aeps/TokenGenrate.js");
 const BbpsHistory = require("../../models/bbpsModel.js");
 const PayOut = require("../../models/payOutModel.js")
@@ -10,6 +11,8 @@ const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCo
 const { distributeCommission } = require("../../utils/distributerCommission.js");
 const CommissionTransaction = require("../../models/CommissionTransaction.js");
 const scratchCouponModel = require("../../models/scratchCoupon.model.js");
+const redis = require("../../middleware/redis.js");
+const { acquireLock, releaseLock } = require("../../middleware/redisValidation.js");
 
 
 function getPaysprintHeaders() {
@@ -157,13 +160,15 @@ exports.doRecharge = async (req, res, next) => {
   const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
   const session = await mongoose.startSession();
   session.startTransaction();
-
+  // 🔐 LOCK VARIABLES (scope ke liye)
+  let rechargeLockKey, rechargeLockValue; //setex ke liye lock key and lock value
+  let walletLockKey, walletLockValue; //setex ke liye lock key and lock value
+  let shouldReleaseRechargeLock = true;
   try {
     console.log("🔁 Starting Recharge Flow...");
-
     // ✅ Get service charges
     const { commissions, service } = await getApplicableServiceCharge(userId, category, operatorName);
-    console.log("💰 Service charges & meta:", commissions);
+    // console.log("💰 Service charges & meta:", commissions);
 
 
     // ✅ Check for slabs
@@ -176,6 +181,21 @@ exports.doRecharge = async (req, res, next) => {
     if (user.mpin != mpin) {
       throw new Error("Invalid mpin ! Please enter a vaild mpin");
     }
+    if (redis) {
+      rechargeLockKey = `recharge_lock:${userId}:${operatorName}:${canumber}:${amount}`;
+      rechargeLockValue = uuid();
+
+      const rechargeLocked = await acquireLock(rechargeLockKey, rechargeLockValue, 120);
+
+      if (!rechargeLocked) {
+        return res.status(429).json({
+          success: false,
+          message: "Same recharge already in progress please wait some tims(s)",
+        });
+      }
+    }
+
+
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
     const retailerBenefit = user.role === "User" ? 0 : Number(commission.retailer || 0);
     const required = Number((
@@ -192,6 +212,15 @@ exports.doRecharge = async (req, res, next) => {
 
     }
 
+    if (redis) {
+      walletLockKey = `wallet_lock:${userId}`;
+      walletLockValue = uuid();
+      const walletLocked = await acquireLock(walletLockKey, walletLockValue, 5);
+      if (!walletLocked) {
+        throw new Error("Wallet busy, please retry in few seconds");
+      }
+    }
+
     // ✅ Deduct from wallet
 
     const updateUser = await userModel.findByIdAndUpdate(
@@ -199,8 +228,6 @@ exports.doRecharge = async (req, res, next) => {
       { $inc: { eWallet: -required } },
       { new: true, session }
     );
-
-
 
     // ✅ Create debit transaction
     const debitTxn = await Transaction.create([{
@@ -261,8 +288,6 @@ exports.doRecharge = async (req, res, next) => {
     if (!operator) throw new Error("Invalid operator name");
 
     const operatorId = operator.id;
-
-
     const headers2 = getPaysprintHeaders();
     // ✅ Do recharge
     const rechargeRes = await axios.post("https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", {
@@ -469,6 +494,9 @@ exports.doRecharge = async (req, res, next) => {
         { _id: 1, cashbackAmount: 1, createdAt: 1 }
       ).session(session);
     }
+    if (status === "Pending") {
+      shouldReleaseRechargeLock = false;
+    }
 
     await session.commitTransaction();
     console.log("✅ Recharge transaction committed successfully");
@@ -485,8 +513,11 @@ exports.doRecharge = async (req, res, next) => {
     console.error("❌ Error in doRecharge:", err);
     return next(err);
   } finally {
+    // RECHARGE LOCK RELEASE (SAFE)
+    if (redis && rechargeLockKey && rechargeLockValue && shouldReleaseRechargeLock) {
+      await releaseLock(rechargeLockKey, rechargeLockValue);
+    }
     session.endSession();
-
   }
 };
 
