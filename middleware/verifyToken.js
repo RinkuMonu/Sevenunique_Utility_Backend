@@ -43,7 +43,11 @@ const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    res.status(403).json({ message: 'Invalid or expired token' });
+    res.status(401).json({
+      success: false,
+      code: "FORCE_LOGOUT",
+      message: 'Invalid & Expired Token Login Again.',
+    });
   }
 };
 
