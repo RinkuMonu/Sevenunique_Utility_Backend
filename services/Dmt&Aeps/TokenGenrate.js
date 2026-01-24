@@ -2,7 +2,8 @@ const jwt = require("jsonwebtoken");
 
 function generatePaysprintJWT() {
   const timestamp = Math.floor(Date.now() / 1000 + 5);
-  const requestId = `REQ_${Date.now()}_${Math.floor(Math.random() * 1000 - 5)}`;
+  // const timestamp = Math.floor(Date.now() / 1000);
+  const requestId = `REQ${Date.now()}${Math.floor(Math.random() * 1000 - 5)}`;
 
   // const jwtKey = process.env.PAYSPRINT_JWT_SECRET;
   const jwtKey = process.env.PAYSPRINT_JWT_SECRET_P
