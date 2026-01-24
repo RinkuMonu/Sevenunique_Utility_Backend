@@ -46,52 +46,52 @@ export const createBanner = async (req, res) => {
 
 
 // READ ALL
-// export const getAllBanners = async (req, res) => {
-//   try {
-//     let cacheKey = null;
-
-//     if (redis) {
-//       try {
-//         cacheKey = "getAllBanner"
-//         const cachedData = await redis.get(cacheKey);
-//         if (cachedData) {
-//           // console.log("⚡ Banner REDIS HIT:", cacheKey);
-//           return res.status(200).json(JSON.parse(cachedData));
-//         }
-//         console.log("❌ Banner REDIS MISS:", cacheKey);
-//       } catch {
-//         console.log("Redis Banner get failed, fallback to DB");
-//       }
-//     }
-//     const banners = await Banner.find();
-//     const responseData = {
-//       success: true,
-//       data: banners
-//     };
-
-//     if (cacheKey && redis) {
-//       try {
-//         await redis.setex(cacheKey, 70000, JSON.stringify(responseData));
-//         console.log("🔥 Banner DB HIT:", cacheKey);
-//       } catch (e) {
-//         console.log("Banner Redis set failed", e.message);
-//       }
-//     }
-//     res.json(responseData);
-//   } catch (error) {
-//     res.status(500).json({ success: false, message: error.message });
-//   }
-// };
-
 export const getAllBanners = async (req, res) => {
   try {
-    const banners = await Banner.find();
+    let cacheKey = null;
 
-    res.json(banners);
+    if (redis) {
+      try {
+        cacheKey = "getAllBanner"
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          // console.log("⚡ Banner REDIS HIT:", cacheKey);
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+        console.log("❌ Banner REDIS MISS:", cacheKey);
+      } catch {
+        console.log("Redis Banner get failed, fallback to DB");
+      }
+    }
+    const banners = await Banner.find();
+    const responseData = {
+      success: true,
+      data: banners
+    };
+
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(cacheKey, 70000, JSON.stringify(responseData));
+        console.log("🔥 Banner DB HIT:", cacheKey);
+      } catch (e) {
+        console.log("Banner Redis set failed", e.message);
+      }
+    }
+    res.json(responseData);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// export const getAllBanners = async (req, res) => {
+//   try {
+//     const banners = await Banner.find();
+
+//     res.json(banners);
+//   } catch (error) {
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// };
 
 // READ ONE
 

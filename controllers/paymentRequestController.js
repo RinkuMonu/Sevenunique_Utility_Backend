@@ -3,6 +3,7 @@ const PaymentRequest = require("../models/paymentRequest");
 const User = require("../models/userModel");
 const PayIn = require("../models/payInModel");
 const Transaction = require("../models/transactionModel");
+const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/redisValidation");
 
 exports.createPaymentRequest = async (req, res) => {
   console.log(req.body, " body in create payment request");
@@ -236,11 +237,10 @@ exports.updatePaymentRequestStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: paymentRequest,
-      message: `Payment request ${
-        status === "Completed"
+      message: `Payment request ${status === "Completed"
           ? "completed and wallet updated"
           : "status updated"
-      }`,
+        }`,
     });
   } catch (error) {
     console.log(error);
@@ -372,7 +372,8 @@ exports.fundTransfer = async (req, res) => {
       txnDate: new Date(),
     });
     await paymentRequest.save({ session });
-
+    await invalidateUsersCache()
+    await invalidateProfileCache(recipientId)
     await session.commitTransaction();
 
     res.status(200).json({

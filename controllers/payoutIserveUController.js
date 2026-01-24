@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 const crypto = require("crypto");
 const axios = require("axios");
@@ -85,6 +86,8 @@ exports.generateToken = async (req, res) => {
 
 const FormData = require("form-data");
 const userModel = require("../models/userModel");
+const withdrawRequestModel = require("../models/withdrawRequestModel");
+
 const { default: mongoose } = require("mongoose");
 const Transaction = require("../models/transactionModel");
 const payOutModel = require("../models/payOutModel");
@@ -472,6 +475,207 @@ exports.payoutCallback = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error in callback" });
   } finally {
     session.endSession();
+  }
+};
+
+
+exports.createWithdrawRequest = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, message } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid withdraw amount",
+      });
+    }
+
+    const request = await withdrawRequestModel.create({
+      user: userId,
+      amount,
+      message,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Withdraw request sent successfully. Admin will review it.",
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+exports.getAllWithdrawRequests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      // ✅ Retailer / User → sirf apni requests
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      // 🔍 Admin search
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $sort: { createdAt: -1 } },
+      { $skip: Number(skip) },
+      { $limit: Number(limit) },
+      {
+        $project: {
+          amount: 1,
+          status: 1,
+          message: 1,
+          createdAt: 1,
+
+          // 👇 sirf required user fields
+          user: {
+            _id: "$user._id",
+            UserId: "$user.UserId",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+          },
+        },
+      },
+    ];
+
+    const requests = await withdrawRequestModel.aggregate(pipeline);
+
+    // 🔢 Total count
+    const countPipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $count: "total" },
+    ];
+
+    const countResult = await withdrawRequestModel.aggregate(countPipeline);
+    const totalRecords = countResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: requests,
+      pagination: {
+        totalRecords,
+        currentPage: Number(page),
+        totalPages: Math.ceil(totalRecords / limit),
+        limit: Number(limit),
+      },
+    });
+  } catch (error) {
+    console.error("Withdraw request fetch error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch withdraw requests",
+    });
+  }
+};
+
+
+
+
+
+exports.updateWithdrawStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Approved", "Rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const request = await withdrawRequestModel.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: `Withdraw request ${status.toLowerCase()} successfully`,
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update withdraw request",
+    });
   }
 };
 

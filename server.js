@@ -25,6 +25,7 @@ const bannerRoutes = require("./routes/bannerRoutes.js");
 const blogRoutes = require("./routes/blogRouter.js");
 const panroute = require("./routes/pan.routes.js");
 const redis = require("./middleware/redis.js");
+const aeronpayRouter = require("./routes/aeronpayRoutes.js");
 const app = express();
 planCheckCronJob();
 
@@ -51,18 +52,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // app.use(apiLogger); 
-// app.use((req, res, next) => {
-//   const start = Date.now();
-//   res.on("finish", () => {
-//     const duration = Date.now() - start;
-//     if (duration > 500) {
-//       console.log(`⚠️ SLOW API: ${req.method} ${req.originalUrl} - ${duration}ms`);
-//     } else {
-//       console.log(`☺☺ GOOD API RES: ${req.method} ${req.originalUrl} - ${duration}ms`);
-//     }
-//   });
-//   next();
-// });
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (duration > 500) {
+      console.log(`⚠️ SLOW API: ${req.method} ${req.originalUrl} - ${duration}ms`);
+    } else {
+      console.log(`☺☺ GOOD API RES: ${req.method} ${req.originalUrl} - ${duration}ms`);
+    }
+  });
+  next();
+});
 
 
 app.use("/api/v1/auth", authRoutes);
@@ -84,6 +85,7 @@ app.use("/api/v1/aeps/iservu", require("./routes/Iserveu.js"));
 app.use("/api/v1/iserveu/dmt", require("./routes/iserveu.dmt.routes.js"));
 app.use("/api/v1/instant/payout", require("./routes/InstantPay.payout.js"));
 app.use("/api/v1/iserveu/payout", require("./routes/IserveUpayout.js"));
+app.use("/api/v1/aeronpay",aeronpayRouter);
 app.use("/api/InstantPay", require("./routes/InstantPay.eaps.router.js"));
 app.use("/api/InstantPay_DMT", require("./routes/InstantPay.dmt.router.js"));
 app.use("/api/InstantPay_PPI", router);
