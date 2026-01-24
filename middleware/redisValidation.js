@@ -1,6 +1,25 @@
 const redis = require("./redis");
 const { default: mongoose } = require("mongoose");
 
+exports.acquireLock = async (key, value, ttl) => {
+    if (!redis) return true; // proceed without lock
+
+    const result = await redis.set(key, value, "NX", "EX", ttl);
+    return result === "OK";
+};
+
+exports.releaseLock = async (key, value) => {
+    if (!redis) return;
+
+    const luaScript = `
+    if redis.call("get", KEYS[1]) == ARGV[1] then
+      return redis.call("del", KEYS[1])
+    end
+    return 0
+  `;
+    await redis.eval(luaScript, 1, key, value);
+};
+
 exports.invalidateUsersCache = async () => {
     if (!redis) return;
     let cursor = "0";// no user all user cache user only first after then next
