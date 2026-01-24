@@ -4,10 +4,10 @@ const User = require("../models/userModel");
 
 // ✅ Run cron job every day at midnight (12:00 AM)
 cron.schedule("0 0 * * *", async () => {
-  console.log("⏳ [CRON] Running daily expired plan check...");
+  // console.log("⏳ [CRON] Running daily expired plan check...");
 
   const now = new Date();
-  console.log(`🕒 [INFO] Current Time: ${now.toISOString()}`);
+  // console.log(`🕒 [INFO] Current Time: ${now.toISOString()}`);
 
   try {
     // ✅ Find all users whose plans have expired
@@ -16,10 +16,10 @@ cron.schedule("0 0 * * *", async () => {
       "plan.planId": { $ne: null },
     });
 
-    console.log(`🔍 [INFO] Expired Users Found: ${expiredUsers.length}`);
+    // console.log(`🔍 [INFO] Expired Users Found: ${expiredUsers.length}`);
 
     if (expiredUsers.length === 0) {
-      console.log("✅ [CRON] No expired plans found.");
+      // console.log("✅ [CRON] No expired plans found.");
       return;
     }
 
@@ -37,10 +37,10 @@ cron.schedule("0 0 * * *", async () => {
 
       // ✅ Save updated user status
       await user.save();
-      console.log(`✅ [SUCCESS] Plan removed for user: ${user.name}`);
+      // console.log(`✅ [SUCCESS] Plan removed for user: ${user.name}`);
     }
 
-    console.log("🎉 [CRON] Daily plan expiration check completed successfully!");
+    // console.log("🎉 [CRON] Daily plan expiration check completed successfully!");
   } catch (error) {
     console.error("❌ [ERROR] CRON Job Failed:", error);
   }
