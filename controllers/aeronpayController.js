@@ -1,12 +1,18 @@
 const { default: axios } = require("axios");
 const mongoose = require("mongoose");
 
+const aeronpayHeader = {
+    "client-id": process.env.Client_ID,
+    "client-secret": process.env.Client_Secret,
+    "Content-Type": "application/json"
+}
+
 
 exports.bankFetch = async (req, res) => {
     try {
         const aeronpayRes = await axios.post("https://api.aeronpay.in/api/serviceapi-prod/api/payout/bankid_list", {
             "category": "bankids"
-        })
+        }, { headers: aeronpayHeader })
         console.log(aeronpayRes);
         res.send({
             status: true,
@@ -30,11 +36,11 @@ exports.transfer = async (req, res) => {
             transferMode: "imps"
         }
         const aeronpayRes = await axios.post("https://api.aeronpay.in/api/serviceapi-prod/api/payout/imps",
-            payload)
+            payload, { headers: aeronpayHeader })
         console.log(aeronpayRes);
         res.send({
             status: true,
-            msg: "Bank list",
+            msg: "Transfer successful",
             data: aeronpayRes.data
         })
 
