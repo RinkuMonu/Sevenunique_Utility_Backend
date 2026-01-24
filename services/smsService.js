@@ -3,31 +3,31 @@ const axios = require("axios");
 const sendOtp = async (mobileNumber, otp, type) => {
   try {
     const authKey = process.env.MSG91_AUTH_KEY;
-    const templatedDEFALUT = process.env.MSG91_TEMPLATE_ID;
-    const templateIdForLogREG = process.env.MSG91_TEMPLATE_ID_FOR_LOG_N_REG;
+    const templatedForRegisteer = process.env.MSG91_TEMPLATE_ID_N_REG; // defalut
+    const templateIdForLogREG = process.env.MSG91_TEMPLATE_ID_FOR_LOG; // defalut
     const templateIdForForgot_password = process.env.MSG91_TEMPLATE_ID_FOR_FORGET_PASWORD;
-    const templateIdForReset_MPIN = process.env.MSG91_TEMPLATE_ID_FOR_LOG_N_REG_RESET_MPIN;
+    const templateIdForReset_MPIN = process.env.MSG91_TEMPLATE_ID_FOR_RESET_MPIN;
 
     if (!authKey) {
       console.error("Missing MSG91 Auth Key or Template ID");
       throw new Error("MSG91 Auth Key or Template ID is missing");
     }
-    // let templateId = "forgot-password-otp";
-    let templateId = "68e8b458c1192039a2006fe3";
-    // if (type === "password") {
-    //   templateId = templateIdForForgot_password;
-    // }
-    // else if (type === "mpin") {
-    //   templateId = templateIdForReset_MPIN;
-    // }
-    // else if (type === "login" || type === "register") {
-    //   templateId = templateIdForLogREG;
-    // }
-    // else {
-    //   templateId = templatedDEFALUT;
-    // }
-    console.log(mobileNumber, otp, type)
-    console.log(templateId)
+    let templateId = templateIdForLogREG;
+    if (type === "password") {
+      templateId = templateIdForForgot_password;
+    }
+    else if (type === "mpin") {
+      templateId = templateIdForReset_MPIN;
+    }
+    else if (type === "login") {
+      templateId = templateIdForLogREG;
+    } else if (type === "register") {
+      templateId = templatedForRegisteer;
+    }
+    else {
+      templateId = templateIdForLogREG;
+    }
+    
     const payload = {
       template_id: templateId,
       recipients: [
@@ -71,57 +71,62 @@ const sendOtp = async (mobileNumber, otp, type) => {
   }
 };
 
-module.exports = { sendOtp };
+// module.exports = { sendOtp };
 
-// const axios = require("axios");
 
 // const sendOtp = async (mobileNumber, otp) => {
 //   try {
-//     const apiKey = process.env.FLASH2SMS_API_KEY;
-//     const senderId = process.env.FLASH2SMS_SENDER_ID;
-//     const message = `Dear user, Your OTP for login is ${otp} Do not share with anyone -Finunique Small Pvt. Ltd.`;
-
-//     if (!apiKey || !senderId) {
-//       console.error("Missing API Key or Sender ID");
-//       throw new Error("Fast2SMS API key or Sender ID is missing");
-//     }
-
-//     const params = {
-//       // authorization: apiKey,
-//       route: "q",  // Change route if needed (e.g., "dlt")
-//       sender_id: senderId,
-//       message,
-//       language: "english",
-//       numbers: mobileNumber,
-//     };
-
-//     //console.log("Fast2SMS Request Params:", params);  // Debugging log
-
-//     const response = await axios.post("https://www.fast2sms.com/dev/bulkV2", params, {
-//       headers: {
-//         authorization: apiKey  // API key in the header
+//     const response = await axios.post(
+//       "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/",
+//       {
+//         integrated_number: "15558617631", 
+//         content_type: "template",
+//         payload: {
+//           messaging_product: "whatsapp",
+//           type: "template",
+//           template: {
+//             name: "testing",
+//             language: {
+//               code: "en",
+//               policy: "deterministic",
+//             },
+//             namespace: "8110cd2b_ad05_4db5_9e8e_5850ba1aeaa3",
+//             to_and_components: [
+//               {
+//                 to: [`91${mobileNumber}`],
+//                 components: {
+//                   body_1: {
+//                     type: "text",
+//                     value: otp,
+//                   },
+//                   button_1: {
+//                     subtype: "url",
+//                     type: "text",
+//                     value: otp
+//                   }
+//                 },
+//               },
+//             ],
+//           },
+//         },
+//       },
+//       {
+//         headers: {
+//           "Content-Type": "application/json",
+//           authkey: process.env.MSG91_AUTH_KEY,
+//         },
 //       }
-//       });
-//     //console.log("Fast2SMS Response:", response.data);
+//     );
 
-//     if (response.data.return) {
-//       return { success: true, message: "OTP sent successfully" };
-//     } else {
-//       // Provide a more detailed error message
-//       const errorMessage = response.data.message || "Failed to send OTP";
-//       return { success: false, message: errorMessage };
-//     }
+//     console.log("WhatsApp OTP Response:", response.data);
+//     return {
+//       success: true,
+//       requestId: response.data.request_id,
+//     };
 //   } catch (error) {
-//     if (error.response) {
-//       console.error("Error in sendOtp - Response Error:", error.response.data);
-//       return { success: false, message: error.response.data.message || "Failed to send OTP" };
-//     } else {
-//       console.error("Error in sendOtp - General Error:", error.message);
-//       return { success: false, message: "Error sending OTP" };
-//     }
-//     // console.error("Error in sendOtp:", error.response?.data || error.message);
-//     // return { success: false, message: "Error sending OTP" };
+//     console.error("WhatsApp OTP Error:", error?.response?.data || error.message);
+//     return { success: false };
 //   }
 // };
 
-// module.exports = { sendOtp };
+module.exports = { sendOtp };

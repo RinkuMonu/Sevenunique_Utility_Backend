@@ -633,6 +633,7 @@ const getAllUsersPlanHistory = async (req, res) => {
         .select("name role email UserId mobileNumber status plan planHistory")
         .populate("planHistory")
         .populate("plan")
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
         .lean(),
