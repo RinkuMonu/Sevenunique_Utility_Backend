@@ -1321,7 +1321,7 @@ const getUsersWithFilters = async (req, res) => {
       !to &&
       exportType === "false";
     let cacheKeyDis = null
-    if (isDistributorOnly && redis) {
+    if (isDistributorOnly) {
       try {
         cacheKeyDis = `users:${role}:list`;
         const cached = await redis.get(cacheKeyDis);
