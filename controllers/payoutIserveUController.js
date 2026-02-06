@@ -483,11 +483,18 @@ exports.createWithdrawRequest = async (req, res) => {
   try {
     const userId = req.user.id;
     const { amount, message } = req.body;
+    const user = await userModel.findOne({ _id: userId, status: true });
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
         message: "Please enter a valid withdraw amount",
+      });
+    }
+    if (Number(amount) > user.eWallet && Number(amount) < 10000) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance. Wallet balance is ${user.eWallet}`,
       });
     }
 
