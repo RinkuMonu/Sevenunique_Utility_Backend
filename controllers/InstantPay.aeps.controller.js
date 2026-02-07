@@ -197,7 +197,7 @@ exports.MerchantBiometric = async (req, res) => {
 
         res.status(200).json(response.data);
     } catch (error) {
-        console.error("Merchant Biometric Error:", error?.response?.data || error.message);
+        console.error("Merchant Biometric Error:-", error?.response?.data || error.message);
         res.status(400).json({
             status: false,
             message: error?.response?.data || error.message,
