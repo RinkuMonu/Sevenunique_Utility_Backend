@@ -6,8 +6,8 @@ const Transaction = require("../models/transactionModel");
 const userModel = require("../models/userModel");
 
 const aeronpayHeader = {
-    "client-id": process.env.Client_ID,
-    "client-secret": process.env.Client_Secret,
+    "client_id": process.env.Client_ID,
+    "client_secret": process.env.Client_Secret,
     "Content-Type": "application/json"
 }
 
@@ -38,6 +38,7 @@ exports.transfer = async (req, res) => {
     session.startTransaction();
 
     try {
+
         const { amount, mpin, beneAccountNo, beneifsc, longitude, latitude, paramA, custMobNo, custName, paramB } = req.body;
         const category = "69280136fa5562e190cdf90f";
         const userId = req.user.id;
@@ -52,12 +53,12 @@ exports.transfer = async (req, res) => {
             }
         }
 
-        // if (Number(amount) < 1000) {
-        //     return res.status(400).json({
-        //         success: false,
-        //         message: "Minimum withdrawal amount is ₹1000",
-        //     });
-        // }
+        if (Number(amount) < 100) {
+            return res.status(400).json({
+                success: false,
+                message: "Minimum withdrawal amount is ₹100",
+            });
+        }
 
         const referenceId = `WD${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -66,7 +67,7 @@ exports.transfer = async (req, res) => {
             return res.status(404).json({ success: false, message: "User not found or inactive" });
         }
 
-        if (user.mpin !== mpin) {
+        if (user.mpin != mpin) {
             return res.status(401).json({ success: false, message: "Invalid MPIN" });
         }
 
@@ -105,47 +106,47 @@ exports.transfer = async (req, res) => {
             throw new Error("Wallet deduction failed");
         }
 
-        await payOutModel.create(
-            [{
-                userId,
-                amount,
-                reference: referenceId,
-                type: service?._id,
-                trans_mode: "IMPS",
-                name: updatedUser.name,
-                mobile: updatedUser.mobileNumber,
-                email: updatedUser.email,
-                status: "Pending",
-                account: beneAccountNo,
-                ifsc: beneifsc,
-                remark: "Cash Withdraw to bank",
-                charges: commission.charge,
-                gst: commission.gst,
-                tds: commission.tds,
-                totalDebit: required,
-            }],
-            { session }
-        );
+        // await payOutModel.create(
+        //     [{
+        //         userId,
+        //         amount,
+        //         reference: referenceId,
+        //         type: service?._id,
+        //         trans_mode: "IMPS",
+        //         name: updatedUser.name,
+        //         mobile: updatedUser.mobileNumber,
+        //         email: updatedUser.email,
+        //         status: "Pending",
+        //         account: beneAccountNo,
+        //         ifsc: beneifsc,
+        //         remark: "Cash Withdraw to bank",
+        //         charges: commission.charge,
+        //         gst: commission.gst,
+        //         tds: commission.tds,
+        //         totalDebit: required,
+        //     }],
+        //     { session }
+        // );
 
-        await Transaction.create(
-            [{
-                user_id: userId,
-                transaction_type: "debit",
-                amount,
-                type: service?._id || category,
-                gst: commission.gst,
-                tds: commission.tds,
-                charge: commission.charge,
-                totalDebit: required,
-                totalCredit: commission.retailer,
-                balance_after: updatedUser.eWallet,
-                payment_mode: "wallet",
-                transaction_reference_id: referenceId,
-                description: `Cash Withdraw`,
-                status: "Pending",
-            }],
-            { session }
-        );
+        // await Transaction.create(
+        //     [{
+        //         user_id: userId,
+        //         transaction_type: "debit",
+        //         amount,
+        //         type: service?._id || category,
+        //         gst: commission.gst,
+        //         tds: commission.tds,
+        //         charge: commission.charge,
+        //         totalDebit: required,
+        //         totalCredit: commission.retailer,
+        //         balance_after: updatedUser.eWallet,
+        //         payment_mode: "wallet",
+        //         transaction_reference_id: referenceId,
+        //         description: `Cash Withdraw`,
+        //         status: "Pending",
+        //     }],
+        //     { session }
+        // );
 
         const payload = {
             bankProfileId: "1",
@@ -168,11 +169,13 @@ exports.transfer = async (req, res) => {
 
 
         const aeronpayRes = await axios.post(
-            "https://superprodapi.aeronpay.in/api/core-services/serviceapi-prod/finance/securepay/v2/payout/imps_payments",
+            "https://api.sevenunique.com/aeronpay/transfer",
+            // "http://localhost:5051/aeronpay/transfer",
             payload,
             { headers: aeronpayHeader }
         );
         console.log("aeronpayRes", aeronpayRes)
+        return;
 
         const data = aeronpayRes.data;
         let Status = "Pending";
@@ -235,7 +238,7 @@ exports.transfer = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: "Transfer failed",
-            error: error.message,
+            error: error.response?.data,
         });
     }
 };
