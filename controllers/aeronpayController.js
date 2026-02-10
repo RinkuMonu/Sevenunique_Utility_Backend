@@ -35,9 +35,10 @@ exports.bankFetch = async (req, res) => {
 }
 exports.transfer = async (req, res) => {
     const session = await mongoose.startSession();
-    session.startTransaction();
+    let isCommitted = false;
 
     try {
+        session.startTransaction();
 
         const { amount, mpin, beneAccountNo, beneifsc, longitude, latitude, paramA, custMobNo, custName, paramB } = req.body;
         const category = "69280136fa5562e190cdf90f";
@@ -149,6 +150,7 @@ exports.transfer = async (req, res) => {
         );
 
         await session.commitTransaction();
+        isCommitted = true;
         session.endSession();
 
         const payload = {
@@ -185,14 +187,16 @@ exports.transfer = async (req, res) => {
 
     } catch (error) {
         console.log(error)
-        await session.abortTransaction();
-        session.endSession();
+        if (!isCommitted) {
+            await session.abortTransaction();
+            session.endSession();
+        }
 
         return res.status(500).json({
             success: false,
             message: "Transfer failed",
             error: error.response?.data,
-        });
+        }); 
     }
 };
 
