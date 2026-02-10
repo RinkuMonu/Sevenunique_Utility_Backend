@@ -14,7 +14,7 @@ const getHeaders = () => {
 
     return {
         "Content-Type": "application/json",
-        "X-Ipay-Client-Id":process.env.INSTANTPAY_CLIENT_ID ,
+        "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
         "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
         "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
@@ -185,6 +185,8 @@ exports.MerchantBiometric = async (req, res) => {
             user.aepsInstantPayBio = "Progress";
         } else if (action == "NO-ACTION-REQUIRED" && status == "APPROVED") {
             user.aepsInstantPayBio = "Success";
+        } else if (action == "NO-ACTION-REQUIRED" && status == "REJECTED") {
+            user.aepsInstantPayBio = "Rejected";
         }
 
         await user.save();
