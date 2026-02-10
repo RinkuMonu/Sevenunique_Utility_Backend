@@ -338,7 +338,7 @@ exports.makePayment = async (req, res, next) => {
 
     // ✅ Determine transaction status
     let statusUpdate = "Failed";
-    if (data?.statuscode === "TXN" || data?.status === "Transaction Successful") {
+    if (data?.statuscode === "TXN" && data?.status === "Transaction Successful") {
       statusUpdate = "Success";
     } else if (data?.status === "Transaction Under Process") {
       statusUpdate = "Pending";

@@ -106,56 +106,59 @@ exports.transfer = async (req, res) => {
             throw new Error("Wallet deduction failed");
         }
 
-        // await payOutModel.create(
-        //     [{
-        //         userId,
-        //         amount,
-        //         reference: referenceId,
-        //         type: service?._id,
-        //         trans_mode: "IMPS",
-        //         name: updatedUser.name,
-        //         mobile: updatedUser.mobileNumber,
-        //         email: updatedUser.email,
-        //         status: "Pending",
-        //         account: beneAccountNo,
-        //         ifsc: beneifsc,
-        //         remark: "Cash Withdraw to bank",
-        //         charges: commission.charge,
-        //         gst: commission.gst,
-        //         tds: commission.tds,
-        //         totalDebit: required,
-        //     }],
-        //     { session }
-        // );
+        await payOutModel.create(
+            [{
+                userId,
+                amount,
+                reference: referenceId,
+                type: service?._id,
+                trans_mode: "IMPS",
+                name: updatedUser.name,
+                mobile: updatedUser.mobileNumber,
+                email: updatedUser.email,
+                status: "Pending",
+                account: beneAccountNo,
+                ifsc: beneifsc,
+                remark: "Cash Withdraw to bank",
+                charges: commission.charge,
+                gst: commission.gst,
+                tds: commission.tds,
+                totalDebit: required,
+            }],
+            { session }
+        );
 
-        // await Transaction.create(
-        //     [{
-        //         user_id: userId,
-        //         transaction_type: "debit",
-        //         amount,
-        //         type: service?._id || category,
-        //         gst: commission.gst,
-        //         tds: commission.tds,
-        //         charge: commission.charge,
-        //         totalDebit: required,
-        //         totalCredit: commission.retailer,
-        //         balance_after: updatedUser.eWallet,
-        //         payment_mode: "wallet",
-        //         transaction_reference_id: referenceId,
-        //         description: `Cash Withdraw`,
-        //         status: "Pending",
-        //     }],
-        //     { session }
-        // );
+        await Transaction.create(
+            [{
+                user_id: userId,
+                transaction_type: "debit",
+                amount,
+                type: service?._id || category,
+                gst: commission.gst,
+                tds: commission.tds,
+                charge: commission.charge,
+                totalDebit: required,
+                totalCredit: commission.retailer,
+                balance_after: updatedUser.eWallet,
+                payment_mode: "wallet",
+                transaction_reference_id: referenceId,
+                description: `Cash Withdraw`,
+                status: "Pending",
+            }],
+            { session }
+        );
+
+        await session.commitTransaction();
+        session.endSession();
 
         const payload = {
             bankProfileId: "1",
-            accountNumber: "9783640502",
+            accountNumber: "71603718317",
             latitude,
             longitude,
             amount,
             client_referenceId: referenceId,
-            transferMode: "IMPS",
+            transferMode: "imps",
             remarks: "Cash Withdraw to bank",
             beneDetails: {
                 bankAccount: beneAccountNo,
@@ -170,64 +173,14 @@ exports.transfer = async (req, res) => {
 
         const aeronpayRes = await axios.post(
             "https://api.sevenunique.com/aeronpay/transfer",
-            // "http://localhost:5051/aeronpay/transfer",
-            payload,
-            { headers: aeronpayHeader }
+            payload
         );
-        console.log("aeronpayRes", aeronpayRes)
-        return;
-
-        const data = aeronpayRes.data;
-        let Status = "Pending";
-        let remark = data.description || data.message || "";
-
-        if (data.status === "SUCCESS") {
-            Status = "Success";
-        }
-
-        if (["PENDING", "ACCEPTED"].includes(data.status)) {
-            Status = "Pending";
-        }
-
-        if (data.status === "FAILED") {
-            Status = "Failed";
-
-            // Refund wallet
-            updatedUser = await userModel.findByIdAndUpdate(
-                userId,
-                { $inc: { eWallet: required } },
-                { session }
-            );
-        }
-
-        await payOutModel.findOneAndUpdate(
-            { reference: referenceId },
-            {
-                status: Status,
-                utr: data.utr || data?.data?.utr || "",
-                remark,
-            },
-            { session }
-        );
-
-        await Transaction.findOneAndUpdate(
-            { transaction_reference_id: referenceId },
-            {
-                status: Status,
-                balance_after: updatedUser.eWallet,
-                description: remark,
-            },
-            { session }
-        );
-
-        await session.commitTransaction();
-        session.endSession();
-
+        console.log("aeronpayRes", aeronpayRes.data)
         return res.status(200).json({
             success: true,
-            status: Status,
-            message: remark || "Transfer initiated",
-            data,
+            message: "Transfer initiated successfully",
+            referenceId,
+            data: aeronpayRes.data
         });
 
     } catch (error) {
@@ -244,23 +197,116 @@ exports.transfer = async (req, res) => {
 };
 
 exports.callBack = async (req, res) => {
-    try {
-        console.log("aeronPay callBack body data", req.body);
-        console.log("aeronPay callBack query data", req.query);
-        const data = req.body
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-        res.send({
-            status: true,
+    try {
+        console.log("AeronPay callback body:", req.body);
+
+        const data = req.body;
+        const referenceId = data.client_referenceId || data.referenceId;
+
+        if (!referenceId) {
+            return res.status(400).json({
+                success: false,
+                message: "Reference ID missing in callback",
+            });
+        }
+
+        // 1️⃣ Fetch payout record
+        const payout = await payOutModel.findOne({ reference: referenceId }).session(session);
+        if (!payout) {
+            throw new Error("Record not found");
+        }
+
+        if (["Success", "Failed"].includes(payout.status)) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(200).json({
+                success: true,
+                message: "Transaction already finalized",
+                data
+            });
+        }
+
+
+        // 2️⃣ Fetch user
+        const user = await userModel.findById(payout.userId).session(session);
+        if (!user) {
+            throw new Error("User not found");
+        }
+
+        // 3️⃣ Decide status
+        let Status = "Pending";
+        let remark = data.description || data.message || "";
+
+        if (data.status === "SUCCESS") {
+            Status = "Success";
+        }
+
+        if (["PENDING", "ACCEPTED"].includes(data.status)) {
+            Status = "Pending";
+        }
+
+        if (data.status === "FAILED") {
+            Status = "Failed";
+
+            // 4️⃣ Refund wallet
+            if (data.status === "FAILED" && payout.status !== "Failed") {
+                await userModel.updateOne(
+                    { _id: user._id },
+                    { $inc: { eWallet: payout.totalDebit } },
+                    { session }
+                );
+            }
+
+        }
+
+        // 5️⃣ Update payout
+        await payOutModel.updateOne(
+            { reference: referenceId },
+            {
+                status: Status,
+                utr: data.utr || data?.data?.utr || "",
+                remark,
+            },
+            { session }
+        );
+
+        // 6️⃣ Update transaction
+        const updatedUser = await userModel.findById(user._id).session(session);
+
+        await Transaction.updateOne(
+            { transaction_reference_id: referenceId },
+            {
+                status: Status,
+                utr: data.utr,
+                balance_after: updatedUser.eWallet,
+                description: remark,
+                "meta.apiResponse": data
+            },
+            { session }
+        );
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return res.status(200).json({
+            success: true,
+            status: Status,
+            message: "Callback processed successfully",
             data
-        })
+        });
 
     } catch (error) {
-        console.log("aeronpay.callBack error", error);
+        console.error("AeronPay callback error:", error);
 
-        res.send({
-            status: false,
-            massage: error
-        })
+        await session.abortTransaction();
+        session.endSession();
+
+        return res.status(500).json({
+            success: false,
+            message: "Callback processing failed",
+        });
     }
-
-}
+};
