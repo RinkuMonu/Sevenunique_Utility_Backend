@@ -336,6 +336,7 @@ exports.generatePayment = async (req, res, next) => {
           user_id: user._id,
           transaction_type: "credit",
           amount: Number(amount),
+          totalCredit: Number(amount),
           type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
