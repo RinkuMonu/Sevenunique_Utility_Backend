@@ -22,5 +22,10 @@ router.post(
   authenticateToken,
   controller.fundTransfer
 );
+router.post(
+  "/retailer/sendMoney",
+  authenticateToken,
+  controller.walletTransfer
+);
 
 module.exports = router;

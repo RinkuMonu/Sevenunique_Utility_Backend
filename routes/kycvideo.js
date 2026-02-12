@@ -17,6 +17,7 @@ const upload = multer({ storage });
 const axios = require("axios");
 const { verifyEmail7Unique } = require("../controllers/authController");
 
+
 // 1. Request KYC
 // router.post("/request", async (req, res) => {
 //   console.log(req?.user?.id);
