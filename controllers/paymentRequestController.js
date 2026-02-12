@@ -4,6 +4,9 @@ const User = require("../models/userModel");
 const PayIn = require("../models/payInModel");
 const Transaction = require("../models/transactionModel");
 const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/redisValidation");
+const payOutModel = require("../models/payOutModel");
+const payInModel = require("../models/payInModel");
+const userModel = require("../models/userModel");
 
 exports.createPaymentRequest = async (req, res) => {
   console.log(req.body, " body in create payment request");
@@ -238,8 +241,8 @@ exports.updatePaymentRequestStatus = async (req, res) => {
       success: true,
       data: paymentRequest,
       message: `Payment request ${status === "Completed"
-          ? "completed and wallet updated"
-          : "status updated"
+        ? "completed and wallet updated"
+        : "status updated"
         }`,
     });
   } catch (error) {
@@ -391,5 +394,164 @@ exports.fundTransfer = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   } finally {
     session.endSession();
+  }
+};
+
+exports.walletTransfer = async (req, res) => {
+  const session = await mongoose.startSession();
+  let committed = false;
+
+  try {
+    session.startTransaction();
+
+    const senderId = req.user.id;
+    const { receiverData, amount, mpin } = req.body;
+
+    if (!amount || Number(amount) < 100) {
+      throw new Error("Minimum transfer amount is ₹100");
+    }
+
+    if (!mpin) {
+      throw new Error("MPIN required");
+    }
+
+    // 🔹 Fetch Sender
+    const sender = await userModel.findById(senderId).session(session);
+    if (!sender) throw new Error("Sender not found");
+
+    if (sender.role !== "Retailer") {
+      throw new Error("Only retailers can transfer money");
+    }
+
+    if (sender.mpin != mpin) {
+      throw new Error("Invalid MPIN");
+    }
+
+    // 🔹 Find Receiver
+    let receiver;
+
+    if (/^[0-9]{10}$/.test(receiverData)) {
+      receiver = await userModel.findOne({ mobileNumber: receiverData });
+    } else {
+      receiver = await userModel.findById(receiverData);
+    }
+
+
+    if (!receiver) throw new Error("Receiver not found");
+
+    if (receiver._id.toString() === sender._id.toString()) {
+      throw new Error("Cannot transfer to yourself");
+    }
+
+    if (receiver.role !== "Retailer") {
+      throw new Error("Receiver must be a retailer");
+    }
+
+    // 🔹 White-label restriction (if exists)
+    // if (sender.whitelabelId && receiver.whitelabelId) {
+    //   if (sender.whitelabelId.toString() !== receiver.whitelabelId.toString()) {
+    //     throw new Error("Cross white-label transfer not allowed");
+    //   }
+    // }
+
+    const transferAmount = Number(amount);
+
+    if (sender.eWallet < transferAmount) {
+      throw new Error("Insufficient wallet balance");
+    }
+
+    const referenceId = `WLT${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // 🔹 Deduct from sender
+    const updatedSender = await userModel.findOneAndUpdate(
+      { _id: sender._id, eWallet: { $gte: transferAmount } },
+      { $inc: { eWallet: -transferAmount } },
+      { new: true, session }
+    );
+
+    if (!updatedSender) throw new Error("Wallet deduction failed");
+
+    // 🔹 Credit to receiver
+    const updatedReceiver = await userModel.findOneAndUpdate(
+      { _id: receiver._id },
+      { $inc: { eWallet: transferAmount } },
+      { new: true, session }
+    );
+
+    // 🔹 Sender Ledger Entry
+    await Transaction.create([{
+      user_id: sender._id,
+      transaction_type: "debit",
+      amount: transferAmount,
+      type2: "wallet_transfer",
+      totalDebit: transferAmount,
+      balance_after: updatedSender.eWallet,
+      transaction_reference_id: referenceId,
+      description: `Sent to ${receiver.name}`,
+      status: "Success"
+    }], { session });
+
+    await payOutModel.create([{
+      userId: sender._id,
+      amount: Number(transferAmount),
+      type2: "wallet_transfer",
+      reference: referenceId,
+      trans_mode: "WALLET",
+      name: sender.name,
+      mobile: sender.mobileNumber,
+      email: sender.email,
+      status: "Success",
+      totalDebit: transferAmount,
+      remark: `Money Transfer for Retailer ID ${receiverData}`
+    }], { session });
+
+    // 🔹 Receiver Ledger Entry
+    await Transaction.create([{
+      user_id: receiver._id,
+      transaction_type: "credit",
+      amount: transferAmount,
+      type2: "wallet_transfer",
+      totalCredit: transferAmount,
+      balance_after: updatedReceiver.eWallet,
+      transaction_reference_id: referenceId,
+      description: `Received from ${sender.name}`,
+      status: "Success"
+    }], { session });
+
+    await payInModel.create([{
+      userId: receiver._id,
+      amount: transferAmount,
+      reference: referenceId,
+      name: receiver.name,
+      mobile: receiver.mobileNumber,
+      email: receiver.email,
+      status: "Success",
+      source: "TopUp",
+      remark: `Money Receive for Retailer ID ${sender.UserId}`
+    }], { session });
+
+
+    await session.commitTransaction();
+    committed = true;
+    session.endSession();
+
+    return res.status(200).json({
+      success: true,
+      message: "Wallet transfer successful",
+      referenceId
+    });
+
+  } catch (error) {
+    console.error("Wallet Transfer Error:", error);
+
+    if (!committed) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Transfer failed"
+    });
   }
 };
