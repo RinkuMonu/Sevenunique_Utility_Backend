@@ -33,11 +33,14 @@ const userSchema = new mongoose.Schema(
     },
     aepsInstantPayBio: {
       type: String,
-      enum: ["Pending", "Progress", "Success","Rejected"],
+      enum: ["Pending", "Progress", "Success", "Rejected"],
       default: "Pending",
     },
 
     callbackUrl: {
+      type: String,
+    },
+    callbackUrlOut: {
       type: String,
     },
 

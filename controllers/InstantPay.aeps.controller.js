@@ -163,11 +163,11 @@ exports.signupValidate = async (req, res) => {
 exports.MerchantBiometric = async (req, res) => {
     try {
         const user = await userModel.findById(req.user.id);
-        const { outletId } = req.body;
+        const { outletId, spkey } = req.body;
 
         const response = await axios.post(
             `${INSTANTPAY_BASE_URL}/user/outlet/signup/biometricKycStatus`,
-            { spkey: "DMI" },
+            { spkey },
             {
                 headers: {
                     ...getHeaders(),
