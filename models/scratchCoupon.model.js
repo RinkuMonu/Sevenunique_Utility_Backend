@@ -7,16 +7,28 @@ const scratchCouponSchema = new mongoose.Schema({
     serviceName: String,
 
     baseAmount: Number,
+    rewardType: {
+        type: String,
+        enum: ["CASHBACK", "FLAT_COUPON", "PERCENT_COUPON"],
+        default: "CASHBACK"
+    },
     cashbackAmount: Number,
+    couponCode: String,
+    couponValue: Number,
+    minOrderAmount: Number,
 
     status: {
         type: String,
         enum: ["UNSCRATCHED", "SCRATCHED", "EXPIRED"],
         default: "UNSCRATCHED"
     },
-
+    title: String,
+    description: String,
+    termsAndConditions: [String],
     scratchedAt: Date,
     expiresAt: Date,
+    isUsed: { type: Boolean, default: false },
+    usedAt: Date,
 
     createdAt: { type: Date, default: Date.now }
 });

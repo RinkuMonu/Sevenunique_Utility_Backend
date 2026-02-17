@@ -97,15 +97,21 @@ const sendTerm_and_conditionEmail = async (user) => {
 
       from: {
         name: "Finunique Small Private Limited",
-        email: "support@finuniques.in",
+        email: "no-reply@finuniques.in",
       },
+      // "attachments": [
+      //   {
+      //     "filePath": "Public path for file.",
+      //     "fileName": "File Name"
+      //   }
+      // ],
 
-      domain: "mail.sevenunique.com",
+      domain: "finuniques.in",
 
       template_id: "term_and_condition",
     };
 
-    await axios.post(
+    const res = await axios.post(
       "https://control.msg91.com/api/v5/email/send",
       payload,
       {
@@ -118,9 +124,10 @@ const sendTerm_and_conditionEmail = async (user) => {
     );
 
     console.log("✅ Terms & Condition email sent to:", user.email);
+    console.log("✅ Terms & Condition email sent response:", res);
 
   } catch (error) {
-    console.error("❌ Error sending Terms email:", error);
+    console.error("❌ Error sending Terms email:", error.response);
   }
 };
 
