@@ -433,9 +433,8 @@ exports.walletTransfer = async (req, res) => {
     if (/^[0-9]{10}$/.test(receiverData)) {
       receiver = await userModel.findOne({ mobileNumber: receiverData });
     } else {
-      receiver = await userModel.findById(receiverData);
+      receiver = await userModel.findOne({ UserId: receiverData });
     }
-
 
     if (!receiver) throw new Error("Receiver not found");
 
@@ -555,3 +554,172 @@ exports.walletTransfer = async (req, res) => {
     });
   }
 };
+
+
+// exports.payViaQR = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   let committed = false;
+
+//   try {
+//     session.startTransaction();
+
+//     const senderId = req.user.id;
+//     const { token, amount, mpin } = req.body;
+
+//     if (!amount || Number(amount) < 1) {
+//       throw new Error("Invalid transfer amount");
+//     }
+
+//     if (!mpin) {
+//       throw new Error("MPIN required");
+//     }
+
+//     const transferAmount = Number(amount);
+
+//     // 🔐 Verify QR Token
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+//     if (decoded.type !== "payment") {
+//       throw new Error("Invalid QR");
+//     }
+
+//     // 🔹 Fetch Sender
+//     const sender = await userModel.findById(senderId).session(session);
+//     if (!sender) throw new Error("Sender not found");
+
+//     if (sender.mpin != mpin) {
+//       throw new Error("Invalid MPIN");
+//     }
+
+//     if (sender.eWallet < transferAmount) {
+//       throw new Error("Insufficient wallet balance");
+//     }
+
+//     // 🔹 Fetch Receiver from QR
+//     const receiver = await userModel
+//       .findOne({ mobileNumber: decoded.mobileNumber })
+//       .session(session);
+
+//     if (!receiver) throw new Error("Receiver not found");
+
+//     if (receiver._id.toString() === sender._id.toString()) {
+//       throw new Error("Cannot pay yourself");
+//     }
+
+//     const referenceId = `QR${Date.now()}${Math.floor(
+//       1000 + Math.random() * 9000
+//     )}`;
+
+//     // 🔹 Deduct Sender (Atomic)
+//     const updatedSender = await userModel.findOneAndUpdate(
+//       { _id: sender._id, eWallet: { $gte: transferAmount } },
+//       { $inc: { eWallet: -transferAmount } },
+//       { new: true, session }
+//     );
+
+//     if (!updatedSender) throw new Error("Wallet deduction failed");
+
+//     // 🔹 Credit Receiver
+//     const updatedReceiver = await userModel.findOneAndUpdate(
+//       { _id: receiver._id },
+//       { $inc: { eWallet: transferAmount } },
+//       { new: true, session }
+//     );
+
+//     // 🔹 Sender Ledger
+//     await Transaction.create(
+//       [
+//         {
+//           user_id: sender._id,
+//           transaction_type: "debit",
+//           amount: transferAmount,
+//           type2: "qr_payment",
+//           totalDebit: transferAmount,
+//           balance_after: updatedSender.eWallet,
+//           transaction_reference_id: referenceId,
+//           description: `QR Payment to ${receiver.name}`,
+//           status: "Success",
+//         },
+//       ],
+//       { session }
+//     );
+
+//     await payOutModel.create(
+//       [
+//         {
+//           userId: sender._id,
+//           amount: transferAmount,
+//           type2: "qr_payment",
+//           reference: referenceId,
+//           trans_mode: "WALLET",
+//           name: sender.name,
+//           mobile: sender.mobileNumber,
+//           email: sender.email,
+//           status: "Success",
+//           totalDebit: transferAmount,
+//           remark: `QR Payment to ${receiver.UserId}`,
+//         },
+//       ],
+//       { session }
+//     );
+
+//     // 🔹 Receiver Ledger
+//     await Transaction.create(
+//       [
+//         {
+//           user_id: receiver._id,
+//           transaction_type: "credit",
+//           amount: transferAmount,
+//           type2: "qr_payment",
+//           totalCredit: transferAmount,
+//           balance_after: updatedReceiver.eWallet,
+//           transaction_reference_id: referenceId,
+//           description: `QR Payment received from ${sender.name}`,
+//           status: "Success",
+//         },
+//       ],
+//       { session }
+//     );
+
+//     await payInModel.create(
+//       [
+//         {
+//           userId: receiver._id,
+//           amount: transferAmount,
+//           reference: referenceId,
+//           name: receiver.name,
+//           mobile: receiver.mobileNumber,
+//           email: receiver.email,
+//           status: "Success",
+//           source: "QR_PAYMENT",
+//           remark: `QR Payment from ${sender.UserId}`,
+//         },
+//       ],
+//       { session }
+//     );
+
+//     await session.commitTransaction();
+//     committed = true;
+//     session.endSession();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "QR Payment successful",
+//       referenceId,
+//     });
+//   } catch (error) {
+//     console.error("QR Payment Error:", error);
+
+//     if (!committed) {
+//       await session.abortTransaction();
+//       session.endSession();
+//     }
+
+//     return res.status(400).json({
+//       success: false,
+//       message: error.message || "QR Payment failed",
+//     });
+//   }
+// };
+
+

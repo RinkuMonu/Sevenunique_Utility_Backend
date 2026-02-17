@@ -922,7 +922,6 @@ const busbookingDirectUrl = async (req, res) => {
       });
     }
 
-    // Frontend ko bhej do
     return res.json({
       success: true,
       data: lastres ? lastres.data : null,

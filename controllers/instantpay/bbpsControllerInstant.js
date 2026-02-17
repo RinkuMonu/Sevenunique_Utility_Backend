@@ -506,7 +506,7 @@ exports.makePayment = async (req, res, next) => {
         {
           $set: {
             status: statusUpdate,
-            apiResponse: data,
+            "meta.apiResponse": data,
             balance_after: finalUser.eWallet,
           },
         },

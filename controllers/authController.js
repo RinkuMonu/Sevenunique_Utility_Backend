@@ -32,6 +32,7 @@ const servicesModal = require("../models/servicesModal.js");
 const userModalActionModal = require("../models/userModalAction.modal.js");
 const redis = require("../middleware/redis.js");
 const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
+const { generatePaymentQR } = require("../middleware/generatePaymentQR .js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -264,7 +265,7 @@ const sendOtpController = async (req, res) => {
     // if (redis && smsResult.success) {
     //   await incrementOtpCount(otpKey);
     // }
-console.log("SMS Result:", smsResult);
+    console.log("SMS Result:", smsResult);
     if (smsResult.success) {
       return res.status(200).json({
         success: true,
@@ -543,6 +544,7 @@ const loginController = async (req, res) => {
       return res.status(400).json({ message: "Mobile number is required" });
     }
     const ip = req.ip;
+
 
     const ipKey = `login:attempt:ip:${ip}`;
     if (redis) {
@@ -1033,6 +1035,9 @@ const registerUser = async (req, res) => {
       const newUser = new User(userData);
       savedUser = await newUser.save({ session });
     }
+    const qrCode = await generatePaymentQR(savedUser.mobileNumber);
+    savedUser.qrCode = qrCode;
+    await savedUser.save({ session });
 
     await session.commitTransaction();
     session.endSession();
@@ -1043,6 +1048,7 @@ const registerUser = async (req, res) => {
       savedUser.role,
       savedUser.mobileNumber
     );
+
 
     return res.status(200).json({
       message: "Registration successful",
@@ -1290,6 +1296,32 @@ const getUserId = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+const getUserMobile = async (req, res) => {
+  try {
+
+    const { mobileNumber } = req.params;
+
+    const user = await User.findOne(
+      { mobileNumber: mobileNumber },
+      "mobileNumber name"
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "No user found" });
+    }
+
+    return res.status(200).json({
+      mobileNumber: user.mobileNumber,
+      name: user.name
+    });
+
+  } catch (error) {
+    console.error("Error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 
 const getUsersWithFilters = async (req, res) => {
 
@@ -3009,20 +3041,22 @@ const scratchCashback = async (req, res) => {
     const id = new mongoose.Types.ObjectId(couponId);
     const user = new mongoose.Types.ObjectId(userId);
 
-    console.log(id);
-    console.log(userId);
-
     // 1️⃣ Find valid coupon
     const coupon = await scratchCouponModel
-      .findOne({
+      .findOneAndUpdate({
         _id: id,
         userId: user,
         status: "UNSCRATCHED",
         expiresAt: { $gt: new Date() },
-      })
-      .session(session);
-    console.log(coupon);
-
+      },
+        {
+          $set: {
+            status: "SCRATCHED",
+            scratchedAt: new Date(),
+          },
+        },
+        { new: true, session }
+      )
     if (!coupon) {
       await session.abortTransaction();
       return res.status(400).json({
@@ -3030,49 +3064,73 @@ const scratchCashback = async (req, res) => {
         message: "Invalid, expired or already scratched coupon",
       });
     }
+    let walletBalance = null;
+    if (coupon.rewardType === "CASHBACK" && coupon.cashbackAmount > 0) {
+      // 2️⃣ Credit wallet (get UPDATED wallet)
+      const updatedUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: coupon.cashbackAmount } },
+        { new: true, session }
+      );
 
-    // 2️⃣ Credit wallet (get UPDATED wallet)
-    const updatedUser = await userModel.findByIdAndUpdate(
-      userId,
-      { $inc: { eWallet: coupon.cashbackAmount } },
-      { new: true, session }
-    );
+      if (!updatedUser) {
+        await session.abortTransaction();
+        return res.status(404).json({ message: "User not found" });
+      }
+      walletBalance = updatedUser.eWallet;
 
-    if (!updatedUser) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "User not found" });
+      await Transaction.create(
+        [
+          {
+            user_id: userId,
+            transaction_type: "credit",
+            type2: "CASHBACK",
+            amount: coupon.cashbackAmount,
+            totalCredit: coupon.cashbackAmount,
+            balance_after: updatedUser.eWallet,
+            payment_mode: "wallet",
+            transaction_reference_id: `CB-${coupon.serviceTxnId}`,
+            status: "Success",
+            description: `Scratch cashback for ${coupon.serviceName}`,
+          },
+        ],
+        { session }
+      );
+      await PayIn.create(
+        [
+          {
+            userId: userId,
+            fromUser: userId,
+            mobile: updatedUser.mobileNumber,
+            email: updatedUser.email,
+            reference: `CB-${coupon.serviceTxnId}`,
+            name: updatedUser.name,
+            source: "PayIn",
+            amount: Number(coupon.cashbackAmount),
+            type2: "CASHBACK",
+            charges: 0,
+            remark: "Cashback Reward",
+            status: "Success",
+          },
+        ],
+        { session }
+      );
+
+
     }
 
-    // 3️⃣ Mark coupon as scratched
-    coupon.status = "SCRATCHED";
-    coupon.scratchedAt = new Date();
-    await coupon.save({ session });
 
-    // 4️⃣ Create transaction entry
-    await Transaction.create(
-      [
-        {
-          user_id: userId,
-          transaction_type: "credit",
-          type2: "CASHBACK",
-          amount: coupon.cashbackAmount,
-          totalCredit: coupon.cashbackAmount,
-          balance_after: updatedUser.eWallet,
-          payment_mode: "wallet",
-          transaction_reference_id: `CB-${coupon.serviceTxnId}`,
-          status: "Success",
-          description: `Scratch cashback for ${coupon.serviceName}`,
-        },
-      ],
-      { session }
-    );
+
 
     await session.commitTransaction();
 
     return res.json({
       success: true,
+      rewardType: coupon.rewardType,
       cashbackAmount: coupon.cashbackAmount,
-      walletBalance: updatedUser.eWallet,
+      couponCode: coupon.couponCode || null,
+      couponValue: coupon.couponValue || null,
+      walletBalance
     });
   } catch (error) {
     await session.abortTransaction();
@@ -3085,6 +3143,48 @@ const scratchCashback = async (req, res) => {
     session.endSession();
   }
 };
+
+// lionies coupon code 
+const applyCoupon = async (req, res) => {
+  try {
+    const { mobileNumber, couponCode } = req.body;
+
+    // if (req.headers["x-api-key"] !== process.env.THIRD_PARTY_SECRET) {
+    //   return res.status(401).json({ message: "Unauthorized" });
+    // }
+
+    // 2️⃣ Find user by mobile
+    const user = await userModel.findOne({ mobileNumber });
+
+    if (!user) {
+      return res.json({ valid: false, message: "User not found" });
+    }
+
+    // 3️⃣ Find valid coupon
+    const coupon = await scratchCouponModel.findOne({
+      userId: user._id,
+      couponCode,
+      status: "SCRATCHED",
+      isUsed: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!coupon) {
+      return res.json({ valid: false, message: "Invalid coupon" });
+    }
+
+    return res.json({
+      valid: true,
+      rewardType: coupon.rewardType,
+      value: coupon.couponValue,
+    });
+
+  } catch (error) {
+    console.error("External Coupon Error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 
 // become ret
 
@@ -3489,5 +3589,7 @@ module.exports = {
   scratchCashback,
   createUserAction,
   approveUserAction,
-  getUserActions
+  getUserActions,
+  applyCoupon,
+  getUserMobile
 }
