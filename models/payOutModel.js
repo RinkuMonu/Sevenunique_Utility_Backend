@@ -42,8 +42,7 @@ const payOutSchema = new mongoose.Schema(
     },
     ifsc: {
       type: String,
-      required: false,
-      match: [/^[A-Za-z]{4}\d{7}$/, "Invalid IFSC code"], // IFSC code format validation
+      required: false
     },
     name: {
       type: String,

@@ -416,7 +416,7 @@ exports.generatePayment = async (req, res, next) => {
     const responseEx = `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`;
 
 
-    console.log(responseUpi.data);
+    // console.log(responseUpi.data);
     payIn.remark = "Redirect to payment page";
     transaction.description = "Redirect to payment page";
 

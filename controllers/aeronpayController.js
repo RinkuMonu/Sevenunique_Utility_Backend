@@ -354,18 +354,34 @@ exports.transfer1 = async (req, res) => {
         });
 
     } catch (error) {
-        console.log(error)
-        if (!isCommitted) {
-            await session.abortTransaction();
-            session.endSession();
+        console.error("Transfer Error:", error);
+
+        // ✅ Mongoose Validation Error
+        if (error?.name === "ValidationError") {
+            const firstError = Object.values(error.errors)[0];
+
+            return res.status(400).json({
+                success: false,
+                message: firstError.message
+            });
         }
 
+        // ✅ Axios API Error
+        if (error?.response) {
+            return res.status(error.response.status || 500).json({
+                success: false,
+                message: error.response.data?.message || "External API Error",
+                data: error.response.data || "External API Error"
+            });
+        }
+
+        // ✅ Normal Error
         return res.status(500).json({
             success: false,
-            message: "Transfer failed",
-            error: error.response?.data,
+            message: error.message || "Transfer failed"
         });
     }
+
 };
 
 exports.callBack = async (req, res) => {

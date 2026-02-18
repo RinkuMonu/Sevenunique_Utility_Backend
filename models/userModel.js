@@ -402,6 +402,9 @@ const userSchema = new mongoose.Schema(
     hasPurchasedPlan: {
       type: Boolean,
       default: false
+    },
+    qrCode: {
+      type: String
     }
 
   },
