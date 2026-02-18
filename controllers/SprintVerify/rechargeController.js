@@ -7,7 +7,7 @@ const PayOut = require("../../models/payOutModel.js")
 const Transaction = require("../../models/transactionModel.js");
 const userModel = require("../../models/userModel.js");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs, generateRandomCashback } = require("../../utils/chargeCaluate.js");
+const { getApplicableServiceCharge, applyServiceCharges, logApiCall, calculateCommissionFromSlabs, generateRandomReward } = require("../../utils/chargeCaluate.js");
 const { distributeCommission } = require("../../utils/distributerCommission.js");
 const CommissionTransaction = require("../../models/CommissionTransaction.js");
 const scratchCouponModel = require("../../models/scratchCoupon.model.js");
@@ -357,9 +357,9 @@ exports.doRecharge = async (req, res, next) => {
 
         if (retailerCommission > 0) {
 
-          const cashbackAmount = generateRandomCashback(retailerCommission);
+          const cashbackAmount = generateRandomReward(retailerCommission);
 
-          if (cashbackAmount > 0) {
+          if (cashbackAmount) {
             const expiry = new Date();
             expiry.setMonth(expiry.getMonth() + 1);
 
@@ -371,8 +371,8 @@ exports.doRecharge = async (req, res, next) => {
                   serviceTxnId: referenceid,
                   serviceName: "Recharge",
                   baseAmount: required,
-                  cashbackAmount,
                   expiresAt: expiry,
+                  ...cashbackAmount
                 }
               },
               { upsert: true, session }
@@ -652,9 +652,9 @@ exports.checkRechargeStatus = async (req, res, next) => {
 
         if (retailerCommission > 0) {
 
-          const cashbackAmount = generateRandomCashback(retailerCommission);
+          const cashbackAmount = generateRandomReward(retailerCommission);
 
-          if (cashbackAmount > 0) {
+          if (cashbackAmount) {
             const expiry = new Date();
             expiry.setMonth(expiry.getMonth() + 1);
 
@@ -666,8 +666,8 @@ exports.checkRechargeStatus = async (req, res, next) => {
                   serviceTxnId: recharge.transactionId,
                   serviceName: "Recharge",
                   baseAmount: Number(recharge.totalDebit),
-                  cashbackAmount,
                   expiresAt: expiry,
+                  ...cashbackAmount
                 }
               },
               { upsert: true, session }
