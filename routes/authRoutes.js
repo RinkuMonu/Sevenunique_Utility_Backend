@@ -29,6 +29,7 @@ const {
   logoutController,
   applyCoupon,
   getUserMobile,
+  getWalletBalance,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
@@ -109,6 +110,7 @@ router.get(
   getUsersWithFilters
 );
 router.post("/update-credential", updateCredential);
+router.post("/checkBalance",authenticateToken, getWalletBalance);
 
 router.put(
   "/user/:id/status",

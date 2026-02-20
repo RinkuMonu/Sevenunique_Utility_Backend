@@ -3562,6 +3562,47 @@ const approveUserAction = async (req, res) => {
   }
 };
 
+const getWalletBalance = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { mpin } = req.body;
+    const userr = await userModel.findById(userId).select("mpin eWallet");
+    if (!userr) {
+      return res.status(404).json({
+        success: false,
+        message: "user not found"
+      });
+    }
+    if (!mpin || !/^\d{6}$/.test(mpin)) {
+      return res.status(400).json({
+        success: false,
+        message: "MPIN must be 6 digits"
+      });
+    }
+
+
+    // 🔹 Plain text comparison
+    if (userr.mpin !== mpin) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid MPIN"
+      });
+    }
+
+    return res.json({
+      success: true,
+      balance: userr.eWallet
+    });
+
+  } catch (err) {
+    console.log(err)
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+
+
 
 module.exports = {
   sendOtpController,
@@ -3591,5 +3632,6 @@ module.exports = {
   approveUserAction,
   getUserActions,
   applyCoupon,
-  getUserMobile
+  getUserMobile,
+  getWalletBalance
 }
