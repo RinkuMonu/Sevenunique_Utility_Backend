@@ -168,12 +168,12 @@ const sendLoginEmail = async (
       );
       // console.log("✅ Login email sent", res.data);
     } catch (error) {
-      console.error("❌ Error sending login email:", error.message);
+      console.error("❌ Error sending login email:", error);
     }
 
     // console.log("✅ Login email sent to:", user.email);
   } catch (error) {
-    console.error("❌ Error sending login email:", error.message);
+    console.error("❌ Error sending login email:", error);
   }
 };
 
@@ -3566,6 +3566,16 @@ const getWalletBalance = async (req, res) => {
   try {
     const userId = req.user.id;
     const { mpin } = req.body;
+    let mPin = null
+    if (mpin) {
+      mPin = Number(mpin)
+    }
+    if (!mpin || !mPin || !/^\d{6}$/.test(mPin)) {
+      return res.status(400).json({
+        success: false,
+        message: "MPIN must be 6 digits"
+      });
+    }
     const userr = await userModel.findById(userId).select("mpin eWallet");
     if (!userr) {
       return res.status(404).json({
@@ -3573,16 +3583,9 @@ const getWalletBalance = async (req, res) => {
         message: "user not found"
       });
     }
-    if (!mpin || !/^\d{6}$/.test(mpin)) {
-      return res.status(400).json({
-        success: false,
-        message: "MPIN must be 6 digits"
-      });
-    }
-
 
     // 🔹 Plain text comparison
-    if (userr.mpin !== mpin) {
+    if (userr.mpin !== mPin) {
       return res.status(400).json({
         success: false,
         message: "Invalid MPIN"
