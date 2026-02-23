@@ -1,3 +1,4 @@
+const { required } = require("joi");
 const mongoose = require("mongoose");
 
 const bannerSchema = new mongoose.Schema(
@@ -11,8 +12,14 @@ const bannerSchema = new mongoose.Schema(
     // 🔹 Banner position on page
     section: {
       type: String,
-      enum: ["top", "bottom", "other"],
+      enum: ["top", "bottom", "other", "cashback", "lionies", "home"],
       required: true,
+    },
+    redirectTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
+      index: true,
+      default: null
     },
 
     // 🔹 Device type

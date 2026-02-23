@@ -1,11 +1,21 @@
 import redis from "../middleware/redis.js";
 import { invalidateBannerCache } from "../middleware/redisValidation.js";
 import Banner from "../models/banner.modal.js";
+import servicesModal from "../models/servicesModal.js";
 
 // CREATE
 export const createBanner = async (req, res) => {
   try {
-    const { section, device } = req.body;
+    const { section, device, serviceId } = req.body;
+    if (serviceId) {
+      const isService = await servicesModal.findById(serviceId).select("_id").lean()
+      if (!isService) {
+        return res.status(400).json({
+          success: false,
+          message: "Service not found"
+        })
+      }
+    }
 
     if (!section || !device) {
       return res.status(400).json({
@@ -27,8 +37,12 @@ export const createBanner = async (req, res) => {
       bannerUrl,
       section,
       device,
+      redirectTo: serviceId
     });
-    await invalidateBannerCache()
+
+    if (redis) {
+      await invalidateBannerCache()
+    }
 
     res.status(201).json({
       success: true,
@@ -63,7 +77,7 @@ export const getAllBanners = async (req, res) => {
         console.log("Redis Banner get failed, fallback to DB");
       }
     }
-    const banners = await Banner.find();
+    const banners = await Banner.find().populate("redirectTo");
     const responseData = {
       success: true,
       data: banners
@@ -77,6 +91,7 @@ export const getAllBanners = async (req, res) => {
         console.log("Banner Redis set failed", e.message);
       }
     }
+
     res.json(responseData);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -97,7 +112,7 @@ export const getAllBanners = async (req, res) => {
 
 export const getBannerById = async (req, res) => {
   try {
-    const banner = await Banner.findById(req.params.id);
+    const banner = await Banner.findById(req.params.id).populate("redirectTo");
     if (!banner) return res.status(404).json({ message: "Banner not found" });
     res.json(banner);
   } catch (error) {
@@ -108,7 +123,7 @@ export const getBannerById = async (req, res) => {
 // UPDATE
 export const updateBanner = async (req, res) => {
   try {
-    const { section, device, status } = req.body;
+    const { section, device, status, serviceId } = req.body;
 
     const updateData = {};
 
@@ -120,6 +135,7 @@ export const updateBanner = async (req, res) => {
     // 🔹 Optional field updates
     if (section) updateData.section = section;
     if (device) updateData.device = device;
+    if (serviceId) updateData.redirectTo = serviceId;
     if (typeof status !== "undefined") updateData.status = status;
 
     // 🔹 Nothing to update check
@@ -145,7 +161,9 @@ export const updateBanner = async (req, res) => {
         message: "Banner not found",
       });
     }
-    await invalidateBannerCache()
+    if (redis) {
+      await invalidateBannerCache()
+    }
 
     res.json({
       success: true,
