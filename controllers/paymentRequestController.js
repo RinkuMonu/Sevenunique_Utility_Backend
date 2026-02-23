@@ -407,8 +407,8 @@ exports.walletTransfer = async (req, res) => {
     const senderId = req.user.id;
     const { receiverData, amount, mpin } = req.body;
 
-    if (!amount || Number(amount) < 100) {
-      throw new Error("Minimum transfer amount is ₹100");
+    if (!amount || Number(amount) < 1) {
+      throw new Error("Minimum transfer amount is ₹1");
     }
 
     if (!mpin) {
@@ -419,9 +419,9 @@ exports.walletTransfer = async (req, res) => {
     const sender = await userModel.findById(senderId).session(session);
     if (!sender) throw new Error("Sender not found");
 
-    if (sender.role !== "Retailer") {
-      throw new Error("Only retailers can transfer money");
-    }
+    // if (sender.role !== "Retailer") {
+    //   throw new Error("Only retailers can transfer money");
+    // }
 
     if (sender.mpin != mpin) {
       throw new Error("Invalid MPIN");
@@ -442,9 +442,9 @@ exports.walletTransfer = async (req, res) => {
       throw new Error("Cannot transfer to yourself");
     }
 
-    if (receiver.role !== "Retailer") {
-      throw new Error("Receiver must be a retailer");
-    }
+    // if (receiver.role !== "Retailer") {
+    //   throw new Error("Receiver must be a retailer");
+    // }
 
     // 🔹 White-label restriction (if exists)
     // if (sender.whitelabelId && receiver.whitelabelId) {
@@ -482,7 +482,7 @@ exports.walletTransfer = async (req, res) => {
       user_id: sender._id,
       transaction_type: "debit",
       amount: transferAmount,
-      type2: "wallet_transfer",
+      type2: "Wallet transfer",
       totalDebit: transferAmount,
       balance_after: updatedSender.eWallet,
       transaction_reference_id: referenceId,
@@ -493,7 +493,7 @@ exports.walletTransfer = async (req, res) => {
     await payOutModel.create([{
       userId: sender._id,
       amount: Number(transferAmount),
-      type2: "wallet_transfer",
+      type2: "Wallet transfer",
       reference: referenceId,
       trans_mode: "WALLET",
       name: sender.name,
@@ -509,7 +509,7 @@ exports.walletTransfer = async (req, res) => {
       user_id: receiver._id,
       transaction_type: "credit",
       amount: transferAmount,
-      type2: "wallet_transfer",
+      type2: "Wallet transfer",
       totalCredit: transferAmount,
       balance_after: updatedReceiver.eWallet,
       transaction_reference_id: referenceId,
