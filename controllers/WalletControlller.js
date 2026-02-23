@@ -451,7 +451,7 @@ exports.getUserTransactions = async (req, res) => {
       fromDate,
       toDate,
       page = 1,
-      limit = 2,
+      limit = 10,
       exportCsv = "false",
     } = req.query;
 
@@ -536,7 +536,8 @@ exports.getUserTransactions = async (req, res) => {
           userEmail: "$user.email",
           UserId: "$user.UserId",
           serviceName: { $ifNull: ["$service.name", "$plan.name"] },
-          type2: 1,
+          serviceIcon: { $ifNull: ["$service.icon", "$plan.icon"] },
+          type2: { $ifNull: ["$type2", "N/A"] },
           transaction_type: 1,
           amount: 1,
           gst: 1,
