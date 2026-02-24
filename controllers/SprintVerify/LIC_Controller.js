@@ -56,7 +56,7 @@ exports.payBill = async (req, res) => {
 
     const userId = req.user.id;
     const category = "68c938d38fa1dda33eb54204"
-    const { canumber, mode, amount, ad1, ad2, latitude, longitude, bill_fetch, mpin = "111111" } = req.body;
+    const { canumber, mode, amount, ad1, ad2, latitude, longitude, bill_fetch, mpin } = req.body;
     const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
     const payload = {
