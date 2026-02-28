@@ -26,9 +26,7 @@ exports.fetchBill = async (req, res) => {
             ad2,
             mode
         }
-        console.log(getPaysprintHeaders());
-
-        const response = await axios.post("https://api.paysprint.in/api/v1/service/bill-payment/bill/fetchlicbill",
+                const response = await axios.post("https://api.paysprint.in/api/v1/service/bill-payment/bill/fetchlicbill",
             payload,
             { headers: getPaysprintHeaders() }
         )
@@ -74,8 +72,6 @@ exports.payBill = async (req, res) => {
         const user = await userModel.findOne({ _id: userId }).session(session);
 
         if (user.mpin != mpin) {
-            await session.abortTransaction();
-            session.endSession();
             throw new Error("Invalid mpin ! Please enter a vaild mpin");
         }
         // if (redis) {
@@ -102,13 +98,7 @@ exports.payBill = async (req, res) => {
         ).toFixed(2));
 
         if (usableBalance < required) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({
-                error: true,
-                message: `Insufficient wallet balance. You must maintain ₹${user.cappingMoney} in your wallet. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`
-            });
-
+            throw new Error(`Insufficient wallet balance. You must maintain ₹${user.cappingMoney} in your wallet. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`)
         }
 
         // if (redis) {
@@ -278,7 +268,10 @@ exports.payBill = async (req, res) => {
         })
 
     } catch (error) {
-        await session.abortTransaction();
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+
         session.endSession();
 
         return res.status(500).json({

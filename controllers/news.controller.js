@@ -1,6 +1,7 @@
 const redis = require("../middleware/redis");
 const { invalidateNEWSCache } = require("../middleware/redisValidation");
 const News = require("../models/news.model");
+const userModel = require("../models/userModel");
 
 // ✅ Create News
 exports.createNews = async (req, res) => {
@@ -151,5 +152,151 @@ exports.getDashboardTitle = async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+
+exports.getUsersForBulkEmail = async (req, res) => {
+  try {
+    const {
+      keyword,
+      role,
+      status,
+      isKycVerified,
+      distributorId,
+      page = 1,
+      limit = 20,
+      selectAll = "false",
+    } = req.query;
+
+    const andConditions = [];
+
+    // 🔎 Keyword Search
+    if (keyword) {
+      andConditions.push({
+        $or: [
+          { name: { $regex: keyword, $options: "i" } },
+          { email: { $regex: keyword, $options: "i" } },
+          { UserId: { $regex: keyword, $options: "i" } },
+        ],
+      });
+    }
+
+    // 🔹 Role Filter
+    if (role && role !== "all") {
+      andConditions.push({ role });
+    }
+
+    // 🔹 Status Filter
+    if (status) {
+      andConditions.push({ status: status === "true" });
+    }
+
+    // 🔹 KYC Filter
+    if (isKycVerified) {
+      andConditions.push({ isKycVerified: isKycVerified === "true" });
+    }
+
+    // 🔹 Distributor Filter
+    if (distributorId) {
+      andConditions.push({ distributorId });
+    }
+
+    const filter =
+      andConditions.length > 0 ? { $and: andConditions } : {};
+
+    const skip = (page - 1) * limit;
+
+    // 🔥 If selectAll true → no pagination
+    let usersQuery = userModel.find(filter)
+      .select("UserId name email role status")
+      .sort({ createdAt: -1 });
+
+    if (selectAll !== "true") {
+      usersQuery = usersQuery.skip(skip).limit(parseInt(limit));
+    }
+
+    const [users, totalUsers] = await Promise.all([
+      usersQuery.lean(),
+      userModel.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: users,
+      totalSelected: selectAll === "true" ? totalUsers : users.length,
+      totalUsers,
+      pagination:
+        selectAll !== "true"
+          ? {
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(totalUsers / limit),
+          }
+          : null,
+    });
+  } catch (error) {
+    console.error("Error in getUsersForBulkEmail:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error" });
+  }
+};
+
+
+exports.sendBulkEmail = async (req, res) => {
+  try {
+    const { type, userIds, message } = req.body;
+
+    let users = [];
+
+    if (type === "all") {
+      users = await userModel.find({});
+    } else {
+      users = await userModel.find({ _id: { $in: userIds } });
+    }
+
+    if (!users.length) {
+      return res.json({ success: false, message: "No users found" });
+    }
+
+    const recipients = users.map((user) => ({
+      to: [
+        {
+          name: user.name,
+          email: user.email,
+        },
+      ],
+      variables: {
+        userName: user.name,
+        message: message,
+        currentYear: new Date().getFullYear(),
+      },
+    }));
+
+    const payload = {
+      recipients,
+      from: {
+        name: "Finunique Small Private Limited",
+        email: "info@sevenunique.com",
+      },
+      domain: "mail.sevenunique.com",
+      template_id: "bulk_message_template",
+    };
+
+    await axios.post(
+      "https://control.msg91.com/api/v5/email/send",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
+        },
+      }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false });
   }
 };

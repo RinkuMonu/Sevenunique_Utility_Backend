@@ -864,21 +864,88 @@ const registerUser = async (req, res) => {
     //   delete userData.referal;
     // }
 
-    const existingUser = await User.findOne({
-      $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    }).select({
-      _id: 1,
-      mobileNumber: 1,
-      email: 1
-    }).session(session);
+    // const existingUser = await User.findOne({
+    //   $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
+    // }).select({
+    //   _id: 1,
+    //   mobileNumber: 1,
+    //   email: 1
+    // }).session(session);
 
+    // let userToSave = null;
+
+    // if (existingUser) {
+    //   if (
+    //     isBecomeRetailer === true &&
+    //     req.user &&
+    //     (String(existingUser._id) == String(req.user.id))
+    //   ) {
+    //     delete userData.mobileNumber;
+    //     delete userData.email;
+    //     userToSave = existingUser;
+    //   } else {
+    //     await session.abortTransaction();
+    //     session.endSession();
+
+    //     if (existingUser.mobileNumber === userData.mobileNumber) {
+    //       return res.status(400).json({
+    //         message: "User Mobile Number already exists",
+    //       });
+    //     }
+    //     if (existingUser.email === userData.email) {
+    //       return res.status(400).json({
+    //         message: "User Email already exists",
+    //       });
+    //     }
+    //   }
+    // }
+
+    // Normalize email
+    if (userData.email) {
+      userData.email = userData.email.trim().toLowerCase();
+      if (userData.email === "") {
+        delete userData.email;
+      }
+    } else {
+      delete userData.email;
+    }
+    
+    if ((userData.role === "Retailer" || isBecomeRetailer) && !userData.email) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: "Email is required for Retailer registration",
+      });
+    }
+
+    // Prepare duplicate checks
+    const queries = [
+      User.findOne({ mobileNumber: userData.mobileNumber })
+        .select("_id mobileNumber")
+        .session(session)
+    ];
+
+    if (userData.email) {
+      queries.push(
+        User.findOne({ email: userData.email })
+          .select("_id email")
+          .session(session)
+      );
+    }
+
+    const results = await Promise.all(queries);
+
+    const mobileUser = results[0];
+    const emailUser = userData.email ? results[1] : null;
+
+    let existingUser = mobileUser || emailUser;
     let userToSave = null;
 
     if (existingUser) {
       if (
         isBecomeRetailer === true &&
         req.user &&
-        (String(existingUser._id) == String(req.user.id))
+        String(existingUser._id) === String(req.user.id)
       ) {
         delete userData.mobileNumber;
         delete userData.email;
@@ -887,18 +954,21 @@ const registerUser = async (req, res) => {
         await session.abortTransaction();
         session.endSession();
 
-        if (existingUser.mobileNumber === userData.mobileNumber) {
+        if (mobileUser) {
           return res.status(400).json({
             message: "User Mobile Number already exists",
           });
         }
-        if (existingUser.email === userData.email) {
+
+        if (emailUser) {
           return res.status(400).json({
             message: "User Email already exists",
           });
         }
       }
     }
+
+
     let referredByUser = null;
 
     if (userData.referal && userData.referal !== "") {

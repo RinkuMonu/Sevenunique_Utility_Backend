@@ -294,7 +294,7 @@ exports.doRecharge = async (req, res, next) => {
       operator: operatorId, canumber, amount, referenceid
     }, { headers: headers2 });
 
-    logApiCall({ url: "dorecharge", requestData: req.body, responseData: rechargeRes.data });
+    logApiCall({ url: "https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", requestData: { headers: headers2, operator: operatorId, canumber, amount, referenceid }, responseData: rechargeRes.data });
     console.log("📲 Recharge API response:", rechargeRes.data);
     console.log(rechargeRes);
 
@@ -309,6 +309,10 @@ exports.doRecharge = async (req, res, next) => {
     rechargeRecord[0].status = status;
     await rechargeRecord[0].save({ session });
     debitTxn[0].status = status;
+    debitTxn[0].meta = {
+      ...debitTxn[0].meta,
+      apiresponse: rechargeRes.data,
+    };
     await debitTxn[0].save({ session });
     console.log("✅ Transaction status updated:", status);
 
