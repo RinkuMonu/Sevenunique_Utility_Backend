@@ -38,6 +38,7 @@ function normalizePayloadForEnquiry(body) {
 function normalizePayloadForPayment(body) {
   return {
     ...body,
+    paymentMode: "Cash",
     // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164",
@@ -325,7 +326,7 @@ exports.makePayment = async (req, res, next) => {
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef: referenceid });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, initChannel, transactionAmount, enquiryReferenceId, externalRef: referenceid });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
