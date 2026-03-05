@@ -149,8 +149,14 @@ const userMetaSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    fcm_Token: {
+      type: String
+    },
+    redirect_url: {
+      type: String
+    },
 
-    
+
   },
   {
     timestamps: true,
