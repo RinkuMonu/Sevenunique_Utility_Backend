@@ -358,7 +358,7 @@ exports.generatePayment = async (req, res, next) => {
           mobile: user.mobileNumber,
           email: user.email,
           reference: reference || referenceId,
-          name: user.name,
+          name: user.name || "",
           source: "PayIn",
           amount: Number(amount),
           type: service._id,
