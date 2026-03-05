@@ -33,6 +33,7 @@ const userModalActionModal = require("../models/userModalAction.modal.js");
 const redis = require("../middleware/redis.js");
 const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
 const { generatePaymentQR } = require("../middleware/generatePaymentQR .js");
+const { default: admin } = require("../firebase.js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -128,13 +129,12 @@ const sendLoginEmail = async (
           to: [
             {
               name: user?.name || "User",
-              email: user?.email,
-              // email: "niranjan@7unique.in",
-            },
+              email: user?.email
+            }
           ],
           variables: {
             userName: user?.name ?? "User",
-            company_name: "Finunique Small Private Limited",
+            // company_name: "Finunique Small Private Limited",
             loginTime: loginTime ?? "N/A",
             lat: lat ?? "N/A",
             long: long ?? "N/A",
@@ -148,10 +148,10 @@ const sendLoginEmail = async (
       ],
       from: {
         name: "Finunique Small Private Limited",
-        email: "info@sevenunique.com",
+        email: "no-reply@finuniques.in",
       },
-      domain: "mail.sevenunique.com",
-      template_id: "login_notification_template",
+      domain: "finuniques.in",
+      template_id: "login_notification_template_2",
     };
     // console.log("Login email payload:", payload.recipients[0].variables);
     try {
@@ -161,14 +161,13 @@ const sendLoginEmail = async (
         {
           headers: {
             "Content-Type": "application/json",
-            accept: "application/json",
             authkey: process.env.MSG91_AUTH_KEY,
           },
         }
       );
       // console.log("✅ Login email sent", res.data);
     } catch (error) {
-      console.error("❌ Error sending login email:", error);
+      console.error("❌ Error sending login email:", error?.response.data);
     }
 
     // console.log("✅ Login email sent to:", user.email);
@@ -539,7 +538,9 @@ const loginController = async (req, res) => {
       pincode,
       ipAddress,
       deviceLocation,
+      fcm_Token
     } = req.body;
+
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
@@ -621,6 +622,23 @@ const loginController = async (req, res) => {
         .status(400)
         .json({ message: "Password or OTP is required to login" });
     }
+    let fcm_Token_user;
+    if (fcm_Token) {
+      fcm_Token_user = await userMetaModel.findOneAndUpdate(
+        { userId: user._id },
+
+        {
+          $set: {
+            fcm_Token: fcm_Token,
+          },
+        },
+
+        {
+          upsert: true,
+          new: true,
+        }
+      );
+    }
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
     const deviceName = getDeviceName(req.headers["user-agent"]);
 
@@ -668,6 +686,15 @@ const loginController = async (req, res) => {
       await resetLoginAttempts(userKey);
     }
     await resetLoginAttempts(ipKey);
+    if (fcm_Token_user) {
+      await admin.messaging().send({
+        token: fcm_Token_user.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Login successfully"
+        }
+      })
+    }
     return res.status(200).json({
       message: "Login successfully",
       user: {
@@ -909,7 +936,7 @@ const registerUser = async (req, res) => {
     } else {
       delete userData.email;
     }
-    
+
     if ((userData.role === "Retailer" || isBecomeRetailer) && !userData.email) {
       await session.abortTransaction();
       session.endSession();
@@ -1108,6 +1135,23 @@ const registerUser = async (req, res) => {
     const qrCode = await generatePaymentQR(savedUser.mobileNumber);
     savedUser.qrCode = qrCode;
     await savedUser.save({ session });
+    let fcm_Token_user;
+    if (userData.fcm_Token) {
+      fcm_Token_user = await userMetaModel.findOneAndUpdate(
+        { userId: savedUser._id },
+
+        {
+          $set: {
+            fcm_Token: fcm_Token,
+          },
+        },
+
+        {
+          upsert: true,
+          new: true,
+        }
+      );
+    }
 
     await session.commitTransaction();
     session.endSession();
@@ -1119,6 +1163,15 @@ const registerUser = async (req, res) => {
       savedUser.mobileNumber
     );
 
+    if (userData.fcm_Token) {
+      await admin.messaging().send({
+        token: fcm_Token_user.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Registration successfully"
+        }
+      })
+    }
 
     return res.status(200).json({
       message: "Registration successful",

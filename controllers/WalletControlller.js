@@ -5,6 +5,7 @@ const { parse } = require("json2csv");
 const payInModel = require("../models/payInModel.js");
 const payOutModel = require("../models/payOutModel.js");
 const { getISTDayRange } = require("../services/timeZone.js");
+const bbpsModel = require("../models/bbpsModel.js");
 
 exports.getWalletTransactions = async (req, res) => {
   try {
@@ -613,6 +614,60 @@ exports.getUserTransactions = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Server Error", error: err.message });
+  }
+};
+
+
+exports.getLastTransactionsByService = async (req, res) => {
+  try {
+    const user_id = req.user.id;
+    const { type } = req.query;
+
+    if (!type) {
+      return res.status(400).json({
+        success: false,
+        message: "Service type is required",
+      });
+    }
+
+    const transactions = await Transaction.find({
+      user_id,
+      type,
+      status: "Success",
+    })
+      .select("transaction_reference_id")
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const referenceIds = transactions.map(
+      (txn) => txn.transaction_reference_id
+    );
+
+    if (!referenceIds.length) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const reports = await bbpsModel.find({
+      transactionId: { $in: referenceIds },
+    })
+      .select("operator amount customerNumber transactionId updatedAt")
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      data: reports,
+    });
+
+  } catch (error) {
+    console.error("Last Transactions Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch transactions",
+    });
   }
 };
 

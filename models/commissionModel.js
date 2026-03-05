@@ -21,6 +21,7 @@ const commissionSlabSchema = new mongoose.Schema(
         "Dish TV",
         "d2h",
         "Sun Direct",
+        "Tata Sky"
       ],
     },
     minAmount: { type: Number },
@@ -87,3 +88,6 @@ const commissionPackageSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("CommissionPackage", commissionPackageSchema);
+
+
+

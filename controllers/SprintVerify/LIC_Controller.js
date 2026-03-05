@@ -5,6 +5,8 @@ const { logApiCall, getApplicableServiceCharge, calculateCommissionFromSlabs } =
 const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const BbpsHistory = require("../../models/bbpsModel.js");
+const userMetaModel = require("../../models/userMetaModel.js");
+const { default: admin } = require("../../firebase.js");
 
 
 function getPaysprintHeaders() {
@@ -26,7 +28,7 @@ exports.fetchBill = async (req, res) => {
             ad2,
             mode
         }
-                const response = await axios.post("https://api.paysprint.in/api/v1/service/bill-payment/bill/fetchlicbill",
+        const response = await axios.post("https://api.paysprint.in/api/v1/service/bill-payment/bill/fetchlicbill",
             payload,
             { headers: getPaysprintHeaders() }
         )
@@ -70,6 +72,7 @@ exports.payBill = async (req, res) => {
             : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
 
         const user = await userModel.findOne({ _id: userId }).session(session);
+        const userMeta = await userMetaModel.findOne({ userId }).session(session);
 
         if (user.mpin != mpin) {
             throw new Error("Invalid mpin ! Please enter a vaild mpin");
@@ -132,7 +135,7 @@ exports.payBill = async (req, res) => {
             balance_after: updateUser.eWallet,
             payment_mode: "wallet",
             transaction_reference_id: referenceid,
-            description: `LIC Bill Pay for CA Number - ${canumber} (${mode})`,
+            description: `Insurance Premium Bill Pay for CA Number - ${canumber} (${mode})`,
             status: "Pending",
             provider: "paySprint",
         }], { session });
@@ -193,6 +196,16 @@ exports.payBill = async (req, res) => {
 
             await session.commitTransaction();
             session.endSession();
+
+            if (userMeta?.fcm_Token) {
+                await admin.messaging().send({
+                    token: userMeta.fcm_Token,
+                    notification: {
+                        title: "Finunique",
+                        body: `Insurance Premium Bill Pay for CA Number - ${canumber} (${mode})`
+                    },
+                });
+            }
 
             return res.json({
                 success: true,

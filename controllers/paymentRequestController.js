@@ -7,6 +7,8 @@ const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/
 const payOutModel = require("../models/payOutModel");
 const payInModel = require("../models/payInModel");
 const userModel = require("../models/userModel");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 exports.createPaymentRequest = async (req, res) => {
   console.log(req.body, " body in create payment request");
@@ -477,6 +479,9 @@ exports.walletTransfer = async (req, res) => {
       { new: true, session }
     );
 
+    const senderMeta = await userMetaModel.findOne({ userId: sender._id });
+    const receiverMeta = await userMetaModel.findOne({ userId: receiver._id });
+
     // 🔹 Sender Ledger Entry
     await Transaction.create([{
       user_id: sender._id,
@@ -533,6 +538,52 @@ exports.walletTransfer = async (req, res) => {
     await session.commitTransaction();
     committed = true;
     session.endSession();
+
+    const notifications = [];
+
+    if (senderMeta?.fcm_Token) {
+      notifications.push(
+        admin.messaging().send({
+          token: senderMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `₹ ${data?.amount
+              ? (data.amount / 100).toFixed(2)
+              : "0.00"} transferred to ${receiver?.name || "User"}`,
+          },
+          data: {
+            type: "money_transfer",
+            role: "sender",
+            amount: data?.amount
+              ? (data.amount / 100).toFixed(2)
+              : "0.00",
+          },
+        })
+      );
+    }
+
+    if (receiverMeta?.fcm_Token) {
+      notifications.push(
+        admin.messaging().send({
+          token: receiverMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `₹ ${data?.amount
+              ? (data.amount / 100).toFixed(2)
+              : "0.00"} received from ${sender?.name || "User"}`,
+          },
+          data: {
+            type: "money_transfer",
+            role: "receiver",
+            amount: data?.amount
+              ? (data.amount / 100).toFixed(2)
+              : "0.00",
+          },
+        })
+      );
+    }
+
+    await Promise.all(notifications);
 
     return res.status(200).json({
       success: true,

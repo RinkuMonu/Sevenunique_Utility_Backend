@@ -18,6 +18,8 @@ const { distributeCommission } = require("../utils/distributerCommission");
 const matmModel = require("../models/matm.model");
 const onboardSendEmail = require("../models/onboardSendEmail");
 const CommissionTransaction = require("../models/CommissionTransaction");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const { AEPS_PASS_KEY, AEPS_CLIENT_ID, AEPS_CLIENT_SECRET, AEPS_ENCR_KEY } =
   process.env;
@@ -110,6 +112,7 @@ exports.aepsCallback = async (req, res) => {
     const finalStatus = statusMap[status] || "Pending";
 
     const user = await userModel.findOne({ UserId: username }).session(session);
+    const userMeta = await userMetaModel.findOne({ UserId: user._id }).session(session);
     if (!user) throw new Error("User not found");
 
     let category = null;
@@ -394,6 +397,15 @@ exports.aepsCallback = async (req, res) => {
     }
 
     await session.commitTransaction();
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `${txnType} Success`
+        },
+      });
+    }
     res.status(200).json({ status: true, message: `${txnType} Success` });
   } catch (err) {
     console.log("Callback Error:", err);
@@ -423,6 +435,12 @@ exports.matmCallback = async (req, res) => {
     const user = await userModel
       .findOne({
         UserId: data.username,
+      })
+      .session(session);
+
+    const userMeta = await userMetaModel
+      .findOne({
+        userId: data.username,
       })
       .session(session);
 
@@ -630,6 +648,15 @@ exports.matmCallback = async (req, res) => {
     }], { session });
 
     await session.commitTransaction();
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `${txfinalTypenType, finalType} `
+        },
+      });
+    }
     return res.json({ status: 1, message: "Cash Withdrawal Success" });
   } catch (err) {
     console.error("mATM Callback Error:", err);
@@ -1267,7 +1294,7 @@ exports.aepsPreCheck = async (req, res) => {
       grossDebit =
         Number(commission.charge || 0) -
         Number(commission.gst || 0) -
-        Number(commission.tds || 0) 
+        Number(commission.tds || 0)
     } else if (txnType === "CASH_DEPOSIT") {
       grossDebit =
         amt +

@@ -6,6 +6,8 @@ const servicesModal = require("../models/servicesModal");
 const { default: mongoose } = require("mongoose");
 const { processReferralCommission } = require("../middleware/referralCommission");
 const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/redisValidation");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const createPlan = async (req, res) => {
   try {
@@ -244,6 +246,8 @@ const buyPlan = async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
+
     const today0 = new Date();
     today0.setHours(0, 0, 0, 0);
 
@@ -385,6 +389,16 @@ const buyPlan = async (req, res) => {
         new Date().setHours(0, 0, 0, 0)) /
       (1000 * 60 * 60 * 24)
     );
+
+        if (userMeta) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Plan activated successfully"
+        }
+      })
+    }
 
     return res.status(200).json({
       success: true,
