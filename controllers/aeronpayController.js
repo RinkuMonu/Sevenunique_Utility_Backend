@@ -4,6 +4,8 @@ const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("..
 const payOutModel = require("../models/payOutModel");
 const Transaction = require("../models/transactionModel");
 const userModel = require("../models/userModel");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const aeronpayHeader = {
     "client_id": process.env.Client_ID,
@@ -423,6 +425,7 @@ exports.callBack = async (req, res) => {
 
         // 2️⃣ Fetch user
         const user = await userModel.findById(payout.userId).session(session);
+        const userMeta = await userMetaModel.findOne({ userId: payout.userId }).session(session);
         if (!user) {
             throw new Error("User not found");
         }
@@ -496,6 +499,17 @@ exports.callBack = async (req, res) => {
 
         await session.commitTransaction();
         session.endSession();
+
+        if (userMeta?.fcm_Token) {
+            await admin.messaging().send({
+                token: userMeta.fcm_Token,
+                notification: {
+                    title: "Finunique",
+                    body: `Withdrawal ${Status} ₹ ${payout.amount}`,
+                },
+            });
+        }
+        
 
         return res.status(200).json({
             success: true,

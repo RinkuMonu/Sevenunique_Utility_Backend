@@ -18,6 +18,8 @@ const matmModel = require("../models/matm.model");
 const payInModel = require("../models/payInModel");
 const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 const redis = require("../middleware/redis");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 require("dotenv").config();
 
 const BASE_URL = "https://api.instantpay.in";
@@ -141,7 +143,7 @@ exports.getBankList = async (req, res) => {
       try {
         const cached = await redis.get(cacheKey);
         if (cached) {
-        //   console.log("⚡ BANK LIST REDIS HIT");
+          //   console.log("⚡ BANK LIST REDIS HIT");
           return res.json(JSON.parse(cached));
         }
       } catch (e) {
@@ -166,7 +168,7 @@ exports.getBankList = async (req, res) => {
       try {
         await redis.setex(
           cacheKey,
-          84600, 
+          84600,
           JSON.stringify(response.data)
         );
         console.log("🔥 BANK LIST STORED IN REDIS AND SAVE DB");
@@ -425,6 +427,7 @@ exports.beneficiaryRegistration = async (req, res) => {
 exports.beneficiaryRegistrationVerify = async (req, res) => {
   try {
     const user = await userModel.findById(req.user.id);
+    const userMeta = await userMetaModel.findById(req.user.id);
     const { remitterMobileNumber, otp, beneficiaryId, referenceKey } = req.body;
 
     // Validate inputs
@@ -453,6 +456,15 @@ exports.beneficiaryRegistrationVerify = async (req, res) => {
         },
       }
     );
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `Beneficiary registration verified successfully.`
+        },
+      });
+    }
 
     res.status(200).json({
       status: true,
@@ -665,6 +677,7 @@ exports.makeTransaction = async (req, res) => {
       commissions
     );
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
     if (!user) throw new Error("User not found");
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
@@ -681,11 +694,9 @@ exports.makeTransaction = async (req, res) => {
     if (usableBalance < required) {
       return res.status(400).json({
         error: true,
-        message: `Insufficient wallet balance.You must maintain ₹${
-          user.cappingMoney
-        } in your wallet.Available: ₹${user.eWallet}, Required: ₹${
-          required + user.cappingMoney
-        }`,
+        message: `Insufficient wallet balance.You must maintain ₹${user.cappingMoney
+          } in your wallet.Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney
+          }`,
       });
     }
 
@@ -787,9 +798,9 @@ exports.makeTransaction = async (req, res) => {
             user_id: userId,
             status: "Success",
             type: service._id,
-            ackno: result.data.externalRef,
-            referenceid: result.data.poolReferenceId,
-            utr: result.data.txnReferenceId,
+            ackno: result.data.txnReferenceId,
+            referenceid: result.data.externalRef,
+            utr: result.data.poolReferenceId,
             txn_status: "1",
             benename: result.data.beneficiaryName,
             remarks: result.status,
@@ -804,8 +815,8 @@ exports.makeTransaction = async (req, res) => {
               tds: parseFloat(commission.tds || 0),
               netcommission: parseFloat(
                 commission.retailer +
-                  commission.distributor +
-                  commission.admin || 0
+                commission.distributor +
+                commission.admin || 0
               ),
             },
             charges: commission.charge,
@@ -865,8 +876,8 @@ exports.makeTransaction = async (req, res) => {
                 commission: commission.retailer || 0,
                 chargeShare:
                   Number(commission.charge) +
-                    Number(commission.gst) +
-                    Number(commission.tds) || 0,
+                  Number(commission.gst) +
+                  Number(commission.tds) || 0,
               },
               {
                 userId: user.distributorId,
@@ -910,6 +921,16 @@ exports.makeTransaction = async (req, res) => {
     }
 
     await session.commitTransaction();
+
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `${transferAmount} has been transferred to account ${accountNumber}`
+        },
+      });
+    }
     res
       .status(200)
       .json({

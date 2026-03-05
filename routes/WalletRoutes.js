@@ -36,4 +36,7 @@ router.get("/users", authenticateToken, controller.getUsersUnderAdmin);
 // Transactions for specific user
 router.get("/user/:id", authenticateToken, controller.getUserTransactions);
 
+// getLastTransactionsByService
+router.get("/getLastTransactionsByService", authenticateToken, controller.getLastTransactionsByService);
+
 module.exports = router;

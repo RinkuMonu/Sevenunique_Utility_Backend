@@ -12,6 +12,8 @@ const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const { distributeCommission } = require("../../utils/distributerCommission");
 const scratchCouponModel = require("../../models/scratchCoupon.model");
+const userMetaModel = require("../../models/userMetaModel");
+const { default: admin } = require("../../firebase");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -236,6 +238,7 @@ exports.makePayment = async (req, res, next) => {
 
     const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
     if (!user) throw new Error("User not found");
 
     // ✅ MPIN check
@@ -526,6 +529,15 @@ exports.makePayment = async (req, res, next) => {
 
 
     await session.commitTransaction();
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `Recharge ${statusUpdate} ₹ ${transactionAmount}`,
+        },
+      });
+    }
     forward(res, { ...data, scratchCoupon });
 
   } catch (err) {

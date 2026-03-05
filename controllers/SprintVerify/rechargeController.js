@@ -13,6 +13,8 @@ const CommissionTransaction = require("../../models/CommissionTransaction.js");
 const scratchCouponModel = require("../../models/scratchCoupon.model.js");
 const redis = require("../../middleware/redis.js");
 const { acquireLock, releaseLock } = require("../../middleware/redisValidation.js");
+const userMetaModel = require("../../models/userMetaModel.js");
+const { default: admin } = require("../../firebase.js");
 
 
 function getPaysprintHeaders() {
@@ -177,6 +179,7 @@ exports.doRecharge = async (req, res, next) => {
       : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
 
     const user = await userModel.findOne({ _id: userId }).session(session);
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
 
     if (user.mpin != mpin) {
       throw new Error("Invalid mpin ! Please enter a vaild mpin");
@@ -296,7 +299,7 @@ exports.doRecharge = async (req, res, next) => {
 
     logApiCall({ url: "https://api.paysprint.in/api/v1/service/recharge/recharge/dorecharge", requestData: { headers: headers2, operator: operatorId, canumber, amount, referenceid }, responseData: rechargeRes.data });
     console.log("📲 Recharge API response:", rechargeRes.data);
-    console.log(rechargeRes);
+    // console.log(rechargeRes);
 
     const { response_code, message } = rechargeRes.data;
     let status = "Failed";
@@ -309,10 +312,7 @@ exports.doRecharge = async (req, res, next) => {
     rechargeRecord[0].status = status;
     await rechargeRecord[0].save({ session });
     debitTxn[0].status = status;
-    debitTxn[0].meta = {
-      ...debitTxn[0].meta,
-      apiresponse: rechargeRes.data,
-    };
+    debitTxn[0].meta.set("apiresponse", rechargeRes.data);
     await debitTxn[0].save({ session });
     console.log("✅ Transaction status updated:", status);
 
@@ -504,6 +504,15 @@ exports.doRecharge = async (req, res, next) => {
 
     await session.commitTransaction();
     console.log("✅ Recharge transaction committed successfully");
+    if (userMeta?.fcm_Token) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: `Recharge ${status} ₹ ${amount}`
+        },
+      });
+    }
 
     return res.status(status === "Success" ? 200 : status === "Pending" ? 202 : 400).json({
       status: status.toLowerCase(),
