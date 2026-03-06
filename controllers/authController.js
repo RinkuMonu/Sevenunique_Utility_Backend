@@ -1587,7 +1587,7 @@ const getUsersWithFilters = async (req, res) => {
     const skip = (page - 1) * limit;
 
     let [users, totalUsers] = await Promise.all([
-      User.find(filter).select("UserId name email mobileNumber role status isKycVerified eWallet createdAt registrationProgress address")
+      User.find(filter).select("UserId name email mobileNumber role status isKycVerified eWallet createdAt registrationProgress address callbackUrl")
         .sort(sort)
         .skip(skip)
         .limit(limit)
