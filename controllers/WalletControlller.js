@@ -4,12 +4,12 @@ const User = require("../models/userModel.js");
 const { parse } = require("json2csv");
 const payInModel = require("../models/payInModel.js");
 const payOutModel = require("../models/payOutModel.js");
-const { getISTDayRange } = require("../services/timeZone.js");
+// const { getISTDayRange } = require("../services/timeZone.js");
 const bbpsModel = require("../models/bbpsModel.js");
 
 exports.getWalletTransactions = async (req, res) => {
   try {
-    const { startUTC, endUTC } = getISTDayRange()
+    // const { startUTC, endUTC } = getISTDayRange()
     const {
       keyword,
       transaction_type,
@@ -30,9 +30,19 @@ exports.getWalletTransactions = async (req, res) => {
     if (status) match.status = status;
     if (payment_mode) match.payment_mode = payment_mode;
     if (fromDate || toDate) {
+
+      const start = fromDate
+        ? new Date(new Date(fromDate).setHours(0, 0, 0, 0))
+        : null;
+
+      const end = toDate
+        ? new Date(new Date(toDate).setHours(23, 59, 59, 999))
+        : null;
+
       match.createdAt = {};
-      if (fromDate) match.createdAt.$gte = startUTC;
-      if (toDate) match.createdAt.$lte = endUTC;
+
+      if (start) match.createdAt.$gte = start;
+      if (end) match.createdAt.$lte = end;
     }
 
     const pipeline = [
@@ -321,7 +331,7 @@ exports.getUsersUnderAdmin = async (req, res) => {
 
     // 🔒 role-based access
     if (req.user.role === "Admin") {
-      matchStage.role = { $in: ["Distributor", "Retailer"] };
+      matchStage.role = { $in: ["Distributor", "Retailer", "User"] };
     } else if (req.user.role === "Distributor") {
       matchStage.role = "Retailer";
       matchStage.distributorId = new mongoose.Types.ObjectId(req.user.id);

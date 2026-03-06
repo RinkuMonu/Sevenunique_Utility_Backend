@@ -12,7 +12,6 @@ export const planCheckCronJob = () => {
     // console.log("🔄 Running daily plan expiry check...");
 
     try {
-      
       const now = new Date();
 
       // Sabhi users jinka plan endDate nikal gaya hai
@@ -46,7 +45,7 @@ export const planCheckCronJob = () => {
     // console.log("⏱️ [CRON] Checking for expired pending wallets...");
 
     try {
-      const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000);
       const expired = await payInModel.find({
         status: "Pending",
         createdAt: { $lte: cutoff },
