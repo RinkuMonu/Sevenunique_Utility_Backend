@@ -17,13 +17,9 @@ exports.getCustomer = async (req, res) => {
       latlong,
       publicIP,
     });
-    console.log(data);
-
 
     return res.json(data);
   } catch (err) {
-    console.log(err);
-
     return res.status(500).json({ status: "FAILED", statusCode: "-500", statusDesc: err.message });
   }
 };
