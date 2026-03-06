@@ -2,7 +2,7 @@ const { postEncrypted } = require("../services/iserveuClient");
 
 // 1) Get Customer
 exports.getCustomer = async (req, res) => {
-     console.log("✅ getCustomer API hit hua:", req.body);
+  console.log("✅ getCustomer API hit data", req.body);
   try {
     const { mobileNumber, username, latlong, publicIP } = req.body;
     if (!/^\d{10}$/.test(mobileNumber)) {
@@ -17,9 +17,13 @@ exports.getCustomer = async (req, res) => {
       latlong,
       publicIP,
     });
+    console.log(data);
+
 
     return res.json(data);
   } catch (err) {
+    console.log(err);
+
     return res.status(500).json({ status: "FAILED", statusCode: "-500", statusDesc: err.message });
   }
 };
