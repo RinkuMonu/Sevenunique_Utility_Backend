@@ -14,6 +14,7 @@ import {
     makeTransaction,
     transactionRefundOtp,
     transactionRefund,
+    loadWallet,
 } from "../controllers/instantpayPpiController.js";
 import authenticateToken from "../middleware/verifyToken.js";
 
@@ -33,9 +34,9 @@ router.get("/beneficiary-list",authenticateToken, beneficiaryList);
 router.post("/beneficiary-registration",authenticateToken, beneficiaryRegistration);
 router.post("/beneficiary-delete",authenticateToken, beneficiaryDelete);
 router.post("/beneficiary-delete-verify",authenticateToken, beneficiaryDeleteVerify);
-
 // 4️⃣ Transaction APIs
 router.post("/generate-transaction-otp",authenticateToken, generateTransactionOtp);
+router.post("/loadWallet",authenticateToken, loadWallet);
 router.post("/transaction",authenticateToken, makeTransaction);
 router.post("/transaction-refund-otp",authenticateToken, transactionRefundOtp);
 router.post("/transaction-refund",authenticateToken, transactionRefund);
