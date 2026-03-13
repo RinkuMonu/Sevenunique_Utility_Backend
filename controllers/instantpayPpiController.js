@@ -288,6 +288,23 @@ export const generateTransactionOtp = async (req, res) => {
     }
 };
 
+export const loadWallet = async (req, res) => {
+    try {
+        const { remitterMobileNumber, referenceKey, transferAmount, externalRef, latitude, longitude } = req.body;
+
+        if (!remitterMobileNumber || !referenceKey || !transferAmount || !amount) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        const payload = { remitterMobileNumber, referenceKey, transferAmount, externalRef, latitude, longitude };
+        console.log(payload);
+        const result = await instantpayService("loadWallet", "POST", payload);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 // 11️⃣ Transaction
 export const makeTransaction = async (req, res) => {
     const session = await mongoose.startSession();

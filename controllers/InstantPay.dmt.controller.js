@@ -633,7 +633,6 @@ exports.makeTransaction = async (req, res) => {
       longitude,
       referenceKey,
       otp,
-      externalRef,
       referenceid,
       bene_id,
       category,
@@ -649,7 +648,6 @@ exports.makeTransaction = async (req, res) => {
       longitude,
       referenceKey,
       otp,
-      externalRef,
       referenceid,
       bene_id,
     };
@@ -777,7 +775,7 @@ exports.makeTransaction = async (req, res) => {
         longitude,
         referenceKey,
         otp,
-        externalRef,
+        externalRef:referenceid,
       },
       {
         headers: {

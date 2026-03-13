@@ -589,11 +589,48 @@ const paysprintCallback = async (req, res) => {
     const decoded = JSON.parse(
       Buffer.from(param.refid, "base64").toString("utf8")
     )
-    console.log(decoded);
-    // const userId = await getUserIdFromRefid(param.refid);
+
     const user = await userModel.findById(decoded.uid).session(session);
 
     if (!user) throw new Error("User not found");
+
+
+    if (event === "LEAD_GENERATION_CALLBACK") {
+
+      console.log("📌 Loan Lead Callback Received");
+
+      await LoanLeadModal.findOneAndUpdate(
+        { refId: param.refid },
+        {
+          retailerId: user._id,
+          merchantcode: param.merchantcode,
+          name: param.name,
+          mobile: param.mobile_no,
+          email: param.email,
+          product: param.product,
+          pincode: param.pincode,
+          state: param.state,
+          executive_status: param.executive_status,
+          executive_updated_date: param.executive_updated_date,
+          executive_remarks: param.executive_remarks,
+          extraData: param,
+          provider: "paySprint"
+        },
+        {
+          upsert: true,
+          new: true,
+          session
+        }
+      );
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return res.status(200).json({
+        status: 200,
+        message: "Lead callback processed successfully",
+      });
+    }
 
 
     const { commissions, service } = await getApplicableServiceCharge(user._id, category);
@@ -879,7 +916,6 @@ const busbookingDirectUrl = async (req, res) => {
         message: "refid is required",
       });
     }
-    console.log(refid)
     const headers = getPaysprintHeadersDirect()
     console.log("generatePaysprintJWT>>>>>>", headers)
     // return;
@@ -943,6 +979,7 @@ const jwt = require("jsonwebtoken");
 const scratchCouponModel = require("../../models/scratchCoupon.model");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const { distributeCommission } = require("../../utils/distributerCommission");
+const LoanLeadModal = require("../../models/LoanLead.modal");
 
 // POST /api/bus/callback
 const busbookingDirectUrlCallback = async (req, res) => {

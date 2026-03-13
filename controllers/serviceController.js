@@ -208,7 +208,7 @@ exports.getCreditScore = async (req, res) => {
       throw new Error("User not found");
     }
 
-    const chargeAmount = 30;
+    const chargeAmount = 0;
     if (user.eWallet < chargeAmount) {
       throw new Error("Insufficient wallet balance");
     }

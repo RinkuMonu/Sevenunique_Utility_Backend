@@ -74,7 +74,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     }
   } else {
     if (operatorName) {
-      matchedSlab = packageData.slabs.find(s => s.operator == operatorName.toLowerCase());
+      matchedSlab = packageData.slabs.find(s => s.operator?.toLowerCase() == operatorName.toLowerCase()) || packageData.slabs[0];
       if (amount <= 0) {
         throw new Error(`Please enter a vaild amount.`);
       }
@@ -108,7 +108,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     adminAmt = 0,
     chargeAmount = 0;
 
-  chargeAmount = calc(matchedSlab.chargeAmount) || 0;
+  chargeAmount = calc(matchedSlab?.chargeAmount) || 0;
 
 
   retailerAmt = calc(matchedSlab.retailer) || 0;

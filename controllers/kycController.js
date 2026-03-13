@@ -193,7 +193,7 @@ const verifyPAN = async (req, res) => {
 
     const nameFromPAN = response.data.data;
     user.panDetails = nameFromPAN.data;
-    if (user.clientSource === "APP" && user.role == "User") {
+    if (user.clientSource === "APP" && user.role == "User" && userId != "6970f793e59ebf5abae7769e") {
       user.isKycVerified = true
     }
     await user.save();

@@ -18,6 +18,9 @@ const BeneficiarySchema = new mongoose.Schema({
     bankid: {
         type: String
     },
+    bankName: {
+        type: String
+    },
     accno: {
         type: String
     },
@@ -29,7 +32,16 @@ const BeneficiarySchema = new mongoose.Schema({
     },
     pincode: {
         type: String
-    }
+    },
+    isVerified: {
+        type: Boolean,
+        default: false,
+    },
+    provider: {
+        type: String,
+        enum: ["iserveu", ""],
+        default: "",
+    },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Beneficiary", BeneficiarySchema);
