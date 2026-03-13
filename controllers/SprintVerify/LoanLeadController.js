@@ -19,16 +19,31 @@ function getPaysprintHeaders() {
 
 exports.Generate_URL = async (req, res) => {
     try {
-    const { merchantcode, name, mobile_no, email, product } = req.body;
-    const refid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
-    const payload = {
-        refid,
-        merchantcode,
-        name,
-        email,
-        mobile_no,
-        product
-    }
+        const { merchantcode, name, mobile_no, email, product } = req.body;
+        const uniqueId = {
+            uid: req.user.id.toString(),
+            timestamp: `BS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`
+        };
+
+        const encoded = Buffer.from(JSON.stringify(uniqueId)).toString("base64");
+
+        const refid = encoded;
+
+        if (!refid) {
+            return res.status(400).json({
+                success: false,
+                message: "refid is required",
+            });
+        }
+
+        const payload = {
+            refid,
+            merchantcode,
+            name,
+            email,
+            mobile_no,
+            product
+        }
         console.log(getPaysprintHeaders());
 
         const response = await axios.post("https://api.paysprint.in/api/v1/service/lead/generation",

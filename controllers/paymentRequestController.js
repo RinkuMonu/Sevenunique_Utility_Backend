@@ -547,17 +547,8 @@ exports.walletTransfer = async (req, res) => {
           token: senderMeta.fcm_Token,
           notification: {
             title: "Finunique",
-            body: `₹ ${data?.amount
-              ? (data.amount / 100).toFixed(2)
-              : "0.00"} transferred to ${receiver?.name || "User"}`,
-          },
-          data: {
-            type: "money_transfer",
-            role: "sender",
-            amount: data?.amount
-              ? (data.amount / 100).toFixed(2)
-              : "0.00",
-          },
+            body: `₹ ${transferAmount || "0.00"} transferred to ${receiver?.name || "User"}`,
+          }
         })
       );
     }
@@ -568,17 +559,8 @@ exports.walletTransfer = async (req, res) => {
           token: receiverMeta.fcm_Token,
           notification: {
             title: "Finunique",
-            body: `₹ ${data?.amount
-              ? (data.amount / 100).toFixed(2)
-              : "0.00"} received from ${sender?.name || "User"}`,
-          },
-          data: {
-            type: "money_transfer",
-            role: "receiver",
-            amount: data?.amount
-              ? (data.amount / 100).toFixed(2)
-              : "0.00",
-          },
+            body: `₹ ${transferAmount || "0.00"} received from ${sender?.name || "User"}`,
+          }
         })
       );
     }

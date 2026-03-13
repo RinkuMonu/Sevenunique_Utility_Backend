@@ -1,61 +1,113 @@
+// const mongoose = require("mongoose");
+
+// const RemarkSchema = new mongoose.Schema(
+//   {
+//     by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+//     note: String,
+//     at: { type: Date, default: Date.now },
+//   },
+//   { _id: false }
+// );
+
+// const DocSchema = new mongoose.Schema(
+//   {
+//     name: String,
+//     url: String,
+//     type: String,
+//   },
+//   { _id: false }
+// );
+
+// const LoanLeadSchema = new mongoose.Schema({
+//   retailerId: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     required: true,
+//   },
+
+//   loanTypeId: { type: mongoose.Schema.Types.ObjectId, ref: "LoanCategory" },
+//   loanType: { type: String, required: true }, // denormalized name for easy filtering
+
+//   customerName: { type: String, required: true, trim: true },
+//   customerMobile: { type: String, required: true, trim: true },
+//   customerEmail: { type: String, trim: true },
+//   customerPAN: { type: String, trim: true },
+//   customerAadhaar: { type: String, trim: true },
+
+//   amountRequested: { type: Number, required: true },
+//   tenureMonths: { type: Number },
+//   purpose: { type: String },
+
+//   documents: [DocSchema],
+
+//   status: {
+//     type: String,
+//     enum: ["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "DISBURSED"],
+//     default: "PENDING",
+//   },
+
+//   adminNote: { type: String },
+//   remarks: [RemarkSchema],
+
+//   createdAt: { type: Date, default: Date.now },
+//   updatedAt: { type: Date, default: Date.now },
+// });
+
+// LoanLeadSchema.pre("save", function (next) {
+//   this.updatedAt = Date.now();
+//   next();
+// });
+
+// module.exports = mongoose.model("LoanLead", LoanLeadSchema);
+
+
+
 const mongoose = require("mongoose");
 
-const RemarkSchema = new mongoose.Schema(
+const loanLeadSchema = new mongoose.Schema(
   {
-    by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    note: String,
-    at: { type: Date, default: Date.now },
-  },
-  { _id: false }
-);
+    retailerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
 
-const DocSchema = new mongoose.Schema(
-  {
+    refId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+
+    merchantcode: String,
+
     name: String,
-    url: String,
-    type: String,
+
+    mobile: String,
+
+    email: String,
+
+    product: {
+      type: String,
+      enum: ["PL", "BL", "IL", "CC", "SA"],
+    },
+
+    pincode: String,
+
+    state: String,
+
+    executive_status: String,
+
+    executive_updated_date: Date,
+
+    executive_remarks: String,
+
+    provider: {
+      type: String,
+      default: "paysprint",
+    },
+
+    extraData: Object,
   },
-  { _id: false }
+  { timestamps: true }
 );
 
-const LoanLeadSchema = new mongoose.Schema({
-  retailerId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
-  },
-
-  loanTypeId: { type: mongoose.Schema.Types.ObjectId, ref: "LoanCategory" },
-  loanType: { type: String, required: true }, // denormalized name for easy filtering
-
-  customerName: { type: String, required: true, trim: true },
-  customerMobile: { type: String, required: true, trim: true },
-  customerEmail: { type: String, trim: true },
-  customerPAN: { type: String, trim: true },
-  customerAadhaar: { type: String, trim: true },
-
-  amountRequested: { type: Number, required: true },
-  tenureMonths: { type: Number },
-  purpose: { type: String },
-
-  documents: [DocSchema],
-
-  status: {
-    type: String,
-    enum: ["PENDING", "UNDER_REVIEW", "APPROVED", "REJECTED", "DISBURSED"],
-    default: "PENDING",
-  },
-
-  adminNote: { type: String },
-  remarks: [RemarkSchema],
-
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-});
-
-LoanLeadSchema.pre("save", function (next) {
-  this.updatedAt = Date.now();
-  next();
-});
-
-module.exports = mongoose.model("LoanLead", LoanLeadSchema);
+module.exports = mongoose.model("loanLead", loanLeadSchema);
