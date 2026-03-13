@@ -34,6 +34,7 @@ const redis = require("../middleware/redis.js");
 const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
 const { generatePaymentQR } = require("../middleware/generatePaymentQR .js");
 const { default: admin } = require("../firebase.js");
+const logoutQueue = require("../workers/logoutWorker.js")
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -190,6 +191,10 @@ const logoutController = async (req, res) => {
 
     if (redis) {
       try {
+        await logoutQueue.add("logoutJob", {
+          userId,
+          time: new Date()
+        });
         await redis.del(`USER_SESSION:${userId}`);
       } catch (err) {
         console.error("REDIS LOGOUT FAILED:", err.message);
@@ -641,7 +646,6 @@ const loginController = async (req, res) => {
     }
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
     const deviceName = getDeviceName(req.headers["user-agent"]);
-
     if (user.forceLogout === true) {
       user.forceLogout = false
       await user.save();

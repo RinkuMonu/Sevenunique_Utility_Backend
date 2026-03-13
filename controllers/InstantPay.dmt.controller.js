@@ -985,7 +985,7 @@ exports.TransactionStatus = async (req, res) => {
 
     const ipayRes = await axios.post(
       `${BASE_URL}/reports/txnStatus`,
-      { externalRef, transactionDate }, 
+      { externalRef, transactionDate },
       {
         headers: {
           ...getHeaders(),
