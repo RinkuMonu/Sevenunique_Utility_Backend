@@ -28,6 +28,7 @@ const redis = require("./middleware/redis.js");
 const aeronpayRouter = require("./routes/aeronpayRoutes.js");
 const licRouter = require("./routes/LIC_Router.js");
 const loanLeadRouter = require("./routes/LoanLead.js");
+const msg91Router = require("./routes/msg91Routes.js");
 const app = express();
 planCheckCronJob();
 
@@ -103,6 +104,7 @@ app.use("/api/assets", require("./routes/device.routes"));
 app.use("/api/banners", bannerRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
+app.use("/api/msg91", msg91Router);
 app.get("/health", (req, res) =>
   res.json({ ip: req.ip, message: "Welcome to the FINUNIQUE api's" })
 );

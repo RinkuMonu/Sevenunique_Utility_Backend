@@ -74,7 +74,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     }
   } else {
     if (operatorName) {
-      matchedSlab = packageData.slabs.find(s => s.operator == operatorName.toLowerCase());
+      matchedSlab = packageData.slabs.find(s => s.operator?.toLowerCase() == operatorName.toLowerCase()) || packageData.slabs[0];
       if (amount <= 0) {
         throw new Error(`Please enter a vaild amount.`);
       }
@@ -108,7 +108,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     adminAmt = 0,
     chargeAmount = 0;
 
-  chargeAmount = calc(matchedSlab.chargeAmount) || 0;
+  chargeAmount = calc(matchedSlab?.chargeAmount) || 0;
 
 
   retailerAmt = calc(matchedSlab.retailer) || 0;
@@ -211,23 +211,25 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
     throw new Error("No matching default provider found in Service");
   }
 
-  let commissions;
+  let commissions = await commissionModel.findOne({
+    service: service._id,
+    isDefault: true,
+    isActive: true,
+  });
 
+  let selectedSlab = null;
 
-  if (!operatorName) {
-    commissions = await commissionModel.findOne({
-      service: service._id,
-      isDefault: true,
-      isActive: true,
-    });
-  } else {
+  if (commissions && commissions.slabs?.length) {
 
-    commissions = await commissionModel.findOne({
-      service: service._id,
-      isDefault: true,
-      isActive: true,
-      "slabs.operator": operatorName.toLowerCase(),
-    });
+    if (operatorName) {
+      selectedSlab = commissions.slabs.find(
+        (slab) => slab.operator === operatorName.toLowerCase()
+      );
+    }
+
+    if (!selectedSlab) {
+      selectedSlab = commissions.slabs[0];
+    }
   }
 
 

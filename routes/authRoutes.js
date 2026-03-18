@@ -96,7 +96,7 @@ router.put(
   updateUserDocs
 );
 
-router.post("/login", loginController);
+router.post("/login", loginController); 
 router.post("/logout", authenticateToken, logoutController);
 router.get("/last-logins", authenticateToken, getLoginHistory);
 router.put("/profile", authenticateToken, updateProfileController);

@@ -23,5 +23,8 @@ router.get("/", authenticateToken, C.listLeads);
 router.get("/export", authenticateToken, C.exportLoans);
 router.get("/:id", authenticateToken, C.getLeadById);
 router.patch("/:id", authenticateToken, authorizeRoles("Admin"), C.updateLead);
+router.patch("/categories/status/:id", C.toggleStatus);
+router.put("/categories/:id", C.updateLoanCategory);
+router.delete("/categories/:id", C.deleteLoanCategory);
 
 module.exports = router;

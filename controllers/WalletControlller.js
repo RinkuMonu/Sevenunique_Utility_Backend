@@ -647,7 +647,7 @@ exports.getLastTransactionsByService = async (req, res) => {
     })
       .select("transaction_reference_id")
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(30)
       .lean();
 
     const referenceIds = transactions.map(
@@ -661,11 +661,29 @@ exports.getLastTransactionsByService = async (req, res) => {
       });
     }
 
-    const reports = await bbpsModel.find({
-      transactionId: { $in: referenceIds },
-    })
-      .select("operator amount customerNumber transactionId updatedAt")
-      .lean();
+    const reports = await bbpsModel.aggregate([
+      {
+        $match: {
+          transactionId: { $in: referenceIds },
+        },
+      },
+      {
+        $sort: { updatedAt: -1 },
+      },
+      {
+        $group: {
+          _id: "$customerNumber",
+          operator: { $first: "$operator" },
+          amount: { $first: "$amount" },
+          customerNumber: { $first: "$customerNumber" },
+          transactionId: { $first: "$transactionId" },
+          updatedAt: { $first: "$updatedAt" },
+        },
+      },
+      {
+        $limit: 5,
+      },
+    ]);
 
     res.status(200).json({
       success: true,

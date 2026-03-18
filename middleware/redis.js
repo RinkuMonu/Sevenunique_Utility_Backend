@@ -10,7 +10,7 @@ if (process.env.REDIS_ENABLED == "true") {
         host: "127.0.0.1",
         port: 6379,
         enableOfflineQueue: false, //(no api carsh... safe mode)
-        maxRetriesPerRequest: 1,
+        maxRetriesPerRequest: null,
         retryStrategy(times) {
             if (times > 3) {
                 console.error("❌ Redis retry limit reached, stopping retries", times);

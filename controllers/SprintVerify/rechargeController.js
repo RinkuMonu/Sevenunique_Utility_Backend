@@ -301,11 +301,11 @@ exports.doRecharge = async (req, res, next) => {
     console.log("📲 Recharge API response:", rechargeRes.data);
     // console.log(rechargeRes);
 
-    const { response_code, message } = rechargeRes.data;
+    const { response_code, message, operatorid } = rechargeRes.data;
     let status = "Failed";
 
-    if (response_code === 1) status = "Success";
-    else if ([0, 2].includes(response_code)) status = "Pending";
+    if (response_code === 1 && operatorid) status = "Success";
+    else if ([0, 1, 2].includes(response_code)) status = "Pending";
 
     console.log("🔄 Recharge record status updated:", status);
 
@@ -524,6 +524,12 @@ exports.doRecharge = async (req, res, next) => {
   } catch (err) {
     await session.abortTransaction();
     console.error("❌ Error in doRecharge:", err);
+    if (err?.response?.data?.response_code === 16) {
+      return res.status(402).json({
+        status: err?.response?.data?.status,
+        message: "Finunique service is under maintenance. Kindly try again after some time."
+      });
+    }
     return next(err);
   } finally {
     // RECHARGE LOCK RELEASE (SAFE)

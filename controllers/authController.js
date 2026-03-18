@@ -188,14 +188,6 @@ const logoutController = async (req, res) => {
       });
     }
 
-    if (redis) {
-      try {
-        await redis.del(`USER_SESSION:${userId}`);
-      } catch (err) {
-        console.error("REDIS LOGOUT FAILED:", err.message);
-      }
-    }
-
     return res.status(200).json({
       success: true,
       message: "Logout successful",
@@ -583,7 +575,7 @@ const loginController = async (req, res) => {
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
-    if (user.isKycVerified === false) {
+    if (user.isKycVerified === false && user.role !== "User") {
       return res
         .status(403)
         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
@@ -641,7 +633,6 @@ const loginController = async (req, res) => {
     }
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
     const deviceName = getDeviceName(req.headers["user-agent"]);
-
     if (user.forceLogout === true) {
       user.forceLogout = false
       await user.save();
@@ -1470,7 +1461,7 @@ const getUsersWithFilters = async (req, res) => {
     } = req.query;
 
     const isDistributorOnly =
-      (role === "Distributor" || role === "Retailer") && forList == "true" &&
+      (role === "Distributor" || role === "Retailer" || role === "User") && forList == "true" &&
       !keyword &&
       !from &&
       !to &&
@@ -2785,13 +2776,18 @@ const getDashboardStats = async (req, res, next) => {
 
 const getServiceUsage = async (req, res) => {
   try {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+    endOfMonth.setDate(0);
+    endOfMonth.setHours(23, 59, 59, 999);
     const user = req.user;
     let matchQuery = { status: "Success" };
 
-    if (user.role === "Admin") {
-      // ✅ pura system
-      matchQuery = { status: "Success" };
-    } else if (user.role === "Distributor") {
+    if (user.role === "Distributor") {
       const retailers = await User.find(
         { distributorId: user.id, role: "Retailer" },
         "_id"
@@ -2809,7 +2805,14 @@ const getServiceUsage = async (req, res) => {
     }
 
     const serviceUsage = await CommissionTransaction.aggregate([
-      { $match: matchQuery },
+      {
+        $match: {
+          ...matchQuery, createdAt: {
+            $gte: startOfMonth,
+            $lte: endOfMonth,
+          }
+        }
+      },
       {
         $group: {
           _id: "$service",
@@ -2822,7 +2825,7 @@ const getServiceUsage = async (req, res) => {
     // service populate karo
     const populatedUsage = await servicesModal.populate(serviceUsage, {
       path: "_id",
-      select: "name",
+      select: "name"
     });
 
     const formatted = populatedUsage.map((item) => ({
