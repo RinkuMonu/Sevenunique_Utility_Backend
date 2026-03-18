@@ -72,7 +72,7 @@ router.post(
   "/",
   celebrate(serviceValidator),
   authenticateToken,
-  authorizeRoles("Admin"),
+  authorizeRoles("Admin"), 
   serviceController.upsertService
 );
 router.post("/credit-score/check", authenticateToken, serviceController.getCreditScore);

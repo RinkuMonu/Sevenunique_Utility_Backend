@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/transactionModel.js");
 const userModel = require("../models/userModel.js");
 const { invalidateUserProfileCacheByService } = require("../middleware/redisValidation.js");
+const redis = require("../middleware/redis.js");
 
 
 exports.upsertService = async (req, res) => {
@@ -153,6 +154,18 @@ exports.getAllServices = async (req, res) => {
     limit = limit ? parseInt(limit) : null;
 
     const skip = limit ? (page - 1) * limit : 0;
+    let serviceKey = `services:user:${req.user.id}`;
+    if (redis) {
+      try {
+        const data = await redis.get(serviceKey);
+        if (data) {
+          console.log("Redis hit for services");
+          return res.status(200).json(JSON.parse(data));
+        }
+      } catch (err) {
+        console.error("Redis error in getAllServices:", err);
+      }
+    }
 
     const total = await Service.countDocuments(filter);
     // console.log("Total services found:", total);
@@ -163,14 +176,23 @@ exports.getAllServices = async (req, res) => {
     }
 
     const services = await query;
-
-    res.json({
+    const responseData = {
       success: true,
       total,
       page,
       pages: limit ? Math.ceil(total / limit) : 1,
       data: services,
-    });
+    }
+
+    if (redis && serviceKey) {
+      try {
+        await redis.setex(serviceKey, 60 * 60 * 24, JSON.stringify(responseData))
+      } catch (err) {
+        console.error("Redis set error in getAllServices:", err);
+      }
+    }
+
+    res.json( responseData );
   } catch (err) {
     console.error("Error in getAllServices:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
