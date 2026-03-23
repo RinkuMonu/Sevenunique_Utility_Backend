@@ -828,17 +828,23 @@ exports.callbackPayIn = async (req, res) => {
         return res.status(200).send(isSuccess ? successHTML : failureHTML);
       }
     } else {
+
       if (userMeta?.fcm_Token) {
-        await admin.messaging().send({
-          token: userMeta.fcm_Token,
-          notification: {
-            title: "Finunique",
-            body: isSuccess
-              ? `₹ ${(data?.amount / 100).toFixed(2)} added to your wallet`
-              : "Transaction failed",
-          },
-        });
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: isSuccess
+                ? `₹ ${(data?.amount / 100).toFixed(2)} added to your wallet`
+                : "Transaction failed",
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
       }
+
       return res.status(200).send(isSuccess ? successHTML : failureHTML);
     }
   } catch (error) {

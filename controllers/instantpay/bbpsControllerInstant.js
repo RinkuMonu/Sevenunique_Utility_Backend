@@ -226,7 +226,7 @@ exports.makePayment = async (req, res, next) => {
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       initChannel: Joi.string().required(),
-      externalRef: Joi.string().required(),
+      // externalRef: Joi.string().required(),
       user_id: Joi.string().required(),
       mpin: Joi.string().required(),
       category: Joi.string().required(),
@@ -530,21 +530,29 @@ exports.makePayment = async (req, res, next) => {
 
 
     await session.commitTransaction();
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `Recharge ${statusUpdate} ₹ ${transactionAmount}`,
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Recharge ${statusUpdate} ₹ ${transactionAmount}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
+
     forward(res, { ...data, scratchCoupon });
 
   } catch (err) {
 
     console.error("❌ makePayment Error:", err || err.message);
-    await session.abortTransaction();
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     next(err);
   } finally {
     session.endSession();

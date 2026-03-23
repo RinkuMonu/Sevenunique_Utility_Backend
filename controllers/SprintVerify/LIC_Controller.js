@@ -198,13 +198,17 @@ exports.payBill = async (req, res) => {
             session.endSession();
 
             if (userMeta?.fcm_Token) {
-                await admin.messaging().send({
-                    token: userMeta.fcm_Token,
-                    notification: {
-                        title: "Finunique",
-                        body: `Insurance Premium Bill Pay for CA Number - ${canumber} (${mode})`
-                    },
-                });
+                try {
+                    await admin.messaging().send({
+                        token: userMeta.fcm_Token,
+                        notification: {
+                            title: "Finunique",
+                             body: `Insurance Premium Bill Pay for CA Number - ${canumber} (${mode})`
+                        },
+                    });
+                } catch (err) {
+                    console.error("❌ FCM Send Error:", err.message);
+                }
             }
 
             return res.json({

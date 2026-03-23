@@ -456,14 +456,19 @@ exports.beneficiaryRegistrationVerify = async (req, res) => {
         },
       }
     );
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `Beneficiary registration verified successfully.`
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Beneficiary registration verified successfully.`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
 
     res.status(200).json({
@@ -775,7 +780,7 @@ exports.makeTransaction = async (req, res) => {
         longitude,
         referenceKey,
         otp,
-        externalRef:referenceid,
+        externalRef: referenceid,
       },
       {
         headers: {
@@ -920,14 +925,19 @@ exports.makeTransaction = async (req, res) => {
 
     await session.commitTransaction();
 
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `${transferAmount} has been transferred to account ${accountNumber}`
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${transferAmount} has been transferred to account ${accountNumber}`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
     res
       .status(200)

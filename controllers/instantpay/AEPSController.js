@@ -208,14 +208,19 @@ exports.outletLogin = async (req, res, next) => {
       },
     });
     console.log("✅ Outlet Login Response:", response.data);
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `Outlet Login successful`
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Outlet Login successful`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
 
     return res.json(response.data);
@@ -434,13 +439,17 @@ exports.cashWithdrawal = async (req, res) => {
       await session.commitTransaction();
 
       if (userMeta?.fcm_Token) {
-        await admin.messaging().send({
-          token: userMeta.fcm_Token,
-          notification: {
-            title: "Finunique",
-            body: `AEPS Withdrawal successful`
-          },
-        });
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Withdrawal successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
       }
       res.status(200).json({ status: true, message: "AEPS Withdrawal successful", data: result });
 
@@ -1061,13 +1070,17 @@ exports.deposite = async (req, res, next) => {
       }], { session });
 
       if (userMeta?.fcm_Token) {
-        await admin.messaging().send({
-          token: userMeta.fcm_Token,
-          notification: {
-            title: "Finunique",
-            body: `AEPS Deposit successful`
-          },
-        });
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Deposit successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
       }
 
       await session.commitTransaction();

@@ -524,15 +524,21 @@ export const makeTransaction = async (req, res) => {
             }], { session });
 
             await session.commitTransaction();
+
             if (userMeta?.fcm_Token) {
-                await admin.messaging().send({
-                    token: userMeta.fcm_Token,
-                    notification: {
-                        title: "Finunique",
-                        body: `${transferAmount} has been transferred to account ${accountNumber}`
-                    },
-                });
+                try {
+                    await admin.messaging().send({
+                        token: userMeta.fcm_Token,
+                        notification: {
+                            title: "Finunique",
+                            body: `${transferAmount} has been transferred to account ${accountNumber}`
+                        },
+                    });
+                } catch (err) {
+                    console.error("❌ FCM Send Error:", err.message);
+                }
             }
+
             return res.status(200).json({ status: true, message: "Transaction successful.", data: result });
         }
         else {

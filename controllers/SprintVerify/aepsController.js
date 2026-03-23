@@ -23,7 +23,7 @@ const { promises } = require("dns");
 
 const headers = {
   Token: generatePaysprintJWT(),
-  Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P,
+  Authorisedkey: process.env.PAYSPRINT_AUTH_KEY,
 };
 
 const BASE_URL =

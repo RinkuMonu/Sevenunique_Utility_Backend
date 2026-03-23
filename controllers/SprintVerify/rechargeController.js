@@ -505,13 +505,15 @@ exports.doRecharge = async (req, res, next) => {
     await session.commitTransaction();
     console.log("✅ Recharge transaction committed successfully");
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
+      admin.messaging().send({
         token: userMeta.fcm_Token,
         notification: {
           title: "Finunique",
           body: `Recharge ${status} ₹ ${amount}`
         },
-      });
+      }).then(() => {
+        console.log("FCM sent successfully");
+      }).catch(err => console.log("FCM Error:", err));
     }
 
     return res.status(status === "Success" ? 200 : status === "Pending" ? 202 : 400).json({
@@ -522,8 +524,10 @@ exports.doRecharge = async (req, res, next) => {
     });
 
   } catch (err) {
-    await session.abortTransaction();
     console.error("❌ Error in doRecharge:", err);
+    if (session.inTransaction()) {  
+      await session.abortTransaction();
+    }
     if (err?.response?.data?.response_code === 16) {
       return res.status(402).json({
         status: err?.response?.data?.status,
