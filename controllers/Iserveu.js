@@ -397,15 +397,21 @@ exports.aepsCallback = async (req, res) => {
     }
 
     await session.commitTransaction();
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `${txnType} Success`
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txnType} Success`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
+
     res.status(200).json({ status: true, message: `${txnType} Success` });
   } catch (err) {
     console.log("Callback Error:", err);
@@ -648,15 +654,21 @@ exports.matmCallback = async (req, res) => {
     }], { session });
 
     await session.commitTransaction();
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `${txfinalTypenType, finalType} `
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txfinalTypenType, finalType} `
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
+
     return res.json({ status: 1, message: "Cash Withdrawal Success" });
   } catch (err) {
     console.error("mATM Callback Error:", err);

@@ -144,14 +144,19 @@ router.patch("/approve/:id", async (req, res, next) => {
       await sendKYCApprovalEmail(user, scheduledTime);
     }
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `KYC approved. Scheduled Time: ${scheduledTime}`,
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `KYC approved. Scheduled Time: ${scheduledTime}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
+
     // console.log("user user", user);
     res.json({ success: true, message: "KYC approved and email sent", kyc });
   } catch (Error) {
@@ -181,14 +186,19 @@ router.patch("/verify", async (req, res, next) => {
       { new: true }
     );
     const userMeta = await userMetaModel.findOne({ userId });
+
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `KYC completed`,
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `KYC completed`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
 
     res.json({ message: "KYC completed", kyc });

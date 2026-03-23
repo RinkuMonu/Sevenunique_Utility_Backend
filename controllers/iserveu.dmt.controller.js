@@ -487,16 +487,19 @@ exports.moneyTransfer = async (req, res) => {
     // ---------------- NOTIFICATION ----------------
 
     if (userMeta?.fcm_Token) {
-
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `${requestedAmount} transferred to ${accountNumber}`
-        }
-      });
-
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${requestedAmount} transferred to ${accountNumber}`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
+
 
     res.json({
       status: true,

@@ -212,21 +212,49 @@ exports.transfer = async (req, res) => {
       },
     };
 
-    const aeronpayRes = await axios.post(
-      "https://api.sevenunique.com/aeronpay/transfer",
-      payload,
-    );
-    console.log("aeronpayRes", aeronpayRes.data);
+    let aeronpayRes;
+    try {
+      aeronpayRes = await axios.post(
+        "https://api.sevenunique.com/aeronpay/transfer",
+        payload,
+      );
+
+    } catch (error) {
+      console.log("API FAILED:", error.response?.data);
+
+      // 💰 Refund wallet
+      const updated = await userModel.findByIdAndUpdate(
+        { _id: userId },
+        { $inc: { eWallet: required } },
+        { new: true }
+      );
+      await payOutModel.updateOne(
+        { reference: referenceId },
+        { status: "Failed" }
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: referenceId },
+        { status: "Failed", balance_after: updated.eWallet, }
+      );
+
+
+      return res.status(400).json({
+        success: false,
+        message: "Transfer failed & refunded",
+      });
+    }
+    console.log("aeronpayRes", aeronpayRes?.data);
     logApiCall({
       url: "https://api.sevenunique.com/aeronpay/transfer",
       requestData: { payload },
-      responseData: aeronpayRes.data,
+      responseData: aeronpayRes?.data,
     });
     return res.status(200).json({
       success: true,
       message: "Transfer initiated successfully",
       referenceId,
-      data: aeronpayRes.data,
+      data: aeronpayRes?.data,
     });
   } catch (error) {
     console.log(error);
@@ -238,7 +266,7 @@ exports.transfer = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Transfer failed",
-      error: error.response?.data,
+      error: error.response?.data?.error,
     });
   }
 };
@@ -562,13 +590,17 @@ exports.callBack = async (req, res) => {
     session.endSession();
 
     if (userMeta?.fcm_Token) {
-      await admin.messaging().send({
-        token: userMeta.fcm_Token,
-        notification: {
-          title: "Finunique",
-          body: `Withdrawal ${Status} ₹ ${payout.amount}`,
-        },
-      });
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Withdrawal ${Status} ₹ ${payout.amount}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
     }
 
     return res.status(200).json({

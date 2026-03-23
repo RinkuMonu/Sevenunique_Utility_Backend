@@ -519,7 +519,7 @@ const verifyOTPController = async (req, res) => {
 // };
 
 
-const loginController = async (req, res) => {
+const   loginController = async (req, res) => {
   try {
     const {
       mobileNumber,
