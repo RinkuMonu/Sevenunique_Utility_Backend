@@ -7,12 +7,19 @@ const nodemailer = require("nodemailer");
 const path = require("path");
 const userModel = require("../models/userModel");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs, logApiCall } = require("../utils/chargeCaluate");
+const {
+  getApplicableServiceCharge,
+  calculateCommissionFromSlabs,
+  logApiCall,
+} = require("../utils/chargeCaluate");
 const AEPSTransaction = require("../models/aepsModels/withdrawalEntry");
 const Transaction = require("../models/transactionModel");
 const { distributeCommission } = require("../utils/distributerCommission");
 const matmModel = require("../models/matm.model");
-
+const onboardSendEmail = require("../models/onboardSendEmail");
+const CommissionTransaction = require("../models/CommissionTransaction");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const { AEPS_PASS_KEY, AEPS_CLIENT_ID, AEPS_CLIENT_SECRET, AEPS_ENCR_KEY } =
   process.env;
@@ -69,7 +76,6 @@ exports.aepsCallback = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-
     const {
       statusDesc,
       productCode,
@@ -80,9 +86,8 @@ exports.aepsCallback = async (req, res) => {
       txnId,
       rrn,
       username,
-      clientRefID
+      clientRefID,
     } = req.body;
-
 
     const txnTypeMap = {
       AEPS_CASH_WITHDRAWAL: "Withdrawal",
@@ -93,7 +98,6 @@ exports.aepsCallback = async (req, res) => {
 
     const finalType = txnTypeMap[txnType] || "Unknown";
 
-
     const statusMap = {
       SUCCESS: "Success",
       AUTH_SUCCESS: "Success",
@@ -101,25 +105,24 @@ exports.aepsCallback = async (req, res) => {
       FAILED: "Failed",
       AUTH_FAILED: "Failed",
       FAILURE: "Failed",
+      AUTH_DECLINE: "Failed",
+      REFUNDED: "Refunded",
     };
-
 
     const finalStatus = statusMap[status] || "Pending";
 
-
     const user = await userModel.findOne({ UserId: username }).session(session);
+    const userMeta = await userMetaModel.findOne({ UserId: user._id }).session(session);
     if (!user) throw new Error("User not found");
 
     let category = null;
 
     // Category mapping
     if (txnType === "AEPS_CASH_WITHDRAWAL") {
-      category = "6918314027e9c0be214ff15d";
-    } else {
       category = "68c9369d8fa1dda33eb541b6";
+    } else {
+      category = "6918314027e9c0be214ff15d";
     }
-
-
 
     let commission = {
       charge: 0,
@@ -132,141 +135,235 @@ exports.aepsCallback = async (req, res) => {
 
     let required = 0;
 
-    const { commissions, service } = await getApplicableServiceCharge(user._id, category);
+    const { commissions, service } = await getApplicableServiceCharge(
+      user._id,
+      category
+    );
 
     if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
-
       commission = commissions
         ? calculateCommissionFromSlabs(txnAmount, commissions)
         : commission;
     }
-
-    required =
-      Number(txnAmount) +
-      Number(commission.charge) +
-      Number(commission.tds) +
-      Number(commission.gst) -
-      Number(commission.retailer);
-
-    const usableBalance = user.eWallet - (user.cappingMoney || 0);
-
-    if (status === "SUCCESS" && txnType === "AEPS_CASH_DEPOSIT") {
-      // For deposit wallet deduction
-      if (usableBalance < required) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          error: true,
-          message: `Insufficient wallet balance. Required: ₹${required}, Available: ₹${usableBalance}`
-        });
-      }
+    if (txnType === "AEPS_CASH_WITHDRAWAL") {
+      required =
+        Number(txnAmount) -
+        Number(commission.charge) -
+        Number(commission.tds) -
+        Number(commission.gst) +
+        Number(commission.retailer);
+    }
+    if (txnType === "AEPS_CASH_DEPOSIT") {
+      required =
+        Number(txnAmount) +
+        Number(commission.charge) +
+        Number(commission.tds) +
+        Number(commission.gst) -
+        Number(commission.retailer);
     }
 
-
-    await AEPSTransaction.create([{
-      userId: user._id,
-      balance_after: user.eWallet,
-      type: finalType,
-      mobilenumber: user.mobileNumber,
-      adhaarnumber: customeridentIfication,
-      amount: txnAmount,
-      clientrefno: clientRefID,
-      bankrrn: rrn,
-      status: finalStatus,
-      charges: commission.charge,
-      gst: commission.gst,
-      tds: commission.tds,
-      retailerCommission: commission.retailer,
-      distributorCommission: commission.distributor,
-      adminCommission: commission.admin,
-      apiResponse: req.body
-    }], { session });
-
-
-    if (txnType === "AEPS_MINI_STATEMENT" || txnType === "AEPS_BALANCE_ENQUIRY") {
-
-      const rewardAmount = Number(
-        txnType === "AEPS_MINI_STATEMENT"
-          ? commissions?.aepsMiniStatement
-          : commissions?.aepsBalanceEnquiry
-      ) || 0;
+    if (
+      txnType === "AEPS_MINI_STATEMENT" ||
+      txnType === "AEPS_BALANCE_ENQUIRY"
+    ) {
+      const rewardAmount =
+        Number(
+          txnType === "AEPS_MINI_STATEMENT"
+            ? commissions?.aepsMiniStatement
+            : commissions?.aepsBalanceEnquiry
+        ) || 0;
 
       if (Number(rewardAmount) > 0) {
-
+        let updatedUser = user;
         // Wallet reward credit
         if (status === "SUCCESS") {
-          user.eWallet += Number(rewardAmount);
-          await user.save({ session });
+          updatedUser = await userModel.findOneAndUpdate(
+            { UserId: username },
+            { $inc: { eWallet: +Number(rewardAmount) } },
+            { new: true, session }
+          );
         }
 
         // Create reward transaction
-        await Transaction.create([{
-          user_id: user._id,
-          transaction_type: "credit",
-          type: service._id,
-          amount: 0,
-          totalCredit: rewardAmount,
-          balance_after: user.eWallet,
-          description: `${txnType} Reward`,
-          status: finalStatus,
-          transaction_reference_id: clientRefID
-        }], { session });
+        await Transaction.create(
+          [
+            {
+              user_id: user._id,
+              transaction_type: "credit",
+              type: service._id,
+              amount: 0,
+              totalCredit: rewardAmount,
+              balance_after: updatedUser.eWallet,
+              description: `${txnType} Reward`,
+              status: finalStatus,
+              transaction_reference_id: clientRefID,
+            },
+          ],
+          { session }
+        );
+
+        await AEPSTransaction.create(
+          [
+            {
+              userId: user._id,
+              balance_after: updatedUser.eWallet,
+              type: finalType,
+              mobilenumber: user.mobileNumber,
+              adhaarnumber: customeridentIfication,
+              amount: 0,
+              clientrefno: clientRefID,
+              bankrrn: rrn,
+              status: finalStatus,
+              charges: commission.charge,
+              gst: commission.gst,
+              tds: commission.tds,
+              retailerCommission: commission.retailer,
+              distributorCommission: commission.distributor,
+              adminCommission: commission.admin,
+              apiResponse: req.body,
+              provider: "iserveu"
+            },
+          ],
+          { session }
+        );
       }
 
       await session.commitTransaction();
       return res.status(200).json({
         status: true,
         message: `${txnType} processed`,
-        rewardGiven: Number(rewardAmount) > 0 ? rewardAmount : 0
+        rewardGiven: Number(rewardAmount) > 0 ? rewardAmount : 0,
       });
     }
 
-
     if (status !== "SUCCESS") {
+      await Transaction.create(
+        [
+          {
+            user_id: user._id,
+            transaction_type:
+              txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
+            type: service._id,
+            amount: txnAmount,
+            gst: commission.gst,
+            tds: commission.tds,
+            charge: commission.charge,
+            totalDebit: 0,
+            totalCredit: 0,
+            balance_after: user.eWallet,
+            payment_mode: "wallet",
+            status: finalStatus,
+            description: `AEPS ${txnType} Failed`,
+            transaction_reference_id: clientRefID,
+          },
+        ],
+        { session }
+      );
 
-      await Transaction.create([{
-        user_id: user._id,
-        transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
-        type: service._id,
-        amount: txnAmount,
-        balance_after: user.eWallet,
-        status: finalStatus,
-        description: `AEPS ${txnType} Failed`,
-        transaction_reference_id: clientRefID
-      }], { session });
+      await AEPSTransaction.create(
+        [
+          {
+            userId: user._id,
+            balance_after: user.eWallet,
+            type: finalType,
+            mobilenumber: user.mobileNumber,
+            adhaarnumber: customeridentIfication,
+            amount: txnAmount,
+            clientrefno: clientRefID,
+            bankrrn: rrn,
+            status: finalStatus,
+            charges: commission.charge,
+            gst: commission.gst,
+            tds: commission.tds,
+            retailerCommission: commission.retailer,
+            distributorCommission: commission.distributor,
+            adminCommission: commission.admin,
+            apiResponse: req.body,
+            provider: "iserveu"
+          },
+        ],
+        { session }
+      );
 
       await session.commitTransaction();
       return res.status(200).json({
         status: false,
-        message: `${txnType} Failed`
+        message: `${txnType} Failed`,
       });
     }
 
+    let updatedUser = user;
     if (txnType === "AEPS_CASH_WITHDRAWAL") {
-      user.eWallet += Number(required);
-      await user.save({ session });
+      updatedUser = await userModel.findOneAndUpdate(
+        { UserId: username },
+        { $inc: { eWallet: +Number(required) } },
+        { new: true, session }
+      );
     }
 
     if (txnType === "AEPS_CASH_DEPOSIT") {
-      user.eWallet -= required;
-      await user.save({ session });
+      updatedUser = await userModel.findOneAndUpdate(
+        { UserId: username },
+        { $inc: { eWallet: -Number(required) } },
+        { new: true, session }
+      );
     }
 
     // Transaction Entry
-    await Transaction.create([{
-      user_id: user._id,
-      transaction_type: txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
-      type: service._id,
-      amount: txnAmount,
-      totalCredit: Number(commissions.retailer || 0),
-      totalDebit: required,
-      charge: commission.charge,
-      balance_after: user.eWallet,
-      gst: commission.gst,
-      tds: commission.tds,
-      transaction_reference_id: clientRefID,
-      description: `AEPS ${txnType}`,
-      status: finalStatus
-    }], { session });
+    await Transaction.create(
+      [
+        {
+          user_id: user._id,
+          transaction_type:
+            txnType === "AEPS_CASH_DEPOSIT" ? "debit" : "credit",
+          type: service._id,
+          amount: txnAmount,
+          totalCredit:
+            txnType === "AEPS_CASH_DEPOSIT"
+              ? Number(commission.retailer || 0)
+              : Number(required || 0),
+          totalDebit:
+            txnType === "AEPS_CASH_DEPOSIT"
+              ? Number(required)
+              : Number(commission.charge || 0) +
+              Number(commission.gst || 0) +
+              Number(commission.tds || 0),
+          charge: commission.charge,
+          balance_after: updatedUser.eWallet,
+          gst: commission.gst,
+          tds: commission.tds,
+          transaction_reference_id: clientRefID,
+          description: `AEPS ${txnType}`,
+          status: finalStatus,
+        },
+      ],
+      { session }
+    );
+
+    await AEPSTransaction.create(
+      [
+        {
+          userId: user._id,
+          balance_after: updatedUser.eWallet,
+          type: finalType,
+          mobilenumber: user.mobileNumber,
+          adhaarnumber: customeridentIfication,
+          amount: txnAmount,
+          clientrefno: clientRefID,
+          bankrrn: rrn,
+          status: finalStatus,
+          charges: commission.charge,
+          gst: commission.gst,
+          tds: commission.tds,
+          retailerCommission: commission.retailer,
+          distributorCommission: commission.distributor,
+          adminCommission: commission.admin,
+          apiResponse: req.body,
+          provider: "iserveu"
+        },
+      ],
+      { session }
+    );
 
     if (txnType === "AEPS_CASH_WITHDRAWAL" || txnType === "AEPS_CASH_DEPOSIT") {
       await distributeCommission({
@@ -277,13 +374,45 @@ exports.aepsCallback = async (req, res) => {
         commission,
         reference: clientRefID,
         description: "AEPS Commission",
-        session
+        session,
       });
+
+      await CommissionTransaction.create([{
+        referenceId: clientRefID,
+        service: service._id,
+        baseAmount: txnAmount,
+        charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+        netAmount: required,
+        roles: [
+          { userId: user._id, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+        ],
+        type: "credit",
+        status: "Success",
+        sourceRetailerId: user._id
+      }], { session });
+
+
     }
 
     await session.commitTransaction();
-    res.status(200).json({ status: true, message: `${txnType} Success` });
 
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txnType} Success`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
+    res.status(200).json({ status: true, message: `${txnType} Success` });
   } catch (err) {
     console.log("Callback Error:", err);
     await session.abortTransaction();
@@ -295,8 +424,11 @@ exports.aepsCallback = async (req, res) => {
 
 // 🔹 Callback Handler
 exports.matmCallback = async (req, res) => {
-
-  logApiCall({ url: "/m-atmCallback", requestData: {}, responseData: req.body });
+  logApiCall({
+    url: "/m-atmCallback",
+    requestData: {},
+    responseData: req.body,
+  });
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -306,9 +438,17 @@ exports.matmCallback = async (req, res) => {
     const data = req.body;
 
     // USER FIND
-    const user = await userModel.findOne({
-      UserId: data.username
-    }).session(session);
+    const user = await userModel
+      .findOne({
+        UserId: data.username,
+      })
+      .session(session);
+
+    const userMeta = await userMetaModel
+      .findOne({
+        userId: data.username,
+      })
+      .session(session);
 
     if (!user) throw new Error("User not found for this Outlet ID");
 
@@ -320,7 +460,8 @@ exports.matmCallback = async (req, res) => {
       AUTH_SUCCESS: "Success",
       SUCCESS: "Success",
       FAILED: "Failed",
-      AUTH_FAILED: "Failed"
+      AUTH_FAILED: "Failed",
+      AUTH_DECLINE: "Failed",
     };
     const finalStatus = statusMap[data.status] || "Pending";
 
@@ -331,60 +472,40 @@ exports.matmCallback = async (req, res) => {
     };
     const finalType = txnTypeMap[data.txnType] || "Unknown";
 
+    const categoryId = "6918432258971284f348b5c8";
 
     if (data.txnType === "mATM_BALANCE_ENQUIRY") {
-
-      await matmModel.create({
-        userId,
-        txnType: finalType,
-        productCode: data.productCode,
-        amount: 0,
-        charge: 0,
-        tds: 0,
-        gst: 0,
-        mobile: data.mobile_number,
-        rrn: data.rrn,
-        customeridentIfication: data.customeridentIfication,
-        clientRefID: data.clientRefID,
-        txnId: data.txnId,
-        status: finalStatus,
-        balance_after: user.eWallet,
-        description: data.statusDesc || "mATM Balance Enquiry"
-      });
+      await matmModel.create(
+        [
+          {
+            userId,
+            txnType: finalType,
+            productCode: data.productCode,
+            amount: 0,
+            charge: 0,
+            tds: 0,
+            gst: 0,
+            mobile: data.mobile_number,
+            rrn: data.rrn,
+            customeridentIfication: data.customeridentIfication,
+            clientRefID: data.clientRefID,
+            txnId: data.txnId,
+            status: finalStatus,
+            balance_after: user.eWallet,
+            description: data.statusDesc || "mATM Balance Enquiry",
+          },
+        ],
+        { session }
+      );
 
       await session.commitTransaction();
       return res.json({ status: 1, message: "Balance Enquiry Saved" });
     }
 
-
-    if (finalStatus !== "Success") {
-      await matmModel.create({
-        userId,
-        txnType: finalType,
-        productCode: data.productCode,
-        amount: txnAmount,
-        charge: commission.charge,
-        gst: commission.gst,
-        tds: commission.tds,
-        mobile: data.mobile_number,
-        rrn: data.rrn,
-        customeridentIfication: data.customeridentIfication,
-        clientRefID: data.clientRefID,
-        txnId: data.txnId,
-        status: finalStatus,
-        balance_after: user.eWallet,
-        description: data.statusDesc || "mATM Cash Withdrawal Failed",
-        retailerCommission: commission.retailer,
-        distributorCommission: commission.distributor,
-        adminCommission: commission.admin,
-      });
-
-      await session.commitTransaction();
-      return res.json({ status: 0, message: "Transaction Failed" });
-    }
-
-    const categoryId = "6918432258971284f348b5c8";
-    const { commissions, service } = await getApplicableServiceCharge(userId, categoryId);
+    const { commissions, service } = await getApplicableServiceCharge(
+      userId,
+      categoryId
+    );
 
     const commission = commissions
       ? calculateCommissionFromSlabs(txnAmount, commissions)
@@ -394,28 +515,95 @@ exports.matmCallback = async (req, res) => {
         admin: 0,
         charge: 0,
         gst: 0,
-        tds: 0
+        tds: 0,
       };
-    const required = Number((Number(data.txnAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
 
-    user.eWallet += Number(required || 0);
-    await user.save({ session });
+    if (finalStatus !== "Success") {
+      await matmModel.create(
+        [
+          {
+            userId,
+            txnType: finalType,
+            productCode: data.productCode,
+            amount: txnAmount,
+            charge: commission.charge,
+            gst: commission.gst,
+            tds: commission.tds,
+            mobile: data.mobile_number,
+            rrn: data.rrn,
+            customeridentIfication: data.customeridentIfication,
+            clientRefID: data.clientRefID,
+            txnId: data.txnId,
+            status: finalStatus,
+            balance_after: user.eWallet,
+            description: data.statusDesc || "mATM Cash Withdrawal Failed",
+            retailerCommission: commission.retailer,
+            distributorCommission: commission.distributor,
+            adminCommission: commission.admin,
+          },
+        ],
+        { session }
+      );
 
-    await Transaction.create([{
-      user_id: userId,
-      transaction_type: "credit",
-      type: service?._id,
-      amount: txnAmount,
-      totalCredit: required,
-      balance_after: user.eWallet,
-      charge: commission.charge,
-      gst: commission.gst,
-      tds: commission.tds,
-      description: data.statusDesc || "mATM Cash Withdrawal Commission",
-      transaction_reference_id: data.clientRefID,
-      status: finalStatus
-    }], { session });
+      await Transaction.create(
+        [
+          {
+            user_id: userId,
+            transaction_type: "credit",
+            type: service?._id,
+            amount: txnAmount,
+            totalCredit: 0,
+            balance_after: user.eWallet,
+            charge: commission.charge,
+            gst: commission.gst,
+            tds: commission.tds,
+            description: data.statusDesc || "mATM Cash Withdrawal Failed",
+            transaction_reference_id: data.clientRefID,
+            status: finalStatus,
+          },
+        ],
+        { session }
+      );
 
+      await session.commitTransaction();
+      return res.json({ status: 0, message: "Transaction Failed" });
+    }
+
+    const required = Number(
+      (
+        Number(data.txnAmount) -
+        Number(commission.charge || 0) -
+        Number(commission.gst || 0) -
+        Number(commission.tds || 0) +
+        Number(commission.retailer || 0)
+      ).toFixed(2)
+    );
+
+    const updatedUser = await userModel.findOneAndUpdate(
+      { UserId: data.username },
+      { $inc: { eWallet: required } },
+      { new: true, session }
+    );
+
+    await Transaction.create(
+      [
+        {
+          user_id: userId,
+          transaction_type: "credit",
+          type: service?._id,
+          amount: txnAmount,
+          totalCredit: required,
+          balance_after: updatedUser.eWallet,
+          charge: commission.charge,
+          gst: commission.gst,
+          tds: commission.tds,
+          description: data.statusDesc || "mATM Cash Withdrawal Commission",
+          transaction_reference_id: data.clientRefID,
+          status: finalStatus,
+        },
+      ],
+      { session }
+    );
 
     await matmModel.create({
       userId,
@@ -431,7 +619,7 @@ exports.matmCallback = async (req, res) => {
       customeridentIfication: data.customeridentIfication,
       clientRefID: data.clientRefID,
       status: finalStatus,
-      balance_after: user.eWallet,
+      balance_after: updatedUser.eWallet,
       retailerCommission: commission.retailer,
       distributorCommission: commission.distributor,
       adminCommission: commission.admin,
@@ -446,12 +634,42 @@ exports.matmCallback = async (req, res) => {
       commission,
       reference: data.clientRefID,
       description: data.statusDesc || "mATM Cash Withdrawal Commission",
-      session
+      session,
     });
 
-    await session.commitTransaction();
-    return res.json({ status: 1, message: "Cash Withdrawal Success" });
+    await CommissionTransaction.create([{
+      referenceId: data.clientRefID,
+      service: service._id,
+      baseAmount: txnAmount,
+      charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
+      netAmount: required,
+      roles: [
+        { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+        { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+        { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+      ],
+      type: "credit",
+      status: "Success",
+      sourceRetailerId: userId
+    }], { session });
 
+    await session.commitTransaction();
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txfinalTypenType, finalType} `
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
+    return res.json({ status: 1, message: "Cash Withdrawal Success" });
   } catch (err) {
     console.error("mATM Callback Error:", err);
     await session.abortTransaction();
@@ -470,7 +688,7 @@ exports.getMatmReports = async (req, res) => {
       status,
       txnType,
       startDate,
-      endDate
+      endDate,
     } = req.query;
 
     const query = {};
@@ -487,14 +705,13 @@ exports.getMatmReports = async (req, res) => {
 
     if (loggedInUser.role === "Retailer") {
       query.userId = loggedInUser._id;
-
     } else if (loggedInUser.role === "Distributor") {
       const retailers = await userModel.find(
         { distributorId: loggedInUser._id },
         "_id"
       );
 
-      const retailerIds = retailers.map(r => r._id);
+      const retailerIds = retailers.map((r) => r._id);
 
       if (retailerIds.length === 0) {
         return res.json({
@@ -502,12 +719,11 @@ exports.getMatmReports = async (req, res) => {
           page: Number(page),
           limit: Number(limit),
           total: 0,
-          data: []
+          data: [],
         });
       }
 
       query.userId = { $in: retailerIds };
-
     }
 
     if (search) {
@@ -526,16 +742,17 @@ exports.getMatmReports = async (req, res) => {
     if (startDate && endDate) {
       query.createdAt = {
         $gte: new Date(startDate),
-        $lte: new Date(endDate)
+        $lte: new Date(endDate),
       };
     }
 
     const [data, total] = await Promise.all([
-      matmModel.find(query)
+      matmModel
+        .find(query)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      matmModel.countDocuments(query)
+      matmModel.countDocuments(query),
     ]);
 
     return res.json({
@@ -543,82 +760,183 @@ exports.getMatmReports = async (req, res) => {
       page: Number(page),
       limit: Number(limit),
       total,
-      data
+      data,
     });
-
   } catch (err) {
     console.error("Error in getMatmReports:", err);
     res.status(500).json({ status: false, message: err.message });
   }
 };
 
-
-
 // Excel Mapping Function
-
-exports.sendAepsExcelMail = async (req, res) => {
+exports.getOnboardingList = async (req, res) => {
   try {
-    const formData = req.body?.formData;
-    if (!req.user || !req.user.id) {
+    let {
+      page = 1,
+      limit = 10,
+      search = "",
+      status = "all",
+      from,
+      to,
+      sort = "desc",
+    } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+
+    const match = {};
+
+    // STATUS FILTER
+    if (status === "pending") match.mailSent = false;
+    if (status === "sent") match.mailSent = true;
+
+    // DATE FILTER
+    if (from || to) {
+      match.createdAt = {};
+      if (from) match.createdAt.$gte = new Date(from);
+      if (to) match.createdAt.$lte = new Date(to);
+    }
+
+    // SEARCH FILTER (name, mobile, email, bcagentid)
+    if (search.trim() !== "") {
+      match.$or = [
+        { "formData.bcagentname": { $regex: search, $options: "i" } },
+        { "formData.lastname": { $regex: search, $options: "i" } },
+        { "formData.email": { $regex: search, $options: "i" } },
+        { "formData.bcagentid": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // SORT ORDER
+    const sortOption = sort === "asc" ? 1 : -1;
+
+    // TOTAL COUNT FOR PAGINATION
+    const total = await onboardSendEmail.countDocuments(match);
+
+    // MAIN DATA FETCH
+    const data = await onboardSendEmail
+      .find(match)
+      .populate("userId", "name email mobile isOnBoard")
+      .sort({ createdAt: sortOption })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    return res.json({
+      success: true,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      data,
+    });
+  } catch (err) {
+    console.error("GET ONBOARDING LIST ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+exports.storeOnboardingData = async (req, res) => {
+  try {
+    const { formData } = req.body;
+    const userId = req.user.id;
+    if (!userId) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized access",
+        message: "Unauthorized user",
       });
     }
-    const userId = req.user.id;
-    const user = await userModel.findById(userId).select("isOnBoardEmailSend");
-    console.log(user);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-    if (user.isOnBoardEmailSend === true) {
+    const user = await userModel.findById(userId).select("isOnBoardEmailSend isVideoKyc");
+    if (!user.isVideoKyc) {
       return res.status(400).json({
         success: false,
-        message: "Onboarding mail already sent",
+        message: "First you must complete your video KYC",
       });
     }
+
+    if (user?.isOnBoardEmailSend === true) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already submitted onboarding request. Please wait.",
+      });
+    }
+
     if (!formData || typeof formData !== "object") {
       return res.status(400).json({
         success: false,
-        message: "Unknown/Missing data",
+        message: "Invalid or missing form data",
       });
     }
 
-    const requiredFields = [
-      "bcagentid",
-      "bcagentname",
-      "companyname",
-      "mobilenumber",
-      "email",
-      "lat",
-      "long",
-    ];
+    const saved = await onboardSendEmail.create({
+      userId,
+      formData,
+      mailSent: false,
+      batchId: null,
+      mailSentAt: null,
+    });
+    await userModel.updateOne(
+      { _id: userId },
+      { $set: { isOnBoardEmailSend: true } }
+    );
+    return res.json({
+      success: true,
+      message: "Onboarding Request sent successfully",
+      data: saved,
+    });
+  } catch (error) {
+    console.error("STORE ONBOARD ERROR:", error);
 
-    for (let field of requiredFields) {
-      if (!formData[field] || String(formData[field]).trim() === "") {
-        return res.status(400).json({
-          success: false,
-          message: `Missing required field: ${field}`,
-        });
-      }
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Server busy try after some time",
+    });
+  }
+};
+
+exports.sendBatchOnboardingMail = async (req, res, forceSend = false) => {
+  const isApiCall = !!res;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const pendingUsers = await onboardSendEmail
+      .find({ mailSent: false })
+      .sort({ createdAt: 1 });
+
+    if (!pendingUsers.length) {
+      console.log("No pending onboarding records.");
+      const response = {
+        success: false,
+        message: "No pending onboarding records",
+      };
+
+      return isApiCall ? res.status(400).json(response) : response;
     }
 
-    const safeData = Object.fromEntries(
-      Object.entries(formData).map(([key, value]) => [
-        key,
-        String(value || "")
-          .toString()
-          .trim(),
-      ])
-    );
+    if (!forceSend && pendingUsers.length < 5) {
+      console.log(`Waiting… only ${pendingUsers.length}/5 users available.`);
 
+      const response = {
+        success: false,
+        message: "Less than 5 users in queue",
+      };
+
+      return isApiCall ? res.status(400).json(response) : response;
+    }
+
+    const usersToSend = forceSend ? pendingUsers : pendingUsers.slice(0, 5);
+    const batchId = "BATCH-" + Date.now();
+
+    // EXCEL
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("BC Agent Data");
+    const sheet = workbook.addWorksheet("BC Agent Data");
 
-    worksheet.columns = [
+    sheet.columns = [
       { header: "bcagentid", key: "bcagentid" },
       { header: "bcagentname", key: "bcagentname" },
       { header: "lastname", key: "lastname" },
@@ -642,32 +960,11 @@ exports.sendAepsExcelMail = async (req, res) => {
       { header: "apiusername", key: "apiusername" },
     ];
 
-    worksheet.addRow({
-      bcagentid: safeData.bcagentid,
-      bcagentname: safeData.bcagentname,
-      lastname: safeData.lastname,
-      companyname: safeData.companyname,
-      address: safeData.address,
-      area: safeData.area,
-      pincode: safeData.pincode,
-      mobilenumber: safeData.mobilenumber,
-      shopname: safeData.shopname,
-      shopaddress: safeData.shopaddress,
-      shopstate: safeData.shopstate,
-      shopcity: safeData.shopcity,
-      shopdistrict: safeData.shopdistrict,
-      shoparea: safeData.shoparea,
-      shoppincode: safeData.shoppincode,
-      pancard: safeData.pancard,
-      email: safeData.email,
-      AADHAAR: safeData.AADHAAR,
-      lat: safeData.lat,
-      long: safeData.long,
-      apiusername: safeData.apiusername,
-    });
+    usersToSend.forEach((r) => sheet.addRow(r.formData));
 
     const buffer = await workbook.xlsx.writeBuffer();
 
+    // MAIL SEND
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT),
@@ -676,67 +973,68 @@ exports.sendAepsExcelMail = async (req, res) => {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
-      tls: {
-        rejectUnauthorized: false,
-      },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
     });
 
-    await transporter.verify();
-
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"SevenUnique" <info@7unique.in>`,
       to: process.env.RECEIVER_EMAIL,
-      subject: "BC Agent Excel Data",
+      subject: `Onboarding Batch - ${usersToSend.length} Users`,
       html: `
-    <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
-      <p>Hi Team,</p>
+     <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+       <p>Hi Team,</p>
 
-      <p>
-        Please find the attached data for the 
-        <strong>AEPS</strong> and <strong>MATM</strong> services required for the onboarding process.
-      </p>
+       <p>
+         Please find the attached data for the
+         <strong>AEPS</strong> and <strong>MATM</strong> services required for the onboarding process.
+       </p>
 
-      <p>
-        If you require any further information, please feel free to reach out.
-      </p>
+       <p>
+         If you require any further information, please feel free to reach out.
+       </p>
 
-      <br/>
+       <br/>
 
-      <p>
-        Thanks & Regards,<br/>
-        <strong>Seven Tech Solutions Pvt. Ltd.</strong>
-      </p>
-    </div>
-  `,
-      attachments: [
-        {
-          filename: `bc-agent-${Date.now()}.xlsx`,
-          content: buffer,
-        },
-      ],
+       <p>
+         Thanks & Regards,<br/>
+         <strong>Seven Tech Solutions Pvt. Ltd.</strong>
+       </p>
+     </div>
+   `,
+      attachments: [{ filename: `batch-${batchId}.xlsx`, content: buffer }],
     });
-    await userModel.updateOne(
-      { _id: userId },
-      {
-        $set: {
-          isOnBoardEmailSend: true,
-        },
-      }
+
+    if (!info.messageId) {
+      await session.abortTransaction();
+      const response = {
+        success: false,
+        message: "issue while sending onboarding mail",
+      };
+      return isApiCall ? res.status(400).json(response) : response;
+    }
+
+    await onboardSendEmail.updateMany(
+      { _id: { $in: usersToSend.map((u) => u._id) } },
+      { $set: { mailSent: true, batchId, mailSentAt: new Date() } },
+      { session }
     );
 
-    return res.json({
-      success: true,
-      message: "Onboarding mail sent successfully Thank You!",
-    });
-  } catch (error) {
-    console.error("SECURE SMTP ERROR:", error.message);
+    await session.commitTransaction();
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error while sending email",
-    });
+    const response = {
+      success: true,
+      message: `${usersToSend.length} users mail sent successfully`,
+      count: usersToSend.length,
+      batchId,
+    };
+
+    return isApiCall ? res.status(200).json(response) : response;
+  } catch (err) {
+    console.error("Batch Error:", err);
+    await session.abortTransaction();
+
+    const response = { success: false, message: err.message };
+
+    return isApiCall ? res.status(400).json(response) : response;
   }
 };
 
@@ -815,3 +1113,242 @@ exports.updateIsOnBoardStatus = async (req, res) => {
     });
   }
 };
+
+exports.updateOnboardMailStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mailSent } = req.body;
+
+    if (typeof mailSent !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "mailSent must be true or false",
+      });
+    }
+
+    const updateData = {
+      mailSent,
+      mailSentAt: mailSent ? new Date() : null,
+      batchId: mailSent ? "ADMIN-MANUAL-" + Date.now() : null,
+    };
+
+    const updated = await onboardSendEmail.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Record not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Mail status updated successfully",
+      data: updated,
+    });
+  } catch (error) {
+    console.error("Update Mail Status Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+
+exports.checkIserveuTxnStatus = async (req, res) => {
+  try {
+    const { transactionDate, externalRef } = req.body;
+
+    // ✅ Basic validation
+    if (!transactionDate || !externalRef) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate and clientRefId are required",
+      });
+    }
+
+    // transactionDate must be YYYY-MM-DD
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(transactionDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate must be in YYYY-MM-DD format",
+      });
+    }
+
+    // ✅ Build request payload (as per IServeU spec)
+    const payload = {
+      "$1": "UAeps_txn_status_api",
+      "$4": transactionDate,
+      "$5": transactionDate,
+      "$6": externalRef,
+    };
+
+    const response = await axios.post(
+      "https://apidev.iserveu.online/sandbox/statuscheck/txnreport",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          client_id: process.env.ISERVEU_CLIENT_ID,
+          client_secret: process.env.ISERVEU_CLIENT_SECRET,
+        },
+        timeout: 15000,
+      }
+    );
+
+    const data = response.data;
+
+    // ✅ SUCCESS with data
+    if (data.status === 200 && data.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Transaction status fetched",
+        data: data.results[0], // usually single record
+      });
+    }
+
+    // ✅ SUCCESS but NO DATA
+    if (data.status === 1 && data.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No record found for given transaction",
+        data: null,
+      });
+    }
+
+    // ❌ FAILED response
+    return res.status(400).json({
+      success: false,
+      message: data.message || "Transaction status query failed",
+      data,
+    });
+
+  } catch (error) {
+    console.error("IServeU Status API Error:", error?.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch transaction status",
+      error: error?.response?.data || error.message,
+    });
+  }
+};
+
+
+
+exports.aepsPreCheck = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { serviceId, txnType, amount } = req.body;
+
+    if (!serviceId || !txnType) {
+      return res.status(400).json({
+        status: false,
+        message: "serviceId and txnType are required",
+      });
+    }
+
+    const ALL_TXN_TYPES = [
+      "CASH_WITHDRAWAL",
+      "CASH_DEPOSIT",
+      "BALANCE_ENQUIRY",
+      "MINI_STATEMENT",
+    ];
+
+    if (!ALL_TXN_TYPES.includes(txnType)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid AEPS transaction type",
+      });
+    }
+
+    if (["BALANCE_ENQUIRY", "MINI_STATEMENT"].includes(txnType)) {
+      return res.json({
+        status: true,
+        allowed: true,
+        data: {
+          txnType,
+          note: "No amount or wallet validation required",
+        },
+      });
+    }
+
+    const amt = Number(amount);
+    if (amt < 150 || amt > 10000) {
+      return res.status(400).json({
+        status: false,
+        message: "Amount must be between 150 and 10,000",
+      });
+    }
+
+    // 🔹 Get commission config
+    const { commissions, service } =
+      await getApplicableServiceCharge(userId, serviceId);
+
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amt, commissions)
+      : {
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+      };
+    let grossDebit;
+    if (txnType === "CASH_WITHDRAWAL") {
+      grossDebit =
+        Number(commission.charge || 0) -
+        Number(commission.gst || 0) -
+        Number(commission.tds || 0)
+    } else if (txnType === "CASH_DEPOSIT") {
+      grossDebit =
+        amt +
+        Number(commission.charge || 0) +
+        Number(commission.gst || 0) +
+        Number(commission.tds || 0) -
+        Number(commission.retailer || 0);
+    }
+
+
+    const user = await userModel.findById(userId);
+
+    const availableBalance =
+      Number(user.eWallet || 0) - Number(user.cappingMoney || 0);
+
+    if (availableBalance < grossDebit) {
+      return res.status(400).json({
+        status: false,
+        allowed: false,
+        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${grossDebit}`,
+      });
+    }
+
+    return res.json({
+      status: true,
+      allowed: true,
+      data: {
+        amount: amt,
+        grossDebit,
+        charge: commission.charge,
+        gst: commission.gst,
+        tds: commission.tds,
+        retailerCommission: commission.retailer,
+        availableBalance,
+      },
+    });
+  } catch (err) {
+    console.error("AEPS Pre-check Error:", err);
+    return res.status(500).json({
+      status: false,
+      message: err.message || "AEPS pre-check failed",
+    });
+  }
+};
+

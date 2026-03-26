@@ -10,7 +10,7 @@ const generateJwtToken = (userId, role, mobileNumber) => {
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: '30d',
+      expiresIn: '24h',
     });
 
     return token;

@@ -2,14 +2,14 @@ import cron from "node-cron";
 import userModel from "../models/userModel.js";
 import payInModel from "../models/payInModel.js";
 import Transaction from "../models/transactionModel.js";
-
+import { sendBatchOnboardingMail } from "../controllers/Iserveu.js";
+import scratchCouponModel from "../models/scratchCoupon.model.js";
 
 // Every day at midnight
 export const planCheckCronJob = () => {
-
   // cron.schedule("*/30 * * * * *", async () => {
   cron.schedule("0 0 * * *", async () => {
-    console.log("🔄 Running daily plan expiry check...");
+    // console.log("🔄 Running daily plan expiry check...");
 
     try {
       const now = new Date();
@@ -33,7 +33,7 @@ export const planCheckCronJob = () => {
           userModel.plan = null;
 
           await userModel.save();
-          console.log(`✅ Plan expired for user ${userModel.name}`);
+          // console.log(`✅ Plan expired for user ${userModel.name}`);
         }
       }
     } catch (err) {
@@ -42,10 +42,10 @@ export const planCheckCronJob = () => {
   });
 
   cron.schedule("* * * * *", async () => {
-    console.log("⏱️ [CRON] Checking for expired pending wallets...");
+    // console.log("⏱️ [CRON] Checking for expired pending wallets...");
 
     try {
-      const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000);
       const expired = await payInModel.find({
         status: "Pending",
         createdAt: { $lte: cutoff },
@@ -64,15 +64,47 @@ export const planCheckCronJob = () => {
           {
             $set: {
               status: "Failed",
-              description: "User left payment page without completing transaction",
+              description:
+                "User left payment page without completing transaction",
             },
           }
         );
 
-        console.log(`❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`);
+        // console.log(
+        //   `❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`
+        // );
       }
     } catch (err) {
       console.error("❌ [ERROR] Auto-fail PayIn CRON:", err.message);
     }
   });
+
+
+  cron.schedule("0 1 * * *", async () => {
+    console.log("🎟️ Running scratch coupon expiry cron...");
+    try {
+      const result = await scratchCouponModel.updateMany(
+        {
+          status: "UNSCRATCHED",
+          expiresAt: { $lte: new Date() },
+        },
+        {
+          $set: { status: "EXPIRED" },
+        }
+      );
+
+      console.log(
+        `✅ Coupon Expiry Done | Expired Coupons: ${result.modifiedCount}`
+      );
+    } catch (err) {
+      console.error("❌ Coupon expiry cron error:", err);
+    }
+  }, { timezone: "Asia/Kolkata" });
+
+
+  // cron.schedule("*/15 * * * * *", async () => {
+  //   // cron.schedule("*/2 * * * *", async () => {
+  //   console.log("⏱ Cron Running — Checking onboarding queue...");
+  //   await sendBatchOnboardingMail(false);
+  // });
 };

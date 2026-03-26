@@ -22,5 +22,15 @@ router.post(
   authenticateToken,
   controller.fundTransfer
 );
+router.post(
+  "/retailer/sendMoney",
+  authenticateToken,
+  controller.walletTransfer
+);
+// router.post(
+//   "/qrPay",
+//   authenticateToken,
+//   controller.payViaQR
+// );
 
 module.exports = router;

@@ -74,7 +74,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     }
   } else {
     if (operatorName) {
-      matchedSlab = packageData.slabs.find(s => s.operator == operatorName.toLowerCase());
+      matchedSlab = packageData.slabs.find(s => s.operator?.toLowerCase() == operatorName.toLowerCase()) || packageData.slabs[0];
       if (amount <= 0) {
         throw new Error(`Please enter a vaild amount.`);
       }
@@ -98,7 +98,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
       if (matchedSlab.commissionType === "flat") return val;
       if (matchedSlab.commissionType === "percentage") return (val * amount) / 100;
     }
-    
+
     return 0;
   };
 
@@ -108,7 +108,7 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     adminAmt = 0,
     chargeAmount = 0;
 
-  chargeAmount = calc(matchedSlab.chargeAmount) || 0;
+  chargeAmount = calc(matchedSlab?.chargeAmount) || 0;
 
 
   retailerAmt = calc(matchedSlab.retailer) || 0;
@@ -129,12 +129,12 @@ function calculateCommissionFromSlabs(amount, packageData, operatorName) {
     commissionMethod: matchedSlab.commissionMethod,
     commissionType: matchedSlab.commissionType,
 
-    retailer: retailerAmt.toFixed(2),
-    distributor: distributorAmt.toFixed(2),
-    admin: adminAmt.toFixed(2),
-    gst: gst.toFixed(2),
-    tds: tds.toFixed(2),
-    charge: +chargeAmount.toFixed(2),
+    retailer: Number(retailerAmt.toFixed(2)),
+    distributor: Number(distributorAmt.toFixed(2)),
+    admin: Number(adminAmt.toFixed(2)),
+    gst: Number(gst.toFixed(2)),
+    tds: Number(tds.toFixed(2)),
+    charge: +Number(chargeAmount.toFixed(2)),
     totalCommission: (retailerAmt + distributorAmt + adminAmt).toFixed(2),
   };
 }
@@ -211,23 +211,25 @@ const getApplicableServiceCharge = async (userId, serviceName, operatorName) => 
     throw new Error("No matching default provider found in Service");
   }
 
-  let commissions;
+  let commissions = await commissionModel.findOne({
+    service: service._id,
+    isDefault: true,
+    isActive: true,
+  });
 
+  let selectedSlab = null;
 
-  if (!operatorName) {
-    commissions = await commissionModel.findOne({
-      service: service._id,
-      isDefault: true,
-      isActive: true,
-    });
-  } else {
+  if (commissions && commissions.slabs?.length) {
 
-    commissions = await commissionModel.findOne({
-      service: service._id,
-      isDefault: true,
-      isActive: true,
-      "slabs.operator": operatorName.toLowerCase(),
-    });
+    if (operatorName) {
+      selectedSlab = commissions.slabs.find(
+        (slab) => slab.operator === operatorName.toLowerCase()
+      );
+    }
+
+    if (!selectedSlab) {
+      selectedSlab = commissions.slabs[0];
+    }
   }
 
 
@@ -348,7 +350,49 @@ function logApiCall({ url, requestData, responseData = null, error = null }) {
   }
 }
 
+function generateRandomReward(retailerCommission) {
+
+  if (!retailerCommission || retailerCommission < 1) {
+    return null;
+  }
+
+  const rand = Math.random() * 100;
+
+  if (rand < 60) {
+
+    const min = 1;
+    const max = Math.floor(retailerCommission);
+
+    const cashbackAmount =
+      Math.floor(Math.random() * (max - min + 1)) + min;
+
+    return {
+      rewardType: "CASHBACK",
+      cashbackAmount
+    };
+  }
+
+  // if (rand < 85) {
+  //   return {
+  //     rewardType: "FLAT_COUPON",
+  //     couponCode: "FLAT" + Math.floor(1000 + Math.random() * 9000),
+  //     couponValue: 50,
+  //     minOrderAmount: 200
+  //   };
+  // }
+
+  return {
+    rewardType: "PERCENT_COUPON",
+    couponCode: "SAVE" + Math.floor(1000 + Math.random() * 9000),
+    couponValue: 20,
+    minOrderAmount: 1000
+  };
+}
+
+
+
+
 module.exports = {
-  getApplicableServiceCharge, calculateCommissionFromSlabs, applyServiceCharges, logApiCall
+  getApplicableServiceCharge, calculateCommissionFromSlabs, applyServiceCharges, logApiCall, generateRandomReward
 };
 

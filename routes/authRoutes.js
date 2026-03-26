@@ -20,11 +20,21 @@ const {
   updateCredential,
   updateProgress,
   getLoginHistory,
+  updateUserDocs,
+  scratchCashback,
+  getCouponHistory,
+  createUserAction,
+  approveUserAction,
+  getUserActions,
+  logoutController,
+  applyCoupon,
+  getUserMobile,
+  getWalletBalance,
 } = require("../controllers/authController.js");
 const authenticateToken = require("../middleware/verifyToken.js");
 const authorizeRoles = require("../middleware/verifyRole.js");
 const upload = require("../utils/uplods.js");
-
+const optAuth = require("../middleware/optAuth.js");
 
 const multerErrorHandler = (err, req, res, next) => {
   if (err.code === "LIMIT_FILE_SIZE") {
@@ -47,8 +57,6 @@ const multerErrorHandler = (err, req, res, next) => {
   });
 };
 
-
-
 router.post("/send-otp", sendOtpController);
 router.post("/verify-otp", verifyOTPController);
 router.post(
@@ -65,22 +73,44 @@ router.post(
     { name: "panCard", maxCount: 1 },
     { name: "bankDocument", maxCount: 1 },
   ]),
+  optAuth,
   multerErrorHandler,
   registerUser
 );
+router.put(
+  "/update-docs/:id",
+  upload.fields([
+    { name: "shopPhoto", maxCount: 6 },
+    { name: "ownerPhoto", maxCount: 1 },
+    { name: "shopAddressProof", maxCount: 1 },
+    { name: "officeAddressProof", maxCount: 1 },
+    { name: "directorKycFiles", maxCount: 4 },
+    { name: "boardResolution", maxCount: 1 },
+    { name: "aadhaarFront", maxCount: 1 },
+    { name: "aadhaarBack", maxCount: 1 },
+    { name: "panCard", maxCount: 1 },
+    { name: "bankDocument", maxCount: 1 },
+  ]),
+  multerErrorHandler,
+  authenticateToken,
+  updateUserDocs
+);
 
-router.post("/login", loginController);
+router.post("/login", loginController); 
+router.post("/logout", authenticateToken, logoutController);
 router.get("/last-logins", authenticateToken, getLoginHistory);
 router.put("/profile", authenticateToken, updateProfileController);
 router.get("/profile", authenticateToken, getUserController);
 router.get("/user/:id", authenticateToken, getUserId);
+router.get("/userMobile/:mobileNumber", authenticateToken, getUserMobile);
 router.get(
   "/users",
   authenticateToken,
   authorizeRoles("Admin", "Distributor"),
   getUsersWithFilters
 );
-router.post("/update-credential", updateCredential);
+router.post("/update-credential", authenticateToken, updateCredential);
+router.post("/checkBalance", authenticateToken, getWalletBalance);
 
 router.put(
   "/user/:id/status",
@@ -97,7 +127,7 @@ router.put(
 router.get(
   "/dashboard",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin", "Sales"),
   getDashboardStats
 );
 router.get(
@@ -115,7 +145,7 @@ router.get(
 router.put(
   "/users/:id/permissions",
   authenticateToken,
-  authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
+  authorizeRoles("Admin", "Sub Admin"),
   updateUserPermissions
 );
 router.put(
@@ -130,5 +160,52 @@ router.get(
   authorizeRoles("Admin", "Distributor", "Retailer", "Sub Admin"),
   getUserPermissions
 );
+
+
+// coupon-history
+router.get(
+  "/coupon-history",
+  authenticateToken,
+  authorizeRoles("Admin", "Distributor", "Retailer", "User", "Sub Admin"),
+  getCouponHistory
+);
+
+
+// scratch-coupons
+
+router.post(
+  "/users/scratch-coupons",
+  authenticateToken,
+  authorizeRoles("User"),
+  scratchCashback
+);
+
+// lionies coupon code
+router.post(
+  "/users/scratch-coupons-apply-lionies",
+  applyCoupon
+);
+//become
+
+router.get(
+  "/admin/user-actions",
+  authenticateToken,
+  authorizeRoles("Admin"),
+  getUserActions
+);
+router.post(
+  "/user_action/create",
+  authenticateToken,
+  authorizeRoles("User"),
+  createUserAction
+);
+router.post(
+  "/user_action/approve",
+  authenticateToken,
+  authorizeRoles("Admin"),
+  approveUserAction
+);
+
+
 
 module.exports = router;

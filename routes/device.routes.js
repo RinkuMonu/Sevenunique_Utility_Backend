@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const C = require("../controllers/device.controller");
+const authorizeRoles = require("../middleware/verifyRole");
 const authenticateToken = require("../middleware/verifyToken");
 const DeviceModal = require("../models/Device.modal");
 const upload = require("../utils/uplods");
@@ -17,8 +18,8 @@ router.post("/devices", upload.single("image"), C.createDevice);
 /* Requests */
 router.post("/device-requests", authenticateToken, C.createDeviceRequest);
 router.get("/device-requests", authenticateToken, C.listDeviceRequests);
-router.patch("/device-requests/:id", authenticateToken, C.updateDeviceRequest);
-router.patch("/devices/:id", upload.single("image"), C.updateDevice);
-router.delete("/devices/:id", authenticateToken, C.deleteDevice);
+router.patch("/device-requests/:id", authenticateToken, authorizeRoles("Admin"), C.updateDeviceRequest);
+router.patch("/devices/:id", upload.single("image"), authorizeRoles("Admin"), C.updateDevice);
+router.delete("/devices/:id", authenticateToken, authorizeRoles("Admin"), C.deleteDevice);
 
 module.exports = router;

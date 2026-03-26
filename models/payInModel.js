@@ -20,12 +20,14 @@ const payInSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      required: true,
       trim: true,
     },
     type: {
       type: Schema.Types.ObjectId,
       ref: "Service",
+    },
+    type2: {
+      type: String
     },
     mobile: {
       type: Number,

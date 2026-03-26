@@ -1,12 +1,13 @@
 const { default: axios } = require("axios");
 const User = require("../models/userModel");
 const jwt = require("jsonwebtoken");
+const userModel = require("../models/userModel");
 require("dotenv").config();
 
 function generateToken() {
   const token = jwt.sign(
     {},
-    "18fc02b675bfa38fbb3350b18e0fc45cf3740bd3be6104e4d310188943d09535",
+    process.env.SEVEN_AUTH_KEY,
     {
       algorithm: "HS256",
     }
@@ -28,7 +29,7 @@ const aadhaarVerify = async (req, res, next) => {
       { id_number },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
           "Content-Type": "application/json",
@@ -66,7 +67,7 @@ const submitAadharOTP = async (req, res) => {
       requestData,
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -134,7 +135,7 @@ const verifyBank = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -162,7 +163,7 @@ const verifyBank = async (req, res) => {
 };
 
 const verifyPAN = async (req, res) => {
-  const { id_number, userId } = req.body;
+  const { id_number, userId, } = req.body;
 
   console.log("🔍 PAN Verification Requested for:", id_number);
 
@@ -182,7 +183,7 @@ const verifyPAN = async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${generateToken()}`,
-          "Client-id": "Seven012",
+          "Client-id": process.env.SEVEN_CLIENT_ID,
           "x-env": "production",
         },
       }
@@ -192,6 +193,9 @@ const verifyPAN = async (req, res) => {
 
     const nameFromPAN = response.data.data;
     user.panDetails = nameFromPAN.data;
+    if (user.clientSource === "APP" && user.role == "User" && userId != "6970f793e59ebf5abae7769e") {
+      user.isKycVerified = true
+    }
     await user.save();
 
     return res
@@ -235,13 +239,13 @@ const userVerify = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).send("User not found!");
 
-    const normalizedAadharName = normalizeName(
-      user?.aadharDetails?.data?.full_name || ""
-    );
-    const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
-    const normalizedBankName = normalizeName(
-      user?.bankDetails?.account_name || ""
-    );
+    // const normalizedAadharName = normalizeName(
+    //   user?.aadharDetails?.data?.full_name || ""
+    // );
+    // const normalizedPanName = normalizeName(user?.panDetails?.full_name || "");
+    // const normalizedBankName = normalizeName(
+    //   user?.bankDetails?.account_name || ""
+    // );
 
     // if (
     //   normalizedAadharName === normalizedPanName &&
@@ -307,8 +311,8 @@ const userVerify = async (req, res) => {
 };
 
 const updateBankAccount = async (req, res) => {
-  const { id_number, ifsc } = req.body;
-  console.log("🔄 Updating Bank Account:", id_number, ifsc);
+  const { id_number, ifsc, userId } = req.body;
+  console.log("🔄 Updating Bank Account:", req.body);
 
   if (!id_number || !ifsc) {
     return res.status(400).json({
@@ -317,7 +321,7 @@ const updateBankAccount = async (req, res) => {
     });
   }
 
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(userId);
   if (!user)
     return res.status(404).json({ success: false, message: "User not found" });
 
@@ -336,7 +340,7 @@ const updateBankAccount = async (req, res) => {
       },
       {
         headers: {
-          "client-id": "Seven012",
+          "client-id": process.env.SEVEN_CLIENT_ID,
           authorization: `Bearer ${generateToken()}`,
           "x-env": "production",
         },
@@ -369,27 +373,27 @@ const updateBankAccount = async (req, res) => {
     const nameFromBank = bankData.account_name || "";
     const normalizedBankName = normalizeName(nameFromBank);
 
-    if (
-      normalizedAadharName === normalizedBankName &&
-      normalizedPanName === normalizedBankName
-    ) {
-      user.bankDetails = bankData;
-      await user.save();
+    // if (
+    //   normalizedAadharName === normalizedBankName &&
+    //   normalizedPanName === normalizedBankName
+    // ) {
+    user.bankDetails = bankData;
+    await user.save();
 
-      return res.status(200).json({
-        success: true,
-        message: "Bank details updated successfully",
-        bankDetails: bankData,
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: "Bank name mismatch with Aadhaar & PAN",
-      aadharName: user?.aadharDetails?.data?.full_name,
-      panName: user?.panDetails?.full_name,
-      bankName: nameFromBank,
+    return res.status(200).json({
+      success: true,
+      message: "Bank details updated successfully",
+      bankDetails: bankData,
     });
+    // }
+
+    // return res.status(400).json({
+    //   success: false,
+    //   message: "Bank name mismatch with Aadhaar & PAN",
+    //   aadharName: user?.aadharDetails?.data?.full_name,
+    //   panName: user?.panDetails?.full_name,
+    //   bankName: nameFromBank,
+    // });
   } catch (error) {
     console.error(
       "Error updating bank account:",
@@ -404,14 +408,20 @@ const updateBankAccount = async (req, res) => {
 
 const verifyEmail7UniqueVerify = async (req, res) => {
   const { email } = req.body;
-  console.log("📧 Verifying Email:", email);
+  // console.log("📧 Verifying Email:", email);
 
   if (!email) {
     return res
       .status(201)
       .json({ success: false, message: "Email is required" });
   }
-
+  const findUser = await userModel.findOne({ email }).select("email")
+  console.log("Verifying Email", findUser)
+  if (findUser) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Email already exist please use different email" });
+  }
   try {
     const payload = { email };
 
@@ -432,7 +442,7 @@ const verifyEmail7UniqueVerify = async (req, res) => {
     const result = api?.data;
     // MSG91 → api.data.valid, api.data.reason, api.data.did_you_mean
 
-    console.log("✅ MSG91 Verification Response:", result);
+    console.log("✅ MSG91 Verification Response:", api);
     const normalizedResponse = {
       emailvalid:
         result?.result?.result?.toString().toLowerCase() === "deliverable"

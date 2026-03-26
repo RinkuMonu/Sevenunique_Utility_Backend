@@ -1,3 +1,4 @@
+require("dotenv").config();
 const crypto = require("crypto");
 const qs = require("qs");
 const User = require("../models/userModel.js");
@@ -9,31 +10,50 @@ const Transaction = require("../models/transactionModel.js");
 const payInModel = require("../models/payInModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const { logApiCall } = require("../utils/chargeCaluate.js");
+const userMetaModel = require("../models/userMetaModel.js");
+const { default: admin } = require("../firebase.js");
 
 
-const merchant_identifier = "8d3d1d6757f7438cbee31d2489604b27" || "b19e8f103bce406cbd3476431b6b7973"
-const secretKey = "1f610c38b36547b1b73fc4445b6ee078" || "0678056d96914a8583fb518caf42828a";
+const merchant_identifier = process.env.ZAAKPAY_MERCHANT_CODE || "b19e8f103bce406cbd3476431b6b7973"
+const secretKey = process.env.ZAAKPAY_SECRET_KEY || "0678056d96914a8583fb518caf42828a";
 
 
-function generateZaakpayChecksum(params, secretKey) {
-  // 1️⃣ Filter out null, undefined, or empty values
-  const filteredParams = Object.keys(params)
-    .filter((key) => params[key] !== null && params[key] !== undefined && params[key] !== "")
-    .sort() // 2️⃣ Sort alphabetically
-    .map((key) => `${key}=${params[key]}`) // 3️⃣ Combine key=value
-    .join("&") + "&"; // 4️⃣ Append & at end
+function generateZaakpayChecksum(params, secretKey, type) {
 
-  console.log("✅ String used for checksum:", filteredParams);
+  if (type) {
+    const filteredParams = Object.keys(params)
+      .filter((key) => params[key] !== null && params[key] !== undefined && params[key] !== "")
+      .sort() // ⿢ Sort alphabetically
+      .map((key) => `${key}=${params[key]}`)
+      .join("&") + "&"; // ⿤ Append & at end
 
-  // 5️⃣ Generate HMAC SHA256
-  const checksum = crypto
-    .createHmac("sha256", secretKey)
-    .update(filteredParams)
-    .digest("hex");
+    console.log("✅ String used for checksum:", filteredParams);
+    // ⿥ Generate HMAC SHA256
+    const checksum = crypto
+      .createHmac("sha256", secretKey)
+      .update(filteredParams)
+      .digest("hex");
 
-  console.log("✅ Generated Checksum:", checksum);
-  return checksum;
+    console.log("✅ Generated Checksum:", checksum);
+    return checksum;
+
+  } else {
+    const dataString = JSON.stringify(params);
+
+    console.log("🔥 Checksum Raw String:", dataString);
+
+    const checksum = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataString)
+      .digest("hex");
+
+    console.log("🔥 Generated Checksum:", checksum);
+
+    return checksum;
+  }
+
 }
+
 
 
 
@@ -248,7 +268,7 @@ exports.createPayIn = async (req, res, next) => {
 };
 
 
-// zacapay
+// zackpay
 exports.generatePayment = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -285,6 +305,14 @@ exports.generatePayment = async (req, res, next) => {
       });
     }
 
+    if (amount < 0 || amount > 100000) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be between 0 and 100000",
+      });
+    }
+
+
     const user = await User.findOne({
       _id: req?.user?.id || userId,
       status: true,
@@ -310,6 +338,7 @@ exports.generatePayment = async (req, res, next) => {
           user_id: user._id,
           transaction_type: "credit",
           amount: Number(amount),
+          totalCredit: Number(amount),
           type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
@@ -329,7 +358,7 @@ exports.generatePayment = async (req, res, next) => {
           mobile: user.mobileNumber,
           email: user.email,
           reference: reference || referenceId,
-          name: user.name,
+          name: user.name || "",
           source: "PayIn",
           amount: Number(amount),
           type: service._id,
@@ -342,7 +371,25 @@ exports.generatePayment = async (req, res, next) => {
     );
 
     // 🔹 Prepare Zaakpay payload
-    const payload = {
+    const payloadUpi = {
+      merchantIdentifier: merchant_identifier,
+      showMobile: "true",
+      mode: "0",
+      returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback",
+      orderDetail: {
+        orderId: reference || referenceId,
+        amount: (amount * 100).toString(),
+        currency: "INR",
+        productDescription: "Wallet Topup",
+        email: email,
+      },
+      paymentInstrument: {
+        paymentMode: "UPIAPP",
+        netbanking: { bankid: "" }
+      }
+    };
+
+    const payloadEx = {
       amount: (amount * 100).toString(),
       buyerEmail: email,
       currency: "INR",
@@ -351,15 +398,29 @@ exports.generatePayment = async (req, res, next) => {
       returnUrl: "https://server.finuniques.in/api/v1/payment/payin/callback"
       // returnUrl: "https://gkns438l-8080.inc1.devtunnels.ms/api/v1/payment/payin/callback"
     };
-    const checksum = generateZaakpayChecksum(payload, secretKey);
 
+
+    const checksumUpi = generateZaakpayChecksum(payloadUpi, secretKey, false);
+    const checksumEx = generateZaakpayChecksum(payloadEx, secretKey, true);
+
+    // Final request
+    const responseUpi = await axios.post(
+      "https://api.zaakpay.com/transactU?v=8",
+      qs.stringify({
+        data: JSON.stringify(payloadUpi),
+        checksum: checksumUpi
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
     const payload2 = {
-      ...payload,
-      checksum,
-    };
-    // return
-    payIn.remark = "Redirect to Zaakpay for payment";
-    transaction.description = "Redirect to Zaakpay for payment";
+      ...payloadEx, checksum: checksumEx
+    }
+    const responseEx = `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`;
+
+
+    // console.log(responseUpi.data);
+    payIn.remark = "Redirect to payment page";
+    transaction.description = "Redirect to payment page";
 
     await user.save({ session });
     await payIn.save({ session });
@@ -368,13 +429,14 @@ exports.generatePayment = async (req, res, next) => {
     await session.commitTransaction();
     transactionCompleted = true;
 
-    logApiCall({ url: "/payin", requestData: { payload2 }, responseData: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}` });
+    logApiCall({ url: "/payin", requestData: { payloadUpi, payloadEx }, responseData: { resUpi: responseUpi.data, resEx: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}` } });
     return res.status(200).json({
       success: true,
       message: "PayIn initiated. Redirect user to complete payment.",
       data: {
-        redirectURL: `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`,
-      },
+        redirectURL: responseUpi.data.bankPostData.androidIntentUrl,
+        redirectEx: responseEx
+      }
     });
   } catch (error) {
     if (!transactionCompleted) {
@@ -550,19 +612,53 @@ exports.generatePayment = async (req, res, next) => {
 //       message: error.message || "Something went wrong while processing payment",
 //     });
 //   }
-// };
-
+// }
 exports.callbackPayIn = async (req, res) => {
   try {
 
-    const data = req.body;
-    logApiCall({ url: "/callback", requestData: {}, responseData: data });
+    let data;
+
+    if (req.body.txnData) {
+      try {
+        const txnData =
+          typeof req.body.txnData === "string"
+            ? JSON.parse(req.body.txnData)
+            : req.body.txnData;
+
+        data = txnData.txns ? txnData.txns[0] : txnData;
+
+        console.log("📌 Custom Checkout Data Parsed:", data);
+
+      } catch (err) {
+        console.error("❌ JSON Parse Error:", err);
+        return res.status(400).json({ success: false, message: "Invalid JSON received from ZaakPay" });
+      }
+    }
+    else {
+      data = req.body;
+      console.log("📌 Hosted Checkout Data:", data);
+    }
+
+    console.log("callback data", data);
+    logApiCall({ url: "/callback", requestData: "", responseData: data });
     const responseCode = data?.responseCode?.toString();
-    const isSuccess = responseCode === "100";
+    const isSuccess = responseCode == "100";
+
+
+
+
+    // const response = await axios.post("https://instantpayco.com/api/bbpszackpaypayin", data, {
+    //   headers: { "Content-Type": "application/json" }
+    // });
+    // console.log("Callback sent to merchant successfully");
+
 
     // 🧾 Update PayIn record
     const payIn = await PayIn.findOneAndUpdate(
-      { reference: data?.orderId },
+      {
+        reference: data?.orderId,
+        status: { $ne: "Success" }
+      },
       {
         $set: {
           status: isSuccess ? "Success" : "Failed",
@@ -576,35 +672,20 @@ exports.callbackPayIn = async (req, res) => {
       },
       { new: true }
     );
+    console.log("payIn found", payIn);
+    const PayInData = await PayIn.findOne({ reference: data?.orderId });
+    const userMeta = await userMetaModel.findOne({ userId: PayInData?.userId });
 
-    // 👤 Find the related user
-    let user = null;
-    if (payIn && payIn.userId) {
-      user = await User.findById(payIn.userId);
+
+    let redirectUrl = null;
+
+    if (
+      userMeta?.redirect_url &&
+      typeof userMeta.redirect_url === "string" &&
+      userMeta.redirect_url.trim() !== ""
+    ) {
+      redirectUrl = userMeta.redirect_url.trim();
     }
-
-    if (isSuccess && user) {
-      const amount = Number(data?.amount) / 100 || 0;
-      user.eWallet += amount;
-      await user.save();
-    }
-
-    // 💳 Update Transaction report
-    await Transaction.findOneAndUpdate(
-      { transaction_reference_id: data?.orderId },
-      {
-        $set: {
-          status: isSuccess ? "Success" : "Failed",
-          balance_after: user.eWallet,
-          gatewayResponse: data,
-          payment_mode: data?.paymentMode,
-          description: data?.responseDescription,
-          updatedAt: new Date(),
-          meta: data
-        },
-      },
-      { new: true }
-    )
 
     const successHTML = `
       <!DOCTYPE html>
@@ -613,6 +694,8 @@ exports.callbackPayIn = async (req, res) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Payment Successful</title>
+          ${redirectUrl ? `<meta http-equiv="refresh" content="5;url=${redirectUrl}" />` : ""}
+
         <style>
           body { font-family: Arial, sans-serif; background-color: #f6fffa; padding: 40px; color: #333; }
           .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; padding: 30px; }
@@ -635,6 +718,11 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
           </div>
+               ${redirectUrl
+        ? `<p>You will be redirected in 5 seconds...</p>`
+        : ``
+      }
+
           <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED</div>
         </div>
       </body>
@@ -648,6 +736,8 @@ exports.callbackPayIn = async (req, res) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Payment Failed</title>
+          ${redirectUrl ? `<meta http-equiv="refresh" content="5;url=${redirectUrl}" />` : ""}
+
         <style>
           body { font-family: Arial, sans-serif; background-color: #fff6f6; padding: 40px; color: #333; }
           .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; padding: 30px; }
@@ -669,28 +759,91 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Transaction ID:</strong> ${data?.pgTransId || "N/A"}<br/>
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
+                ${redirectUrl
+        ? `<p>You will be redirected in 5 seconds...</p>`
+        : ``
+      }
           </div>
+            
           <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED </div>
         </div>
       </body>
       </html>
     `;
 
+
+    // 👤 Find the related user
+    let user = null;
+    if (isSuccess && payIn && payIn.userId) {
+      const amount = Number(data?.amount) / 100 || 0;
+
+      user = await User.findOneAndUpdate(
+        { _id: payIn.userId },
+        { $inc: { eWallet: amount } },
+        { new: true }
+      );
+    } else {
+      user = await User.findById(PayInData.userId);
+    }
+
+    if (!user) {
+      return res.status(404).send("User not found");
+    }
+
+    // 💳 Update Transaction report
+    await Transaction.findOneAndUpdate(
+      {
+        transaction_reference_id: data?.orderId,
+        status: { $ne: "Success" }
+      },
+      {
+        $set: {
+          status: isSuccess ? "Success" : "Failed",
+          balance_after: user.eWallet,
+          gatewayResponse: data,
+          payment_mode: data?.paymentMode,
+          description: data?.responseDescription,
+          updatedAt: new Date(),
+          "meta.apiResponse": data
+        },
+      },
+      { new: true }
+    )
+
+
+
+
+
     if (user && user.callbackUrl) {
       try {
-        const res = await axios.post(user.callbackUrl, data, {
+        const response = await axios.post(user.callbackUrl, data, {
           headers: { "Content-Type": "application/json" }
         });
         console.log("Callback sent to merchant successfully");
 
-        return ({
-          message: "Callback sent to merchant successfully",
-        });
+        return res.status(200).send(isSuccess ? successHTML : failureHTML);
+
       } catch (callbackErr) {
         console.error("⚠️ Error sending callback to user:", callbackErr);
         return res.status(200).send(isSuccess ? successHTML : failureHTML);
       }
     } else {
+
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: isSuccess
+                ? `₹ ${(data?.amount / 100).toFixed(2)} added to your wallet`
+                : "Transaction failed",
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
 
       return res.status(200).send(isSuccess ? successHTML : failureHTML);
     }
@@ -704,8 +857,11 @@ exports.callbackPayIn = async (req, res) => {
         </body>
       </html>
     `);
+  } finally {
   }
 };
+
+
 
 exports.callbackGet = async (req, res) => {
   try {

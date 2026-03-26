@@ -14,15 +14,17 @@ const { distributeCommission } = require("../../utils/distributerCommission");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const payInModel = require("../../models/payInModel");
 const AEPSTransaction = require("../../models/aepsModels/withdrawalEntry");
+const { default: admin } = require("../../firebase");
+const userMetaModel = require("../../models/userMetaModel");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
   // timeout: 20000,
   headers: {
     "Content-Type": "application/json",
-    "X-Ipay-Client-Id": "YWY3OTAzYzNlM2ExZTJlOWYKV/ca1YupEHR5x0JE1jk=",
-    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
-    "X-Ipay-Auth-Code": "1",
+    "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
+    "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
+    "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
     "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:79e6:7c23:63b2:2221",
   },
 });
@@ -58,7 +60,7 @@ function normalizePayloadForPayment(body) {
   };
 }
 
-const encryptionKey = 'efb0a1c3666c5fb0efb0a1c3666c5fb0' || process.env.INSTANTPAY_AES_KEY
+const encryptionKey = process.env.INSTANTPAY_AES_KEY
 // Helper function (normal bana do)
 async function parsePidXML(pidXml) {
   return new Promise((resolve, reject) => {
@@ -171,6 +173,7 @@ exports.outletLoginStatus = async (req, res, next) => {
 exports.outletLogin = async (req, res, next) => {
   try {
     const user = await userModel.findById(req.user.id)
+    const userMeta = await userMetaModel.findOne({ userId: req.user.id })
     const { outletId, aadhaar, pidData, latitude, longitude } = req.body;
     console.log("📥 Incoming Outlet Login Request:", req.body);
 
@@ -179,7 +182,7 @@ exports.outletLogin = async (req, res, next) => {
     if (!pidData) throw createError(400, "Missing pidData");
 
     // Aadhaar encrypt
-    // const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    // const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
 
     // Parse PID XML to biometricData object
     const biometricParsed = await parsePidXML(pidData);
@@ -205,6 +208,20 @@ exports.outletLogin = async (req, res, next) => {
       },
     });
     console.log("✅ Outlet Login Response:", response.data);
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Outlet Login successful`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
 
     return res.json(response.data);
   } catch (err) {
@@ -244,19 +261,20 @@ exports.cashWithdrawal = async (req, res) => {
 
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId: userId }).session(session);
     if (!user) throw new Error("User not found");
 
     // Get commission details
-    const { commissions, service } = await getApplicableServiceCharge(userId, "6918314027e9c0be214ff15d");
+    const { commissions, service } = await getApplicableServiceCharge(userId, "68c9369d8fa1dda33eb541b6");
     const commission = commissions
       ? calculateCommissionFromSlabs(amount, commissions)
       : { charge: 0, gst: 0, tds: 0, distributor: 0, admin: 0, retailer: 0 };
 
     const externalRef = `ACW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
 
-    const required = Number(amount) + Number(commission.charge || 0) + Number(commission.tds || 0) + Number(commission.gst || 0) - Number(commission.retailer || 0);
+    const required = Number(amount) - Number(commission.charge || 0) - Number(commission.tds || 0) - Number(commission.gst || 0) + Number(commission.retailer || 0);
 
     // Create AEPS Report (Pending)
     const aepsReport = await AEPSTransaction.create([{
@@ -277,7 +295,8 @@ exports.cashWithdrawal = async (req, res) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction
@@ -299,7 +318,7 @@ exports.cashWithdrawal = async (req, res) => {
     }], { session });
 
     // Create payout record
-    await new payInModel({
+    await payInModel.create([{
       userId,
       amount: required,
       reference: externalRef,
@@ -314,7 +333,7 @@ exports.cashWithdrawal = async (req, res) => {
       gst: commission.gst,
       tds: commission.tds,
       remark: `AEPS Cash Withdrawal for mobile ${mobile}`
-    }).save({ session });
+    }], { session });
 
     // Call InstantPay API
     const response = await instantpay.post("/fi/aeps/cashWithdrawal", {
@@ -342,8 +361,15 @@ exports.cashWithdrawal = async (req, res) => {
     // ✅ API Success
     if (result.statuscode === "TXN") {
       // ✅ Update user's wallet
-      user.eWallet = (user.eWallet || 0) + required;
-      await user.save({ session });
+      const updatedUser = await userModel.findOneAndUpdate(
+        {
+          _id: userId
+        },
+        {
+          $inc: { eWallet: +required }
+        },
+        { new: true, session }
+      );
 
       // ✅ Update Transaction
       await Transaction.updateOne(
@@ -351,7 +377,7 @@ exports.cashWithdrawal = async (req, res) => {
         {
           $set: {
             status: "Success",
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
           },
         },
         { session }
@@ -374,7 +400,7 @@ exports.cashWithdrawal = async (req, res) => {
         {
           $set: {
             status: "Success",
-            balance_after: user.eWallet,
+            balance_after: updatedUser.eWallet,
             apiResponse: result,
           },
         },
@@ -401,7 +427,7 @@ exports.cashWithdrawal = async (req, res) => {
         charge: commission.charge + commission.gst + commission.tds,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -411,7 +437,21 @@ exports.cashWithdrawal = async (req, res) => {
       }], { session });
 
       await session.commitTransaction();
-      res.status(200).json({ status: true, message: "Cash Withdrawal successful", data: result });
+
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Withdrawal successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
+      res.status(200).json({ status: true, message: "AEPS Withdrawal successful", data: result });
 
     } else {
       // ❌ API Failed
@@ -461,7 +501,7 @@ exports.balanceEnquiry = async (req, res, next) => {
     }
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
     const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
     const payload = {
@@ -511,7 +551,8 @@ exports.balanceEnquiry = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -666,7 +707,7 @@ exports.miniStatement = async (req, res, next) => {
 
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
     const externalRef = `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const payload = {
       type: "DAILY_LOGIN",
@@ -722,7 +763,8 @@ exports.miniStatement = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -855,6 +897,7 @@ exports.deposite = async (req, res, next) => {
       longitude } = req.body;
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId: userId }).session(session);
     if (!user) throw new Error("User not found");
 
     const requiredFields = {
@@ -872,7 +915,9 @@ exports.deposite = async (req, res, next) => {
     }
 
     const biometricParsed = await parsePidXML(pidData);
-    const encryptedAadhaar = encrypt(aadhaar, "efb0a1c3666c5fb0efb0a1c3666c5fb0");
+    const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
+    const externalRef = `ACD${new mongoose.Types.ObjectId()}`;
+
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,
@@ -880,7 +925,7 @@ exports.deposite = async (req, res, next) => {
       longitude: user.aepsInstantPayLng || longitude,
       mobile,
       amount,
-      externalRef: `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
+      externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -912,7 +957,6 @@ exports.deposite = async (req, res, next) => {
       });
     }
 
-    const externalRef = `ACD-${new mongoose.Types.ObjectId()}`;
     // Create AEPS Report (Pending)
     const aepsReport = await AEPSTransaction.create([{
       userId,
@@ -932,7 +976,8 @@ exports.deposite = async (req, res, next) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction
@@ -980,14 +1025,18 @@ exports.deposite = async (req, res, next) => {
     });
     const result = response.data;
     if (result.statuscode === "TXN") {
-      user.eWallet = (user.eWallet || 0) - Number(required);
-      await user.save({ session });
 
-      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success", balance_after: user.eWallet, } }, { session });
+      const updatedUser = await userModel.findOneAndUpdate(
+        { _id: userId },
+        { $inc: { eWallet: -Number(required) } },
+        { new: true, session }
+      );
+
+      await Transaction.updateOne({ transaction_reference_id: externalRef }, { $set: { status: "Success", balance_after: updatedUser.eWallet, } }, { session });
       await payOutModel.updateOne({ reference: externalRef }, { $set: { status: "Success" } }, { session });
       await AEPSTransaction.findOneAndUpdate(
         { clientrefno: externalRef },
-        { status: "Success", apiResponse: result, balance_after: user.eWallet, },
+        { status: "Success", apiResponse: result, balance_after: updatedUser.eWallet, },
         { session }
       );
 
@@ -1011,7 +1060,7 @@ exports.deposite = async (req, res, next) => {
         charge: commission.charge + commission.gst,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
+          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -1019,6 +1068,20 @@ exports.deposite = async (req, res, next) => {
         status: "Success",
         sourceRetailerId: userId
       }], { session });
+
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Deposit successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
 
       await session.commitTransaction();
       res.status(200).json({ status: true, message: "Cash Deposit successful", data: result });
@@ -1051,6 +1114,7 @@ exports.deposite = async (req, res, next) => {
     session.endSession();
   }
 };
+
 exports.getBankList = async (req, res, next) => {
   try {
     const userId = req.user.id;

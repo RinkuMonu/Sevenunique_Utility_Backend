@@ -21,6 +21,15 @@ const commissionSlabSchema = new mongoose.Schema(
         "Dish TV",
         "d2h",
         "Sun Direct",
+        "Tata Sky",
+        "airtel_postpaid",
+        "jio_postpaid",
+        "vi_postpaid",
+        "bsnl_postpaid",
+        "idea_postpaid",
+        "mtnl_delhi_postpaid",
+        "mtnl_mumbai_postpaid",
+        "vodafone_postpaid",
       ],
     },
     minAmount: { type: Number },
@@ -87,3 +96,6 @@ const commissionPackageSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("CommissionPackage", commissionPackageSchema);
+
+
+

@@ -1,3 +1,4 @@
+require("dotenv").config();
 const axios = require("axios");
 const { encrypt, decrypt } = require("../../utils/encryption");
 const crypto = require("crypto");
@@ -9,7 +10,6 @@ let globalRequestId = null;
 const workingKey = process.env.ENCRYPTION_KEY;
 const BBPS_API_URL = process.env.BBPS_API_URL;
 const ACCESS_CODE = process.env.ACCESS_CODE;
-
 
 
 

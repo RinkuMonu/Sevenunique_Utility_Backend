@@ -41,8 +41,13 @@ const aepsTransactionSchema = new mongoose.Schema(
         // ✅ Unified Status
         status: {
             type: String,
-            enum: ["Pending", "Success", "Failed"],
+            enum: ["Pending", "Success", "Failed", "Refunded"],
             default: "Pending",
+        },
+        provider: {
+            type: String,
+            enum: ["instantPay", "paySprint", "iserveu"],
+            default: "instantPay",
         },
 
         // ✅ Raw API Response (from InstantPay)

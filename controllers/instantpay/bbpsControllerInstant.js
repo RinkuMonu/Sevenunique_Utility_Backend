@@ -5,12 +5,15 @@ const createError = require("http-errors");
 const Joi = require("joi");
 const BbpsHistory = require("../../models/bbpsModel");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../../utils/chargeCaluate");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback, logApiCall } = require("../../utils/chargeCaluate");
 const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const { distributeCommission } = require("../../utils/distributerCommission");
+const scratchCouponModel = require("../../models/scratchCoupon.model");
+const userMetaModel = require("../../models/userMetaModel");
+const { default: admin } = require("../../firebase");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -37,6 +40,7 @@ function normalizePayloadForEnquiry(body) {
 function normalizePayloadForPayment(body) {
   return {
     ...body,
+    paymentMode: "Cash",
     // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164",
@@ -65,7 +69,7 @@ function buildHeaders({ withOutlet = false } = {}) {
     "Content-Type": "application/json",
     "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE || "1",
     "X-Ipay-Client-Id": process.env.IPAY_CLIENT_ID,
-    "X-Ipay-Client-Secret": "9fd6e227b0d1d1ded73ffee811986da0efa869e7ea2d4a4b782973194d3c9236",
+    "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
     "X-Ipay-Endpoint-Ip": process.env.IPAY_ENDPOINT_IP,
   };
   if (withOutlet) headers["X-Ipay-Outlet-Id"] = process.env.IPAY_OUTLET_ID;
@@ -96,6 +100,7 @@ exports.circleLookup = async (req, res, next) => {
       {},   // 👈 empty body
       { headers: buildHeaders({ withOutlet: true }) }  // 👈 outlet include
     );
+    logApiCall({ url: "/circleLookup", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) {
     console.error("Circle Lookup Error:", err.response?.data || err.message);
@@ -122,6 +127,7 @@ exports.getPlans = async (req, res, next) => {
       body,                                        // ✅ body pass
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getPlans", requestData: body, responseData: data });
 
     forward(res, data);
   } catch (err) {
@@ -137,6 +143,7 @@ exports.getCategories = async (_req, res, next) => {
       "/marketplace/utilityPayments/category",
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getCategories", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -160,6 +167,7 @@ exports.listBillers = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/listBillers", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -174,6 +182,7 @@ exports.getBillerDetails = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getBillerDetails", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -196,6 +205,8 @@ exports.prePaymentEnquiry = async (req, res, next) => {
       payload,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/prePaymentEnquiry", requestData: payload, responseData: data });
+
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -209,14 +220,13 @@ exports.makePayment = async (req, res, next) => {
     // ✅ Validate incoming request
     const schema = Joi.object({
       billerId: Joi.object().required(),
-      externalRef: Joi.string().required(),
       enquiryReferenceId: Joi.string().required(),
       inputParameters: Joi.object().unknown(true).required(),
       transactionAmount: Joi.number().required(),
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       initChannel: Joi.string().required(),
-      paymentMode: Joi.string().required(),
+      // externalRef: Joi.string().required(),
       user_id: Joi.string().required(),
       mpin: Joi.string().required(),
       category: Joi.string().required(),
@@ -224,11 +234,12 @@ exports.makePayment = async (req, res, next) => {
 
     const body = await schema.validateAsync(req.body);
 
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
     if (!user) throw new Error("User not found");
 
     // ✅ MPIN check
@@ -257,7 +268,8 @@ exports.makePayment = async (req, res, next) => {
     }
 
     const usableBalance = user.eWallet - (user.cappingMoney || 0);
-    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(commission.retailer || 0)).toFixed(2));
+    const retailerBenefit = user.role === "User" ? 0 : Number(commission.retailer || 0);
+    const required = Number((Number(transactionAmount) + Number(commission.charge || 0) + Number(commission.gst || 0) + Number(commission.tds || 0) - Number(retailerBenefit || 0)).toFixed(2));
 
 
     // ✅ Balance check
@@ -270,9 +282,11 @@ exports.makePayment = async (req, res, next) => {
     }
 
     // ✅ Deduct wallet
-    user.eWallet -= required;
-    await user.save({ session });
-
+    const updateUser = await userModel.findByIdAndUpdate(
+      userId,
+      { $inc: { eWallet: -required } },
+      { new: true, session }
+    );
     // ✅ Create debit transaction
     const [debitTxn] = await Transaction.create([{
       user_id: userId,
@@ -283,12 +297,13 @@ exports.makePayment = async (req, res, next) => {
       tds: Number(commission.tds || 0),
       charge: Number(commission.charge || 0),
       totalDebit: Number(required),
-      totalCredit: Number(commission.retailer || 0),
-      balance_after: user.eWallet,
+      totalCredit: user.role === "User" ? 0 : Number(commission.retailer || 0),
+      balance_after: updateUser.eWallet,
       payment_mode: "wallet",
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
@@ -299,7 +314,7 @@ exports.makePayment = async (req, res, next) => {
       operator: billerId.billerName,
       customerNumber: inputParameters.param1,
       amount: Number(transactionAmount),
-      retailerCommission: Number(commission.retailer || 0),
+      retailerCommission: user.role === "User" ? 0 : Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
       gst: commission.gst,
@@ -310,11 +325,12 @@ exports.makePayment = async (req, res, next) => {
       transactionId: referenceid,
       extraDetails: { mobileNumber: inputParameters.param1 },
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, initChannel, transactionAmount, enquiryReferenceId, externalRef: referenceid });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
@@ -322,14 +338,82 @@ exports.makePayment = async (req, res, next) => {
       { headers: buildHeaders({ withOutlet: true }) }
     );
 
+    logApiCall({ url: "/makePayment", requestData: payload, responseData: data });
+
+
     // ✅ Determine transaction status
     let statusUpdate = "Failed";
-    if (data?.statuscode === "TXN" || data?.status === "Transaction Successful") {
+    if (data?.statuscode === "TXN" && data?.status === "Transaction Successful") {
       statusUpdate = "Success";
     } else if (data?.status === "Transaction Under Process") {
       statusUpdate = "Pending";
     }
 
+
+    if (
+      statusUpdate === "Success" &&
+      user.role === "User" &&
+      user.referredBy &&
+      !user.referralRewardGiven &&
+      Number(transactionAmount) >= 50
+    ) {
+      const referrerReward = 50;
+      const newUserReward = 20;
+
+
+      const referrer = await userModel.findByIdAndUpdate(
+        user.referredBy,
+        {
+          $inc: {
+            eWallet: referrerReward,
+            referralCount: 1,
+            referralEarnings: referrerReward,
+          },
+        },
+        { new: true, session }
+      );
+
+      const rewardedUser = await userModel.findByIdAndUpdate(
+        userId,
+        {
+          $inc: { eWallet: newUserReward },
+          $set: { referralRewardGiven: true },
+        },
+        { new: true, session }
+      );
+
+      await Transaction.create([
+        {
+          user_id: referrer._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: referrerReward,
+          totalCredit: referrerReward,
+          balance_after: referrer.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `REFERRER-${referenceid}`,
+          description: "Referral reward (first successful transaction)",
+          status: "Success",
+        },
+        {
+          user_id: rewardedUser._id,
+          transaction_type: "credit",
+          type2: "Refer & Earn",
+          amount: newUserReward,
+          totalCredit: newUserReward,
+          balance_after: rewardedUser.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `USER-${referenceid}`,
+          description: "Signup referral reward",
+          status: "Success",
+        },
+      ], { session });
+    }
+
+
+
+
+    let finalUser = updateUser;
     // ✅ On success → payout & commission credit
     if (statusUpdate === "Success") {
       await new payOutModel({
@@ -350,36 +434,73 @@ exports.makePayment = async (req, res, next) => {
       }).save({ session });
 
 
-      await CommissionTransaction.create([{
-        referenceId: referenceid,
-        service: service?._id || "BBPS",
-        baseAmount: Number(transactionAmount),
-        charge: Number(commission.charge || 0),
-        netAmount: Number(required),
-        roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge || 0 },
-          { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
-          { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
-        ],
-        type: "credit",
-        status: "Success",
-        sourceRetailerId: userId,
-      }], { session });
 
-      await distributeCommission({
-        user: userId,
-        distributer: user.distributorId,
-        service,
-        amount: transactionAmount,
-        commission,
-        reference: referenceid,
-        description: `Commission for ${billerId.billerName}`,
-        session,
-      });
+
+
+      // 🔥 USER ROLE → SCRATCH CASHBACK
+      if (user.role === "User") {
+        const retailerCommission = Number(commission.retailer || 0);
+
+        if (retailerCommission > 0) {
+
+          const cashbackAmount = generateRandomCashback(retailerCommission);
+
+          if (cashbackAmount > 0) {
+            await scratchCouponModel.findOneAndUpdate(
+              { serviceTxnId: referenceid },
+              {
+                $setOnInsert: {
+                  userId,
+                  serviceTxnId: referenceid,
+                  serviceName: billerId.billerName,
+                  baseAmount: required,
+                  cashbackAmount
+                }
+              },
+              { upsert: true, session }
+            );
+
+          }
+        }
+      } else {
+        await CommissionTransaction.create([{
+          referenceId: referenceid,
+          service: service?._id || "BBPS",
+          baseAmount: Number(transactionAmount),
+          charge: Number(commission.charge || 0),
+          netAmount: Number(required),
+          roles: [
+            { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: commission.charge + commission.gst + commission.tds || 0 || 0 },
+            { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
+            { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
+          ],
+          type: "credit",
+          status: "Success",
+          sourceRetailerId: userId,
+        }], { session });
+
+        await distributeCommission({
+          user: userId,
+          distributer: user.distributorId,
+          service,
+          amount: transactionAmount,
+          commission,
+          reference: referenceid,
+          description: `Commission for ${billerId.billerName}`,
+          session,
+        });
+      }
+
+
+
     } else if (statusUpdate === "Failed") {
       // ✅ Refund wallet if failed
-      user.eWallet += required;
-      await user.save({ session });
+      finalUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: required } },
+        { new: true, session }
+      );
+
     }
 
     // ✅ Update BBPS & Transaction reports
@@ -390,21 +511,48 @@ exports.makePayment = async (req, res, next) => {
         {
           $set: {
             status: statusUpdate,
-            apiResponse: data,
-            balance_after: user.eWallet,
+            "meta.apiResponse": data,
+            balance_after: finalUser.eWallet,
           },
         },
         { session }
       ),
     ]);
 
+    let scratchCoupon = null;
+
+    if (statusUpdate === "Success" && user.role === "User") {
+      scratchCoupon = await scratchCouponModel.findOne(
+        { serviceTxnId: referenceid },
+        { _id: 1, cashbackAmount: 1, createdAt: 1 }
+      ).session(session);
+    }
+
+
     await session.commitTransaction();
-    forward(res, data);
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Recharge ${statusUpdate} ₹ ${transactionAmount}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
+    forward(res, { ...data, scratchCoupon });
 
   } catch (err) {
 
     console.error("❌ makePayment Error:", err || err.message);
-    await session.abortTransaction();
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     next(err);
   } finally {
     session.endSession();

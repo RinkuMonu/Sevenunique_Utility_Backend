@@ -1,3 +1,4 @@
+require("dotenv").config();
 const User = require("../models/userModel.js");
 const mongoose = require("mongoose");
 const { generateOtp, verifyOtp } = require("../services/otpService");
@@ -15,44 +16,24 @@ const bcrypt = require("bcrypt");
 const PDFDocument = require("pdfkit-table");
 const ExcelJS = require("exceljs");
 const OTP = require("../models/otpModel");
-
-// utils/getDeviceName.js
-
-// const verifyEmail7Unique = async (email) => {
-//   try {
-//     const res = await axios.post(
-//       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-//       {
-//         refid: `${Date.now()}`,
-//         email,
-//       },
-//       {
-//         headers: {
-//           "Content-Type": "application/json",
-//           "x-env": "production",
-//           "client-id": "Seven012",
-//           Authorization: `Bearer ${generateToken()}`,
-//         },
-//       }
-//     );
-
-//     const data = res?.data;
-
-//     console.log("Email Verify Cron Response:", data);
-
-//     if (!data) return { valid: false, reason: "no_response" };
-//     return {
-//       valid:
-//         data?.data?.status &&
-//         data?.data?.data?.valid_syntax &&
-//         data?.data?.data?.valid,
-//       reason: data?.data?.data?.status || "unknown",
-//     };
-//   } catch (err) {
-//     console.error("Email Verify Cron Error:", err.message);
-//     return { valid: false, reason: "api_error" };
-//   }
-// };
+const { getISTDayRange } = require("../services/timeZone.js");
+const PermissionByRole = require("../models/PermissionByRole.js");
+const CounterModal = require("../models/Counter.modal.js");
+const CommissionTransaction = require("../models/CommissionTransaction.js");
+const payOutModel = require("../models/payOutModel.js");
+const payInModel = require("../models/payInModel.js");
+const otpModel = require("../models/otpModel.js");
+const LoginHistory = require("../models/LoginHistory.js");
+const userModel = require("../models/userModel.js");
+const { generateToken } = require("./kycController.js");
+const scratchCouponModel = require("../models/scratchCoupon.model.js");
+const Transaction = require("../models/transactionModel.js");
+const servicesModal = require("../models/servicesModal.js");
+const userModalActionModal = require("../models/userModalAction.modal.js");
+const redis = require("../middleware/redis.js");
+const { invalidateUsersCache, invalidateProfileCache, invalidateUserPermissionsCache, invalidateAllDashboardCache, invalidateLoginHistoryCache, checkLoginAttempts, resetLoginAttempts, incrementLoginAttempts, checkOtpLimit, incrementOtpCount } = require("../middleware/redisValidation.js");
+const { generatePaymentQR } = require("../middleware/generatePaymentQR .js");
+const { default: admin } = require("../firebase.js");
 
 const verifyEmail7Unique = async (email) => {
   try {
@@ -95,24 +76,24 @@ const getDeviceName = (userAgent = "") => {
   browser = ua.includes("Chrome")
     ? "Chrome"
     : ua.includes("Firefox")
-    ? "Firefox"
-    : ua.includes("Safari") && !ua.includes("Chrome")
-    ? "Safari"
-    : ua.includes("Edg")
-    ? "Edge"
-    : "Unknown Browser";
+      ? "Firefox"
+      : ua.includes("Safari") && !ua.includes("Chrome")
+        ? "Safari"
+        : ua.includes("Edg")
+          ? "Edge"
+          : "Unknown Browser";
 
   // Detect OS
   let os = "Unknown OS/device";
   os = ua.includes("Windows")
     ? "Windows"
     : ua.includes("Android")
-    ? "Android"
-    : ua.includes("iPhone")
-    ? "iPhone"
-    : ua.includes("Mac")
-    ? "MacOS"
-    : "Unknown OS";
+      ? "Android"
+      : ua.includes("iPhone")
+        ? "iPhone"
+        : ua.includes("Mac")
+          ? "MacOS"
+          : "Unknown OS";
 
   return `${browser} on ${os}`;
 };
@@ -127,12 +108,12 @@ const sendLoginEmail = async (
   deviceName
 ) => {
   try {
-    const check = await verifyEmail7Unique(user.email || "");
-    if (!check.valid) {
-      console.log("⚠ Skipping login email. Invalid email:", user.email);
-      return;
-    }
-    console.log("✅ Email verified by 7Unique:", check);
+    // const check = await verifyEmail7Unique(user.email || "");
+    // if (!check.valid) {
+    //   console.log("⚠ Skipping login email. Invalid email:", user.email);
+    //   return;
+    // }
+    // console.log("✅ Email verified by 7Unique:", check);
     const loginTime = new Date().toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
@@ -148,13 +129,12 @@ const sendLoginEmail = async (
           to: [
             {
               name: user?.name || "User",
-              email: user?.email,
-              // email: "niranjan@7unique.in",
-            },
+              email: user?.email
+            }
           ],
           variables: {
             userName: user?.name ?? "User",
-            company_name: "Finunique Small Private Limited",
+            // company_name: "Finunique Small Private Limited",
             loginTime: loginTime ?? "N/A",
             lat: lat ?? "N/A",
             long: long ?? "N/A",
@@ -168,10 +148,10 @@ const sendLoginEmail = async (
       ],
       from: {
         name: "Finunique Small Private Limited",
-        email: "info@sevenunique.com",
+        email: "no-reply@finuniques.in",
       },
-      domain: "mail.sevenunique.com",
-      template_id: "login_notification_template",
+      domain: "finuniques.in",
+      template_id: "login_notification_template_2",
     };
     // console.log("Login email payload:", payload.recipients[0].variables);
     try {
@@ -181,26 +161,50 @@ const sendLoginEmail = async (
         {
           headers: {
             "Content-Type": "application/json",
-            accept: "application/json",
             authkey: process.env.MSG91_AUTH_KEY,
           },
         }
       );
-      console.log("✅ Login email sent", res.data);
+      // console.log("✅ Login email sent", res.data);
     } catch (error) {
-      console.error("❌ Error sending login email:", error.message);
+      console.error("❌ Error sending login email:", error?.response.data);
     }
 
-    console.log("✅ Login email sent to:", user.email);
+    // console.log("✅ Login email sent to:", user.email);
   } catch (error) {
-    console.error("❌ Error sending login email:", error.message);
+    console.error("❌ Error sending login email:", error);
   }
 };
 
+const logoutController = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        code: "FORCE_LOGOUT",
+        message: "Invalid session",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed. Please try again.",
+    });
+  }
+};
+
+
 const sendOtpController = async (req, res) => {
   try {
-    const { mobileNumber, isRegistered, ifLogin } = req.body;
-    console.log("📩 Request Body:", req.body);
+    const { mobileNumber, isRegistered, ifLogin, type } = req.body;
 
     // ✅ Validation
     if (!mobileNumber) {
@@ -208,6 +212,17 @@ const sendOtpController = async (req, res) => {
         success: false,
         message: "Mobile number is required",
       });
+    }
+    let otpKey = null
+    if (redis) {
+      otpKey = `otp:send:mobile:${mobileNumber}`;
+      const allowed = await checkOtpLimit(otpKey);
+      if (!allowed) {
+        return res.status(429).json({
+          success: false,
+          message: "Too many OTP requests. Try again after 10 minutes.",
+        });
+      }
     }
 
     // ✅ Find user once and reuse
@@ -237,13 +252,16 @@ const sendOtpController = async (req, res) => {
     const otp = await generateOtp(mobileNumber);
 
     // ✅ Send OTP
-    const smsResult = await sendOtp(mobileNumber, otp);
-
+    const smsResult = await sendOtp(mobileNumber, otp, type);
+    // if (redis && smsResult.success) {
+    //   await incrementOtpCount(otpKey);
+    // }
+    console.log("SMS Result:", smsResult);
     if (smsResult.success) {
       return res.status(200).json({
         success: true,
         message: "OTP sent successfully",
-        data: { mobileNumber }, // optional, can remove if you want
+        data: { mobileNumber },
       });
     } else {
       return res.status(400).json({
@@ -263,7 +281,7 @@ const sendOtpController = async (req, res) => {
 
 const verifyOTPController = async (req, res) => {
   try {
-    const { mobileNumber, otp } = req.body;
+    const { mobileNumber, otp, outerRegister } = req.body;
 
     // ✅ Validation
     if (!mobileNumber || !otp) {
@@ -282,22 +300,30 @@ const verifyOTPController = async (req, res) => {
         message: verificationResult.message || "Invalid OTP",
       });
     }
+    if (redis && verificationResult.success) {
+      await redis.del(`otp:send:mobile:${mobileNumber}`);
+    }
     let user = await User.findOne({ mobileNumber });
 
-    let nextStep = 2;
+    let nextStep = outerRegister ? 3 : 2;
 
     if (user) {
-      if (user.name && user.email && user.password) nextStep = 3;
+      if (user.name && user.email && user.password)
+        nextStep = outerRegister ? 4 : 3;
 
       if (user.aadharDetails && Object.keys(user.aadharDetails).length > 0)
-        nextStep = 4;
+        nextStep = outerRegister ? 5 : 4;
 
       if (user.bankDetails && Object.keys(user.bankDetails).length > 0)
-        nextStep = 5;
+        nextStep = outerRegister ? 6 : 5;
 
       if (user.panDetails && Object.keys(user.panDetails).length > 0)
-        nextStep = 6;
+        nextStep = outerRegister ? 7 : 6;
     }
+
+    const token = user
+      ? generateJwtToken(user._id, user.role, user.mobileNumber)
+      : null;
 
     // ✅ Success
     return res.status(200).json({
@@ -306,6 +332,8 @@ const verifyOTPController = async (req, res) => {
       userId: user ? user._id : null,
       nextStep,
       isExistingUser: !!user,
+      token: token ? token : null,
+      role: user ? user.role : null,
     });
   } catch (error) {
     console.error("❌ Error in verifyOTPController:", error);
@@ -317,7 +345,181 @@ const verifyOTPController = async (req, res) => {
   }
 };
 
-const loginController = async (req, res) => {
+// const loginController = async (req, res) => {
+//   try {
+//     const {
+//       mobileNumber,
+//       password,
+//       otp,
+//       lat,
+//       long,
+//       pincode,
+//       ipAddress,
+//       deviceLocation,
+//     } = req.body;
+//     if (!mobileNumber) {
+//       return res.status(400).json({ message: "Mobile number is required" });
+//     }
+//     const ip = req.ip;
+
+//     const ipKey = `login:attempt:ip:${ip}`;
+//     if (redis) {
+//       const ipAllowed = await checkLoginAttempts(ipKey);
+//       if (!ipAllowed) {
+//         return res.status(403).json({
+//           success: false,
+//           message: "Too many attempts. Try after 10 min.",
+//         });
+//       }
+//     }
+
+//     const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
+//     if (!user) {
+//       await incrementLoginAttempts(ipKey);
+//       return res.status(404).json({ message: "No user found" });
+//     }
+//     let userKey = null;
+//     if (user) {
+//       userKey = `login:attempt:user:${user._id}`;
+//     }
+//     const userAllowed = await checkLoginAttempts(userKey);
+//     if (!userAllowed) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Too many failed attempts. Try after 10 min.",
+//       });
+//     }
+
+
+//     if (user.status === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your account is blocked. Please contact support." });
+//     }
+//     if (user.isKycVerified === false) {
+//       return res
+//         .status(403)
+//         .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
+//     }
+//     if (user.role === "User" && user.clientSource === "PANEL") {
+//       return res.status(403).json({
+//         message:
+//           "This panel is not for users; Only retailers and distributors can access it.",
+//       });
+//     }
+
+//     // ✅ OTP login
+//     if (otp) {
+//       const verificationResult = await verifyOtp(mobileNumber, otp);
+//       if (!verificationResult.success) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: verificationResult.message });
+//       }
+//     }
+//     // ✅ Password login
+//     else if (password) {
+//       const isMatch = await user.comparePassword(password);
+
+//       if (!isMatch) {
+//         await incrementLoginAttempts(ipKey);
+//         if (userKey) {
+//           await incrementLoginAttempts(userKey);
+//         }
+//         return res.status(400).json({ message: "Invalid password" });
+//       }
+//     } else {
+//       return res
+//         .status(400)
+//         .json({ message: "Password or OTP is required to login" });
+//     }
+//     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
+//     const deviceName = getDeviceName(req.headers["user-agent"]);
+
+//     if (user.forceLogout === true) {
+//       user.forceLogout = false
+//       await user.save();
+//     }
+//     if (redis) {
+//       try {
+//         const SESSION_TTL = 60 * 60 * 24;
+//         await redis.multi()
+//           .del(`USER_SESSION:${user._id}`)
+//           .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
+//           .exec();
+//       } catch (error) {
+//         console.error("FAILED TO SET USER_SESSION", error);
+//       }
+//     }
+
+//     // sendLoginEmail(
+//     //   user,
+//     //   lat,
+//     //   long,
+//     //   pincode,
+//     //   ipAddress,
+//     //   deviceLocation,
+//     //   deviceName
+//     // );
+//     // await LoginHistory.create({
+//     //   userId: user._id ?? null,
+//     //   mobileNumber: user.mobileNumber ?? "",
+//     //   loginTime: new Date() ?? Date.now(),
+//     //   ipAddress: ipAddress ?? req.ip,
+//     //   userAgent: req.headers["user-agent"] ?? "",
+//     //   deviceLocation: deviceLocation ?? "",
+//     //   deviceName: deviceName ?? "",
+//     //   location: {
+//     //     lat: lat ?? "",
+//     //     long: long ?? "",
+//     //     pincode: pincode ?? "",
+//     //   },
+//     // });
+//     // await invalidateLoginHistoryCache(user._id)
+//     if (userKey) {
+//       await resetLoginAttempts(userKey);
+//     }
+//     await resetLoginAttempts(ipKey);
+//     console.log(
+//       {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       })
+//     return res.status(200).json({
+//       message: "Login successfully",
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         mobileNumber: user.mobileNumber,
+//         role: user.role,
+//         token,
+//         ownerPhoto: user.ownerPhoto,
+//         isKycVerified: user.isKycVerified,
+//         isVideoKyc: user.isVideoKyc,
+//         address: user.address,
+//         status: user.status,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error in loginController:", error);
+//     return res.status(500).json({ message: "please try again later" });
+//   }
+// };
+
+
+const   loginController = async (req, res) => {
   try {
     const {
       mobileNumber,
@@ -328,26 +530,71 @@ const loginController = async (req, res) => {
       pincode,
       ipAddress,
       deviceLocation,
+      fcm_Token
     } = req.body;
+
     if (!mobileNumber) {
       return res.status(400).json({ message: "Mobile number is required" });
     }
+    const ip = req.ip;
 
-    const user = await User.findOne({ mobileNumber });
+
+    const ipKey = `login:attempt:ip:${ip}`;
+    if (redis) {
+      const ipAllowed = await checkLoginAttempts(ipKey);
+      if (!ipAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many attempts. Try after 10 min.",
+        });
+      }
+    }
+
+    const user = await User.findOne({ mobileNumber }).select("_id role mobileNumber name email status isKycVerified clientSource forceLogout address isVideoKyc ownerPhoto password")
     if (!user) {
+      await incrementLoginAttempts(ipKey);
       return res.status(404).json({ message: "No user found" });
     }
+    let userKey = null;
+    if (redis) {
+      if (user) {
+        userKey = `login:attempt:user:${user._id}`;
+      }
+      const userAllowed = await checkLoginAttempts(userKey);
+      if (!userAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Too many log in attempts. Try after 10 min.",
+        });
+      }
+    }
+
 
     if (user.status === false) {
       return res
         .status(403)
         .json({ message: "Your account is blocked. Please contact support." });
     }
+    if (user.isKycVerified === false && user.role !== "User") {
+      return res
+        .status(403)
+        .json({ message: "Your KYC is Pending Please register now and done your KYC first" });
+    }
+    if (user.role === "User" && user.clientSource === "PANEL") {
+      return res.status(403).json({
+        message:
+          "This panel is not for users; Only retailers and distributors can access it.",
+      });
+    }
 
     // ✅ OTP login
     if (otp) {
       const verificationResult = await verifyOtp(mobileNumber, otp);
       if (!verificationResult.success) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: verificationResult.message });
       }
     }
@@ -355,19 +602,53 @@ const loginController = async (req, res) => {
     else if (password) {
       const isMatch = await user.comparePassword(password);
 
-      if (!isMatch)
+      if (!isMatch) {
+        await incrementLoginAttempts(ipKey);
+        if (userKey) {
+          await incrementLoginAttempts(userKey);
+        }
         return res.status(400).json({ message: "Invalid password" });
+      }
     } else {
       return res
         .status(400)
         .json({ message: "Password or OTP is required to login" });
     }
+    let fcm_Token_user;
+    if (fcm_Token) {
+      fcm_Token_user = await userMetaModel.findOneAndUpdate(
+        { userId: user._id },
 
-    // ✅ Generate JWT
+        {
+          $set: {
+            fcm_Token: fcm_Token,
+          },
+        },
+
+        {
+          upsert: true,
+          new: true,
+        }
+      );
+    }
     const token = generateJwtToken(user._id, user.role, user.mobileNumber);
-
     const deviceName = getDeviceName(req.headers["user-agent"]);
-
+    if (user.forceLogout === true) {
+      user.forceLogout = false
+      await user.save();
+    }
+    if (redis) {
+      try {
+        const SESSION_TTL = 60 * 60 * 24;
+        await redis.multi()
+          .del(`USER_SESSION:${user._id}`)
+          .setex(`USER_SESSION:${user._id}`, SESSION_TTL, token)
+          .exec();
+        // console.log("✅ USER_SESSION set in Redis");
+      } catch (error) {
+        console.error("FAILED TO SET USER_SESSION", error);
+      }
+    }
     sendLoginEmail(
       user,
       lat,
@@ -391,9 +672,22 @@ const loginController = async (req, res) => {
         pincode: pincode ?? "",
       },
     });
-
+    await invalidateLoginHistoryCache(user._id)
+    if (userKey) {
+      await resetLoginAttempts(userKey);
+    }
+    await resetLoginAttempts(ipKey);
+    if (fcm_Token_user) {
+      await admin.messaging().send({
+        token: fcm_Token_user.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Login successfully"
+        }
+      })
+    }
     return res.status(200).json({
-      message: "Login successful",
+      message: "Login successfully",
       user: {
         id: user._id,
         name: user.name,
@@ -414,115 +708,144 @@ const loginController = async (req, res) => {
   }
 };
 
+
+
+
 const getLoginHistory = async (req, res) => {
   try {
     let { page = 1, limit = 10, search = "", role = "", date = "" } = req.query;
 
     page = Number(page);
     limit = Number(limit);
-    const loginUser = req.user;
     const skip = (page - 1) * limit;
-    let loginFilter = {}; // Final filter
 
-    if (loginUser.role === "Admin") {
-      // No filter → Admin sees all logs
-    } else if (loginUser.role === "Distributor") {
-      // Distributor → its own retailers + self
-      const retailers = await userModel.find(
-        { parendistributorIdtId: loginUser.id },
-        "_id"
-      );
+    const loginUser = req.user;
+    const ttl =
+      loginUser.role === "Admin"
+        ? 50000
+        : 12 * 60 * 60
+    const loginFilter = {};
+    let cacheKey = null;
 
-      const retailerIds = retailers.map((r) => r._id);
+    if (redis) {
+      if (loginUser.role === "Admin") {
+        cacheKey = `loginHistory:admin:p${page}:l${limit}:s${search}:r${role}:d${date}`
+      } else {
+        cacheKey = `loginHistory:user:${loginUser.id}:p${page}:l${limit}:s${search}:r${role}:d${date}`;
+      }
+
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          // console.log("⚡ LOGIN HISTORY REDIS HIT");
+          return res.json(JSON.parse(cached));
+        }
+      } catch {
+        console.log("Redis get failed");
+      }
+    }
+
+    // 🔹 1. ROLE BASE FILTER
+    if (loginUser.role === "Distributor") {
+      const retailerIds = await userModel
+        .find({ distributorId: loginUser.id })
+        .distinct("_id");
 
       loginFilter.userId = { $in: [...retailerIds, loginUser.id] };
-    } else {
-      // Retailer / Normal User
+    } else if (loginUser.role !== "Admin") {
       loginFilter.userId = loginUser.id;
     }
-    // ---------------------------------------------
-    // 1️⃣ USER SEARCH BY NAME OR MOBILE
-    // ---------------------------------------------
+
+    // 🔹 2. SEARCH USER IDS (only when needed)
     let matchedUserIds = [];
-
-    if (search.trim() !== "" || role !== "") {
-      const regex = new RegExp(search.trim(), "i");
-
+    if (search || role) {
       const userFilter = {};
+      const regex = new RegExp(search, "i");
 
-      if (search.trim() !== "") {
+      if (search) {
         userFilter.$or = [
           { name: regex },
           { mobile: regex },
           { UserId: regex },
         ];
       }
+      if (role) userFilter.role = role;
 
-      if (role !== "") userFilter.role = role;
-
-      const matchedUsers = await userModel.find(userFilter).select("_id");
-      matchedUserIds = matchedUsers.map((u) => u._id);
+      matchedUserIds = await userModel
+        .find(userFilter)
+        .distinct("_id");
     }
 
-    // ---------------------------------------------
-    // 2️⃣ LOGIN HISTORY SEARCH FIELDS
-    // ---------------------------------------------
-    const regex = new RegExp(search.trim(), "i");
+    // 🔹 3. LOGIN SEARCH CONDITIONS
+    const loginSearch = [];
+    const regex = new RegExp(search, "i");
 
-    const loginSearchConditions = [];
-
-    if (search.trim() !== "") {
-      loginSearchConditions.push(
+    if (search) {
+      loginSearch.push(
         { mobileNumber: regex },
         { ipAddress: regex },
         { "location.pincode": regex }
       );
     }
 
-    if (matchedUserIds.length > 0) {
-      loginSearchConditions.push({ userId: { $in: matchedUserIds } });
+    if (matchedUserIds.length) {
+      loginSearch.push({ userId: { $in: matchedUserIds } });
     }
 
-    if (loginSearchConditions.length > 0) {
-      loginFilter.$or = loginSearchConditions;
+    if (loginSearch.length) {
+      loginFilter.$or = loginSearch;
     }
 
-    // ---------------------------------------------
-    // 3️⃣ DATE FILTER (YYYY-MM-DD)
-    // ---------------------------------------------
-    if (date && date !== "") {
+    // 🔹 4. DATE FILTER
+    if (date) {
       const start = new Date(date);
       const end = new Date(date);
       end.setHours(23, 59, 59, 999);
 
-      loginFilter.loginTime = {
-        $gte: start,
-        $lte: end,
-      };
+      loginFilter.loginTime = { $gte: start, $lte: end };
     }
 
-    // ---------------------------------------------
-    // 4️⃣ FETCH LOGS
-    // ---------------------------------------------
-    const logs = await LoginHistory.find(loginFilter)
-      .populate("userId", "name mobile role UserId")
-      .sort({ loginTime: -1 })
-      .skip(skip)
-      .limit(limit);
+    // 🔹 5. PARALLEL DB CALLS (BIG WIN 🔥)
+    const [logs, totalLogs] = await Promise.all([
+      LoginHistory.find(loginFilter)
+        .populate("userId", "name mobile role UserId")
+        .sort({ loginTime: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-    // ---------------------------------------------
-    // 5️⃣ COUNT TOTAL FOR PAGINATION
-    // ---------------------------------------------
-    const totalLogs = await LoginHistory.countDocuments(loginFilter);
-
-    return res.status(200).json({
+      LoginHistory.countDocuments(loginFilter),
+    ]);
+    const responseData = {
       success: true,
       page,
       limit,
       totalLogs,
       totalPages: Math.ceil(totalLogs / limit),
       logs,
-    });
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          ttl,
+          JSON.stringify(responseData),
+        );
+        console.log("🔥 MongoDB UserHistory(BY ID) HIT");
+      } catch (error) {
+        console.log("redies set faild from UserHistory api")
+      }
+    }
+    res.status(200).json(responseData);
+
+    // return res.status(200).json({
+    //   success: true,
+    //   page,
+    //   limit,
+    //   totalLogs,
+    //   totalPages: Math.ceil(totalLogs / limit),
+    //   logs,
+    // });
   } catch (error) {
     console.error("Error fetching login history:", error);
     return res.status(500).json({
@@ -532,26 +855,157 @@ const getLoginHistory = async (req, res) => {
   }
 };
 
+
 const registerUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     let userData = { ...req.body };
+    let { isBecomeRetailer } = userData
+    // console.log("register body", userData)
+    // console.log("register auth", req.user)
+    isBecomeRetailer = isBecomeRetailer === true || isBecomeRetailer === "true";
 
-    // console.log("body...............", userData);
-    const existingUser = await User.findOne({
-      $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
-    });
+    if (isBecomeRetailer === true && !req.user) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({
+        success: false,
+        code: "FORCE_LOGOUT",
+        message: "Please login again to continue become a retailer process",
+      });
+    }
+
+    const clientSource = userData?.clientSource?.toUpperCase() || "PANEL";
+
+    // if (clientSource !== "APP") {
+    //   delete userData.referal;
+    // }
+
+    // const existingUser = await User.findOne({
+    //   $or: [{ mobileNumber: userData.mobileNumber }, { email: userData.email }],
+    // }).select({
+    //   _id: 1,
+    //   mobileNumber: 1,
+    //   email: 1
+    // }).session(session);
+
+    // let userToSave = null;
+
+    // if (existingUser) {
+    //   if (
+    //     isBecomeRetailer === true &&
+    //     req.user &&
+    //     (String(existingUser._id) == String(req.user.id))
+    //   ) {
+    //     delete userData.mobileNumber;
+    //     delete userData.email;
+    //     userToSave = existingUser;
+    //   } else {
+    //     await session.abortTransaction();
+    //     session.endSession();
+
+    //     if (existingUser.mobileNumber === userData.mobileNumber) {
+    //       return res.status(400).json({
+    //         message: "User Mobile Number already exists",
+    //       });
+    //     }
+    //     if (existingUser.email === userData.email) {
+    //       return res.status(400).json({
+    //         message: "User Email already exists",
+    //       });
+    //     }
+    //   }
+    // }
+
+    // Normalize email
+    if (userData.email) {
+      userData.email = userData.email.trim().toLowerCase();
+      if (userData.email === "") {
+        delete userData.email;
+      }
+    } else {
+      delete userData.email;
+    }
+
+    if ((userData.role === "Retailer" || isBecomeRetailer) && !userData.email) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: "Email is required for Retailer registration",
+      });
+    }
+
+    // Prepare duplicate checks
+    const queries = [
+      User.findOne({ mobileNumber: userData.mobileNumber })
+        .select("_id mobileNumber")
+        .session(session)
+    ];
+
+    if (userData.email) {
+      queries.push(
+        User.findOne({ email: userData.email })
+          .select("_id email")
+          .session(session)
+      );
+    }
+
+    const results = await Promise.all(queries);
+
+    const mobileUser = results[0];
+    const emailUser = userData.email ? results[1] : null;
+
+    let existingUser = mobileUser || emailUser;
+    let userToSave = null;
 
     if (existingUser) {
-      if (existingUser.mobileNumber === userData.mobileNumber) {
-        return res
-          .status(400)
-          .json({ message: "User Mobile Number already exists" });
-      }
-      if (existingUser.email === userData.email) {
-        return res.status(400).json({ message: "User Email already exists" });
+      if (
+        isBecomeRetailer === true &&
+        req.user &&
+        String(existingUser._id) === String(req.user.id)
+      ) {
+        delete userData.mobileNumber;
+        delete userData.email;
+        userToSave = existingUser;
+      } else {
+        await session.abortTransaction();
+        session.endSession();
+
+        if (mobileUser) {
+          return res.status(400).json({
+            message: "User Mobile Number already exists",
+          });
+        }
+
+        if (emailUser) {
+          return res.status(400).json({
+            message: "User Email already exists",
+          });
+        }
       }
     }
 
+
+    let referredByUser = null;
+
+    if (userData.referal && userData.referal !== "") {
+      referredByUser = await User.findOne({
+        referralCode: userData.referal,
+      }).session(session);
+
+      if (!referredByUser) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: "Invalid referral code",
+        });
+      }
+    }
+
+    if (referredByUser) {
+      userData.referredBy = referredByUser._id;
+    }
     //questions
     if (userData.questions && typeof userData.questions === "string") {
       try {
@@ -614,40 +1068,6 @@ const registerUser = async (req, res) => {
         userData.distributorId = adminUser._id;
       }
     }
-    // ✅ Email verify karne ka step
-    // if (userData.email) {
-    //   try {
-    //     const verifyEmailRes = await axios.post(
-    //       "https://api.7uniqueverfiy.com/api/verify/email_checker_v1",
-    //       { email: userData.email },
-    //       {
-    //         headers: {
-    //           Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2ODQ3ZDBkZmM4MGZmNTJhMWU4ZjhjZTciLCJlbWFpbCI6ImNoYW5kdUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4ifQ.B1RbPjRkdKAZVdbn6kDlY9_mjmxT4fA5vJwgILEiDYA"}`,
-    //           "x-env": "production",
-    //           "client-id": "Seven012",
-    //           "Content-Type": "application/json",
-    //         },
-    //       }
-    //     );
-
-    //     const result = verifyEmailRes.data;
-    //     console.log("📧 Email verify response:", result);
-
-    //     if (result?.status && result.status.toLowerCase() !== "valid") {
-    //       return res
-    //         .status(400)
-    //         .json({ message: "Invalid or undeliverable email address." });
-    //     }
-    //   } catch (err) {
-    //     console.error(
-    //       "❌ Email verify API fail hui:",
-    //       err.response?.data || err.message
-    //     );
-    //     return res.status(400).json({
-    //       message: "Email verify karne me problem aayi, dubara try karo.",
-    //     });
-    //   }
-    // }
 
     if (req.files?.shopPhoto) {
       userData.shopPhoto = req.files.shopPhoto.map(
@@ -692,54 +1112,69 @@ const registerUser = async (req, res) => {
       }
     }
 
-    // ✅ Create user
-    userData.UserId = await CounterModal.getNextUserId();
-    const NewUser = new User(userData);
-    await NewUser.save();
+    let savedUser;
+    if (userToSave) {
+      // 🔵 STEP-3: UPDATE EXISTING USER
+      Object.assign(userToSave, userData);
+      savedUser = await userToSave.save({ session });
+    } else {
+      // 🟢 BRAND NEW USER
+      userData.UserId = await CounterModal.getNextUserId();
+      const newUser = new User(userData);
+      savedUser = await newUser.save({ session });
+    }
+    const qrCode = await generatePaymentQR(savedUser.mobileNumber);
+    savedUser.qrCode = qrCode;
+    await savedUser.save({ session });
+    let fcm_Token_user;
+    if (userData.fcm_Token) {
+      fcm_Token_user = await userMetaModel.findOneAndUpdate(
+        { userId: savedUser._id },
+
+        {
+          $set: {
+            fcm_Token: fcm_Token,
+          },
+        },
+
+        {
+          upsert: true,
+          new: true,
+        }
+      );
+    }
+
+    await session.commitTransaction();
+    session.endSession();
 
     // ✅ Generate JWT
     const token = generateJwtToken(
-      NewUser._id,
-      NewUser.role,
-      NewUser.mobileNumber
+      savedUser._id,
+      savedUser.role,
+      savedUser.mobileNumber
     );
 
-    // ✅ Send lead to external API
-    try {
-      await axios.post(
-        "https://cms.sevenunique.com/apis/leads/set-leads.php",
-        {
-          website_id: 6,
-          name: NewUser.name,
-          mobile_number: NewUser.mobileNumber,
-          email: NewUser.email,
-          address: NewUser.address,
-          client_type: NewUser.role,
-          notes: "Lead from FinUnique small private limited",
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer jibhfiugh84t3324fefei#*fef",
-          },
+    if (userData.fcm_Token) {
+      await admin.messaging().send({
+        token: fcm_Token_user.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Registration successfully"
         }
-      );
-    } catch (leadError) {
-      console.error(
-        "Error sending lead data:",
-        leadError.response ? leadError.response.data : leadError.message
-      );
+      })
     }
 
     return res.status(200).json({
       message: "Registration successful",
-      newUser: NewUser,
+      newUser: savedUser,
       token,
     });
   } catch (error) {
     console.log("eeeeeeeeeeeeeee", error);
+    await session.abortTransaction();
+    session.endSession();
     console.error("Error in registerUser controller:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
 
@@ -761,12 +1196,13 @@ const updateProfileController = async (req, res) => {
       shopName,
       userId,
     } = req.body;
-    console.log(req.body);
+    // console.log(req.body);
 
     let user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
 
     if (name) user.name = name;
     if (email) user.email = email;
@@ -782,15 +1218,22 @@ const updateProfileController = async (req, res) => {
       };
     }
     if (pinCode) user.pinCode = pinCode;
-    if (role) user.role = role;
+    if (role && role !== user.role) {
+      user.role = role;
+      user.forceLogout = true;
+    }
+    if (isKycVerified !== undefined) {
+      user.isKycVerified = isKycVerified;
+    }
     if (agreement !== undefined) user.agreement = agreement;
-    if (isKycVerified !== undefined) user.isKycVerified = isKycVerified;
     if (isVideoKyc !== undefined) user.isVideoKyc = isVideoKyc;
     if (isSpecial !== undefined) user.isSpecial = isSpecial;
     if (shopType) user.shopType = shopType;
     if (shopName) user.shopName = shopName;
 
     await user.save();
+    await invalidateUsersCache();
+    await invalidateProfileCache(user._id || user.id);
 
     return res.status(200).json({
       message: "Profile updated successfully",
@@ -804,14 +1247,29 @@ const updateProfileController = async (req, res) => {
 
 const getUserController = async (req, res) => {
   try {
+    // await invalidateProfileCache(req.user.id);
+    let cacheKey = null
+    if (redis) {
+      try {
+        cacheKey = `profile:self:${req.user.id}`;
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          console.log("UserSelfProfile Hit from Redis")
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (error) {
+        console.log("redis error from get UserSelfProfile api")
+      }
+    }
+
     let userDoc = await User.findById(
       req.user.id,
-      "-mpin -commissionPackage -meta -password"
+      "-mpin -commissionPackage -meta -password -planHistory"
     )
       .populate("role")
       .populate({
         path: "plan.planId",
-        populate: { path: "services", model: "Service" },
+        populate: { path: "services", model: "Service", select: "defaultSwitch _id isActive" },
       })
       .populate({
         path: "distributorId",
@@ -829,16 +1287,20 @@ const getUserController = async (req, res) => {
     let user = userDoc.toObject();
 
     // Filter plan.amount
+    if (user?.aadharDetails?.data) {
+      delete user.aadharDetails.data.profile_image;
+      delete user.aadharDetails.data.raw_xml;
+    }
     if (user.plan?.planId?.amount && user.plan?.planType) {
       user.plan.planId.amount = user.plan.planId.amount.filter(
         (a) => a.type === user.plan.planType
       );
     }
 
-    const userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.user.id })
-        .populate("services.serviceId")) || {};
+    // const userMeta =
+    //   (await userMetaModel
+    //     .findOne({ userId: req.user.id })
+    //     .populate("services.serviceId")) || {};
 
     let remainingDays = null;
     if (user.plan?.startDate && user.plan?.endDate) {
@@ -847,9 +1309,27 @@ const getUserController = async (req, res) => {
       const diffTime = endDate.getTime() - today.getTime();
       remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
     }
-    return res
-      .status(200)
-      .json({ user, userMeta, effectivePermissions, remainingDays });
+    // return res
+    //   .status(200)
+    //   .json({ user, userMeta, effectivePermissions, remainingDays });
+
+    const responseData = {
+      user, effectivePermissions, remainingDays
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          7200,
+          JSON.stringify(responseData),
+        );
+        // console.log("🔥 MongoDB UserSelfProfile HIT");
+      } catch (error) {
+        console.log("redies set faild from UserSelfProfile api")
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -858,51 +1338,107 @@ const getUserController = async (req, res) => {
 
 const getUserId = async (req, res) => {
   try {
+    let cacheKey = null
+    if (redis) {
+      try {
+        cacheKey = `profile:user:${req.params.id}`;
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          // console.log("UserProfile Hit from Redis")
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (error) {
+        console.log("redis error from get UserProfile api")
+      }
+    }
     let userDoc = await User.findById(
       req.params.id,
-      "-mpin -commissionPackage -meta -password"
-    )
-      .populate("role")
-      .populate({
-        path: "plan.planId",
-        populate: { path: "services", model: "Service" },
-      })
-      .populate({
-        path: "distributorId",
-        select: "id name",
-      })
-      .populate("extraPermissions");
+      "-mpin -commissionPackage -meta -password -rolePermissions -extraPermissions -restrictedPermissions -planHistory"
+    ).populate("role").populate({ path: "plan.planId", select: "name amount" })
+      .populate({ path: "distributorId", select: "id name UserId", })
+      .populate("extraPermissions")
 
     if (!userDoc) {
       return res.status(404).json({ message: "No user found" });
     }
 
     // ✅ Call method safely
-    const effectivePermissions = await userDoc.getEffectivePermissions();
+    // const effectivePermissions = await userDoc.getEffectivePermissions();
 
     // ✅ Convert to object only after calling method
     let user = userDoc.toObject();
 
-    // Filter plan.amount
-    if (user.plan?.planId?.amount && user.plan?.planType) {
-      user.plan.planId.amount = user.plan.planId.amount.filter(
-        (a) => a.type === user.plan.planType
-      );
+    // Remove heavy / sensitive Aadhaar fields
+    if (user?.aadharDetails?.data) {
+      delete user.aadharDetails.data.profile_image;
+      delete user.aadharDetails.data.raw_xml;
     }
 
-    const userMeta =
-      (await userMetaModel
-        .findOne({ userId: req.user.id })
-        .populate("services.serviceId")) || {};
+    // Filter plan.amount
+    // if (user.plan?.planId?.amount && user.plan?.planType) {
+    //   user.plan.planId.amount = user.plan.planId.amount.filter(
+    //     (a) => a.type === user.plan.planType
+    //   );
+    // }
 
-    return res.status(200).json({ user, userMeta, effectivePermissions });
+    // const userMeta =
+    //   (await userMetaModel
+    //     .findOne({ userId: req.params.id })
+    //     .populate("services.serviceId")) || {};
+
+    // return res.status(200).json({ user, userMeta, effectivePermissions });
+
+    const responseData = {
+      user
+    }
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          3600,
+          JSON.stringify(responseData),
+        );
+        console.log("🔥 MongoDB UserProfile(BY ID) HIT");
+      } catch (error) {
+        console.log("redies set faild from UserProfile api")
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUserController:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
+const getUserMobile = async (req, res) => {
+  try {
+
+    const { mobileNumber } = req.params;
+
+    const user = await User.findOne(
+      { mobileNumber: mobileNumber },
+      "mobileNumber name"
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "No user found" });
+    }
+
+    return res.status(200).json({
+      mobileNumber: user.mobileNumber,
+      name: user.name
+    });
+
+  } catch (error) {
+    console.error("Error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
 const getUsersWithFilters = async (req, res) => {
+
   try {
     const {
       keyword,
@@ -920,8 +1456,63 @@ const getUsersWithFilters = async (req, res) => {
       state,
       district,
       distributorId,
+      includePermissions,
+      forList
     } = req.query;
-    // console.log("query...", req.query);
+
+    const isDistributorOnly =
+      (role === "Distributor" || role === "Retailer" || role === "User") && forList == "true" &&
+      !keyword &&
+      !from &&
+      !to &&
+      exportType === "false";
+    let cacheKeyDis = null
+    if (isDistributorOnly) {
+      try {
+        cacheKeyDis = `users:${role}:list`;
+        const cached = await redis.get(cacheKeyDis);
+        if (cached) {
+          return res.status(200).json(JSON.parse(cached));
+        }
+      } catch (error) {
+        console.log("Distributor List Redis HIT Failed")
+      }
+
+      const distributors = await User.find({ role: role })
+        .select("_id name UserId")
+        .sort({ name: 1 })
+        .lean();
+
+      const responseData = {
+        success: true,
+        data: distributors,
+      };
+      if (redis) {
+        try {
+          await redis.setex(cacheKeyDis, 4000, JSON.stringify(responseData));
+        } catch (error) {
+          console.log("Distributor List Set in Redis failed")
+        }
+      }
+      return res.status(200).json(responseData);
+    }
+
+
+    let cacheKey = null
+    if (exportType == "false") {
+      if (redis) {
+        try {
+          cacheKey = `users:${req.user.role}:${req.user.id}:${JSON.stringify(req.query)}`;
+          const cachedData = await redis.get(cacheKey);
+          if (cachedData) {
+            // console.log("User List Hit from Redis")
+            return res.status(200).json(JSON.parse(cachedData));
+          }
+        } catch (error) {
+          console.log("redis error from get all user api")
+        }
+      }
+    }
 
     const andConditions = [];
     if (state) {
@@ -963,12 +1554,10 @@ const getUsersWithFilters = async (req, res) => {
       if (isKycVerified)
         andConditions.push({ isKycVerified: isKycVerified === "true" });
     }
-
     // 🔹 Role filter
     if (role) {
       andConditions.push({ role });
     }
-
     // 🔹 Date range filter
     if (from || to) {
       const dateFilter = {};
@@ -976,47 +1565,42 @@ const getUsersWithFilters = async (req, res) => {
       if (to) dateFilter.$lte = new Date(to);
       andConditions.push({ createdAt: dateFilter });
     }
-
     // 🔹 Distributor restriction
     const loggedInUser = req.user;
     if (loggedInUser.role === "Distributor") {
       andConditions.push({ distributorId: loggedInUser.id });
     }
-
     // Final filter
     const filter = andConditions.length > 0 ? { $and: andConditions } : {};
-
     const sort = {};
     sort[sortBy] = order === "asc" ? 1 : -1;
 
     const skip = (page - 1) * limit;
 
-    let users = await User.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
-    // .skip(exportType !== "false" ? 0 : skip)
-    // .limit(
-    //   exportType !== "false" ? Number.MAX_SAFE_INTEGER : parseInt(limit)
-    // );
+    let [users, totalUsers] = await Promise.all([
+      User.find(filter).select("UserId name email mobileNumber role status isKycVerified eWallet createdAt registrationProgress address callbackUrl")
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ])
+
 
     // ✅ Effective Permissions add karo
-    users = await Promise.all(
-      users.map(async (u) => {
-        const effectivePermissions = await u.getEffectivePermissions();
-        const userObj = u.toObject();
+    if (includePermissions) {
+      users = await Promise.all(
+        users.map(async (u) => {
+          const userDoc = await User.findById(u._id);
+          const permissions = await userDoc.getEffectivePermissions();
 
-        delete userObj.extraPermissions;
-        delete userObj.restrictedPermissions;
-        delete userObj.rolePermissions;
-
-        return {
-          ...userObj,
-          effectivePermissions,
-        };
-      })
-    );
-    // console.log(users);
+          return {
+            ...u,
+            effectivePermissions: permissions,
+          };
+        })
+      );
+    }
 
     let fields = [];
 
@@ -1152,9 +1736,7 @@ const getUsersWithFilters = async (req, res) => {
       return res.json(users);
     }
 
-    // Normal API response (pagination ke sath)
-    const totalUsers = await User.countDocuments(filter);
-    res.status(200).json({
+    const responseData = {
       success: true,
       data: users,
       pagination: {
@@ -1162,7 +1744,25 @@ const getUsersWithFilters = async (req, res) => {
         totalPages: Math.ceil(totalUsers / limit),
         totalUsers,
       },
-    });
+    };
+
+    // ================= REDIS SAVE (START) =================
+    if (exportType === "false") {
+      if (cacheKey && redis) {
+        try {
+          await redis.setex(
+            cacheKey,
+            500,
+            JSON.stringify(responseData),
+          );
+          // console.log("🔥 Get all user MongoDB HIT");
+        } catch (error) {
+          console.log("redies set faild from user get api")
+        }
+      }
+    }
+    res.status(200).json(responseData);
+
   } catch (error) {
     console.error("Error in getUsersWithFilters:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -1181,11 +1781,23 @@ const updateUserStatus = async (req, res) => {
     }
     const user = await User.findById(userId);
 
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
     user.status = status;
+    user.forceLogout = true;
     await user.save();
+    await invalidateUsersCache();
+    await invalidateProfileCache(userId);
+    if (redis) {
+      try {
+        await redis.del(`USER_SESSION:${userId}`);
+      } catch (error) {
+        console.log("Nothing", error.message)
+      }
+    }
+
     return res.status(200).json({
       message: "User status updated successfully",
       user: {
@@ -1205,15 +1817,10 @@ const updateUserDetails = async (req, res) => {
     const userId = req.params.id;
 
     const {
-      role,
       status,
       isAccountActive,
       commissionPackage,
-      cappingMoney,
-      eWallet,
       meta,
-      password,
-      mpin,
       outletId,
       callbackUrl,
     } = req.body;
@@ -1222,24 +1829,22 @@ const updateUserDetails = async (req, res) => {
       return res.status(400).json({ message: "User ID is required" });
     }
 
+
     let user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    if (role) user.role = role;
     if (status !== undefined) user.status = status;
     if (commissionPackage) user.commissionPackage = commissionPackage;
     if (isAccountActive !== undefined) user.isAccountActive = isAccountActive;
-    if (cappingMoney !== undefined) user.cappingMoney = cappingMoney;
-    if (eWallet !== undefined) user.eWallet = eWallet;
     if (meta) user.meta = meta;
-    if (password) user.password = password;
-    if (mpin) user.mpin = mpin;
     if (outletId) user.outletId = outletId;
-    if (callbackUrl) user.callbackUrl = callbackUrl;
+    if (callbackUrl || callbackUrl == "") user.callbackUrl = callbackUrl;
 
     await user.save();
+    await invalidateProfileCache(user._id || user.id);
+    await invalidateUsersCache();
     return res.status(200).json({
       message: "User details updated successfully",
     });
@@ -1271,6 +1876,13 @@ const updateCredential = async (req, res) => {
     }
 
     await user.save();
+    if (redis) {
+      try {
+        await redis.del(`USER_SESSION:${userId}`);
+      } catch (error) {
+        console.log("Nothing", error.message)
+      }
+    }
 
     await OTP.deleteMany({ mobileNumber });
 
@@ -1281,108 +1893,595 @@ const updateCredential = async (req, res) => {
   }
 };
 
-const Transaction = require("../models/transactionModel.js");
-const servicesModal = require("../models/servicesModal.js");
+// const getDashboardStats = async (req, res, next) => {
+//   try {
+//     const userRole = req.query.userRole;
+//     const user = req.user;
+//     // console.log("Dashboard user:", user);
+//     const role = user.role;
+//     let cacheKey = null
+//     if (redis) {
+//       cacheKey = `dashboard:${role}:${user.id}`;
+//       // console.log("CACHE KEY:", cacheKey);
+//       try {
+//         const cachedData = await redis.get(cacheKey);
+//         if (cachedData) {
+//           console.log("⚡DASHBOARD REDIS HIT");
+//           return res.status(200).json(JSON.parse(cachedData));
+//         }
+//       } catch (e) {
+//         console.log("Redis dashboard get failed, skipping cache");
+//       }
+//     }
+//     let stats = {
+//       userInfo: {
+//         name: user.name,
+//         role: user.role,
+//         wallet: user.eWallet,
+//       },
+//     };
+//     const { startUTC, endUTC } = getISTDayRange();
 
-const startOfToday = new Date();
-startOfToday.setHours(0, 0, 0, 0);
+//     const matchToday = {
+//       createdAt: { $gte: startUTC, $lte: endUTC },
+//     };
+
+//     const matchUser = (field = "userId") => ({ [field]: user._id });
+//     const matchTodayUser = (field = "userId") => ({
+//       [field]: user.id,
+//       createdAt: { $gte: startUTC, $lte: endUTC },
+//     });
+
+//     let todayEarning = 0;
+//     let todayCharges = 0;
+
+//     if (["Admin", "Distributor", "Retailer"].includes(role)) {
+//       // Today Earnings
+//       const earningResult = await CommissionTransaction.aggregate([
+//         { $unwind: "$roles" },
+//         {
+//           $match: {
+//             "roles.role": role,
+//             "roles.userId": new mongoose.Types.ObjectId(user.id),
+//             status: "Success",
+//             createdAt: { $gte: startUTC, $lte: endUTC },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             todayEarning: { $sum: "$roles.commission" },
+//           },
+//         },
+//       ]);
+
+//       todayEarning = earningResult[0]?.todayEarning || 0;
+
+//       // Today Charges
+//       const chargeResult = await CommissionTransaction.aggregate([
+//         { $unwind: "$roles" },
+//         {
+//           $match: {
+//             "roles.role": role,
+//             "roles.userId": new mongoose.Types.ObjectId(user.id),
+//             status: "Success",
+//             createdAt: { $gte: startUTC, $lte: endUTC },
+//           },
+//         },
+//         {
+//           $group: {
+//             _id: null,
+//             todayCharges: { $sum: "$roles.chargeShare" },
+//           },
+//         },
+//       ]);
+
+//       todayCharges = chargeResult[0]?.todayCharges || 0;
+//     }
+
+//     // 🔹 Last 10 transactions
+//     let last5Txns = [];
+//     if (role === "Admin") {
+//       last5Txns = await Transaction.find({})
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     } else if (role === "Distributor") {
+//       const retailers = await User.find({ distributorId: user.id }, { _id: 1 });
+//       const retailerIds = retailers.map((r) => r._id);
+
+//       last5Txns = await Transaction.find({ user_id: { $in: retailerIds } })
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     } else if (role === "Retailer") {
+//       last5Txns = await Transaction.find({ user_id: user.id })
+//         .sort({ createdAt: -1 })
+//         .limit(7)
+//         .lean();
+//     }
+
+//     let query = {};
+//     if (role === "Admin") {
+//       query.role = userRole;
+//     } else if (role === "Distributor") {
+//       if (role === "Distributor") {
+//         query = { distributorId: req.user.id };
+//       } else {
+//         return res.status(400).json({ status: false, message: "Invalid role" });
+//       }
+//     }
+
+//     const users = await User.find(query).select(
+//       "_id name email eWallet phone UserId"
+//     );
+//     // 🔹 Admin Dashboard
+//     if (role === "Admin") {
+//       const [
+//         totalUsers,
+//         totalRetailers,
+//         totalDistributors,
+//         totalAepsTxns,
+//         totalDmtTxns,
+//         totalBbpsTxns,
+
+//         totalPayouts,
+//         totalPayIn,
+
+//         totalWalletBalance,
+//         todayPayins,
+//         todayPayouts,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//         activeUsers,
+//         activeServices,
+//         activeRetailers,
+//         activeDistributors,
+//         activeUser,
+//         totalSpeUser
+//       ] = await Promise.all([
+//         User.countDocuments(),
+//         User.countDocuments({ role: "Retailer" }),
+//         User.countDocuments({ role: "Distributor" }),
+//         AEPSWithdrawal.countDocuments(),
+//         DmtReport.countDocuments(),
+//         BbpsHistory.countDocuments(),
+//         PayOut.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           { $group: { _id: null, total: { $sum: "$amount" } } },
+//         ]),
+//         PayIn.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           { $group: { _id: null, total: { $sum: "$amount" } } },
+//         ]),
+//         User.aggregate([
+//           { $group: { _id: null, total: { $sum: "$eWallet" } } },
+//         ]),
+//         PayIn.countDocuments(matchToday),
+//         PayOut.countDocuments(matchToday),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
+//         Transaction.countDocuments({ ...matchToday, status: "Success" }),
+//         User.countDocuments({ status: true, isKycVerified: true }),
+//         servicesModal.countDocuments({ isActive: true }),
+//         User.countDocuments({
+//           role: "Retailer",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "Distributor",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "User",
+//           status: true,
+//           isKycVerified: true,
+//         }),
+//         User.countDocuments({
+//           role: "User",
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         users,
+//         todayEarning,
+//         todayCharges,
+//         totalUsers,
+//         totalRetailers,
+//         totalDistributors,
+//         totalSpeUser,
+//         activeRetailers,
+//         activeDistributors,
+//         activeUser,
+//         totalAEPS: totalAepsTxns,
+//         totalDMT: totalDmtTxns,
+//         totalBBPS: totalBbpsTxns,
+//         totalPayoutAmount: totalPayouts[0]?.total || 0,
+//         totalPayInAmount: totalPayIn[0]?.total || 0,
+//         totalWalletBalance: totalWalletBalance[0]?.total || 0,
+//         activeUsers,
+//         activeServices,
+//         today: {
+//           payinCount: todayPayins,
+//           payoutCount: todayPayouts,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // 🔹 Distributor Dashboard
+//     else if (role === "Distributor") {
+//       const [
+//         myRetailers,
+//         aepsTxns,
+//         dmtTxns,
+//         totalWallet,
+//         todayPayin,
+//         todayPayout,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//         activeRetailers,
+//       ] = await Promise.all([
+//         User.countDocuments({ distributorId: user.id, role: "Retailer" }),
+//         AEPSWithdrawal.countDocuments({ userId: user.id }),
+//         DmtReport.countDocuments({ user_id: user.id }),
+//         User.aggregate([
+//           { $match: { distributorId: user.id } },
+//           { $group: { _id: null, total: { $sum: "$eWallet" } } },
+//         ]),
+//         PayIn.countDocuments(matchTodayUser()),
+//         PayOut.countDocuments(matchTodayUser()),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               distributorId: new mongoose.Types.ObjectId(user.id),
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Failed",
+//         }),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Success",
+//         }),
+//         User.countDocuments({
+//           distributorId: user.id,
+//           role: "Retailer",
+//           status: true,
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         users,
+//         todayEarning,
+//         todayCharges,
+//         totalUsers: 0,
+//         totalRetailers: myRetailers,
+//         totalDistributors: 0,
+//         activeRetailers,
+//         activeDistributors: 0,
+//         totalRetailerWallet: totalWallet[0]?.total || 0,
+//         totalAEPS: aepsTxns,
+//         totalDMT: dmtTxns,
+//         today: {
+//           payinCount: todayPayin,
+//           payoutCount: todayPayout,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // 🔹 Retailer/User Dashboard
+//     else if (["Retailer", "User"].includes(role)) {
+//       const [
+//         aeps,
+//         dmt,
+//         bbps,
+//         todayPayin,
+//         todayPayout,
+//         todayTxns,
+//         failedTxns,
+//         successTxns,
+//       ] = await Promise.all([
+//         AEPSWithdrawal.countDocuments({ userId: user.id }),
+//         DmtReport.countDocuments({ user_id: user.id }),
+//         BbpsHistory.countDocuments({ userId: user.id }),
+//         PayIn.countDocuments(matchTodayUser()),
+//         PayOut.countDocuments(matchTodayUser()),
+//         Transaction.aggregate([
+//           {
+//             $match: {
+//               createdAt: { $gte: startUTC, $lte: endUTC },
+//               user_id: new mongoose.Types.ObjectId(user.id),
+//               status: "Success",
+//             },
+//           },
+//           {
+//             $facet: {
+//               byType: [
+//                 {
+//                   $group: {
+//                     _id: "$transaction_type",
+//                     totalAmount: { $sum: "$amount" },
+//                     count: { $sum: 1 },
+//                   },
+//                 },
+//               ],
+//               byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+//               overall: [
+//                 {
+//                   $group: {
+//                     _id: null,
+//                     totalTransactions: { $sum: 1 },
+//                     totalAmount: { $sum: "$amount" },
+//                   },
+//                 },
+//               ],
+//             },
+//           },
+//         ]),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Failed",
+//         }),
+//         Transaction.countDocuments({
+//           ...matchTodayUser("user_id"),
+//           status: "Success",
+//         }),
+//       ]);
+
+//       const successRate =
+//         successTxns + failedTxns > 0
+//           ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+//           : "0.00";
+
+//       stats.common = {
+//         todayEarning,
+//         todayCharges,
+//         totalUsers: 0,
+//         totalRetailers: 0,
+//         totalDistributors: 0,
+//         activeRetailers: 0,
+//         activeDistributors: 0,
+//         totalAEPS: aeps,
+//         totalDMT: dmt,
+//         totalBBPS: bbps,
+//         today: {
+//           payinCount: todayPayin,
+//           payoutCount: todayPayout,
+//           transactionCount: todayTxns,
+//           successRate: `${successRate}%`,
+//           failedTransactions: failedTxns,
+//         },
+//         recentTransactions: last5Txns,
+//       };
+//     }
+
+//     // return res.status(200).json({
+//     //   success: true,
+//     //   data: stats,
+//     // });
+//     const responseData = {
+//       success: true,
+//       data: stats,
+//     };
+//     if (cacheKey && redis) {
+//       try {
+//         await redis.setex(
+//           cacheKey,
+//           60,
+//           JSON.stringify(responseData),
+//         );
+//         console.log("⚡DASHBOARD HIT FROM DB");
+//       } catch (e) {
+//         console.log("Redis dashboard set failed", e.message);
+//       }
+//     }
+
+//     return res.status(200).json(responseData);
+
+//   } catch (err) {
+//     console.error("Dashboard Error:", err);
+//     return next(err);
+//   }
+// };
+
+//get service usege
+
 
 const getDashboardStats = async (req, res, next) => {
+  // invalidateAllDashboardCache()
   try {
     const userRole = req.query.userRole;
     const user = req.user;
-    // console.log("Dashboard user:", user);
     const role = user.role;
-
+    let cacheKey = null
+    if (redis) {
+      cacheKey = `dashboard:${role}:${user.id}`;
+      try {
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          // console.log("⚡DASHBOARD REDIS HIT");
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (e) {
+        console.log("Redis dashboard get failed, skipping cache");
+      }
+    }
     let stats = {
       userInfo: {
-        name: user.name,
         role: user.role,
-        wallet: user.eWallet,
       },
     };
+    const { startUTC, endUTC } = getISTDayRange();
 
     const matchToday = {
-      createdAt: { $gte: startOfToday },
+      createdAt: { $gte: startUTC, $lte: endUTC },
     };
 
     const matchUser = (field = "userId") => ({ [field]: user._id });
     const matchTodayUser = (field = "userId") => ({
-      [field]: user.id,
-      createdAt: { $gte: startOfToday },
+      [field]: new mongoose.Types.ObjectId(user.id),
+      createdAt: { $gte: startUTC, $lte: endUTC },
     });
 
     let todayEarning = 0;
     let todayCharges = 0;
 
-    if (["Admin", "Distributor", "Retailer"].includes(role)) {
-      // Today’s start and end
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-
-      // Today Earnings
-      const earningResult = await CommissionTransaction.aggregate([
-        { $unwind: "$roles" },
-        {
-          $match: {
-            "roles.role": role,
-            "roles.userId": new mongoose.Types.ObjectId(user.id),
-            status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
-          },
+    const result = await CommissionTransaction.aggregate([
+      { $unwind: "$roles" },
+      {
+        $match: {
+          "roles.userId": new mongoose.Types.ObjectId(user.id),
+          status: "Success",
+          createdAt: { $gte: startUTC, $lte: endUTC },
         },
-        {
-          $group: {
-            _id: null,
-            todayEarning: { $sum: "$roles.commission" },
-          },
+      },
+      {
+        $group: {
+          _id: null,
+          todayEarning: { $sum: "$roles.commission" },
+          todayCharges: { $sum: "$roles.chargeShare" },
         },
-      ]);
+      },
+    ]);
+    todayEarning = result[0]?.todayEarning || 0;
+    todayCharges = result[0]?.todayCharges || 0;
 
-      todayEarning = earningResult[0]?.todayEarning || 0;
 
-      // Today Charges
-      const chargeResult = await CommissionTransaction.aggregate([
-        { $unwind: "$roles" },
-        {
-          $match: {
-            "roles.role": role,
-            "roles.userId": new mongoose.Types.ObjectId(user.id),
-            status: "Success",
-            createdAt: { $gte: startOfDay, $lte: endOfDay },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            todayCharges: { $sum: "$roles.chargeShare" },
-          },
-        },
-      ]);
-
-      todayCharges = chargeResult[0]?.todayCharges || 0;
-    }
-
-    // 🔹 Last 10 transactions
+    // 🔹 Last 5 transactions
     let last5Txns = [];
     if (role === "Admin") {
-      last5Txns = await Transaction.find({})
+      last5Txns = await Transaction.find({}).select({
+        transaction_reference_id: 1,
+        transaction_type: 1,
+        amount: 1,
+        balance_after: 1,
+        status: 1,
+        payment_mode: 1,
+        description: 1,
+        createdAt: 1
+      })
         .sort({ createdAt: -1 })
         .limit(7)
         .lean();
     } else if (role === "Distributor") {
-      const retailers = await User.find({ distributorId: user.id }, { _id: 1 });
-      const retailerIds = retailers.map((r) => r._id);
-
-      last5Txns = await Transaction.find({ user_id: { $in: retailerIds } })
-        .sort({ createdAt: -1 })
-        .limit(7)
-        .lean();
+      const retailers = await User.find({ distributorId: user.id }).distinct("_id");
+      if (!retailers.length) {
+        last5Txns = [];
+      } else {
+        last5Txns = await Transaction.find({ user_id: { $in: retailers } }).select({
+          transaction_reference_id: 1,
+          transaction_type: 1,
+          amount: 1,
+          balance_after: 1,
+          status: 1,
+          payment_mode: 1,
+          description: 1,
+          createdAt: 1
+        })
+          .sort({ createdAt: -1 })
+          .limit(7)
+          .lean();
+      }
     } else if (role === "Retailer") {
-      last5Txns = await Transaction.find({ user_id: user.id })
+      last5Txns = await Transaction.find({ user_id: user.id }).select({
+        transaction_reference_id: 1,
+        transaction_type: 1,
+        amount: 1,
+        balance_after: 1,
+        status: 1,
+        payment_mode: 1,
+        description: 1,
+        createdAt: 1
+      })
         .sort({ createdAt: -1 })
         .limit(7)
         .lean();
@@ -1398,25 +2497,13 @@ const getDashboardStats = async (req, res, next) => {
         return res.status(400).json({ status: false, message: "Invalid role" });
       }
     }
-    console.log(query);
 
-    const users = await User.find(query).select(
-      "_id name email eWallet phone UserId"
-    );
     // 🔹 Admin Dashboard
     if (role === "Admin") {
       const [
         totalUsers,
         totalRetailers,
         totalDistributors,
-        totalAepsTxns,
-        totalDmtTxns,
-        totalBbpsTxns,
-        totalPayouts,
-        totalPayIn,
-        totalWalletBalance,
-        todayPayins,
-        todayPayouts,
         todayTxns,
         failedTxns,
         successTxns,
@@ -1424,26 +2511,19 @@ const getDashboardStats = async (req, res, next) => {
         activeServices,
         activeRetailers,
         activeDistributors,
+        activeUser,
+        totalSpeUser
       ] = await Promise.all([
         User.countDocuments(),
         User.countDocuments({ role: "Retailer" }),
         User.countDocuments({ role: "Distributor" }),
-        AEPSWithdrawal.countDocuments(),
-        DmtReport.countDocuments(),
-        BbpsHistory.countDocuments(),
-        PayOut.aggregate([
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        PayIn.aggregate([
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        User.aggregate([
-          { $group: { _id: null, total: { $sum: "$eWallet" } } },
-        ]),
-        PayIn.countDocuments(matchToday),
-        PayOut.countDocuments(matchToday),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              status: "Success",
+            },
+          },
           {
             $facet: {
               byType: [
@@ -1455,7 +2535,7 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+              // byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1470,10 +2550,26 @@ const getDashboardStats = async (req, res, next) => {
         ]),
         Transaction.countDocuments({ ...matchToday, status: "Failed" }),
         Transaction.countDocuments({ ...matchToday, status: "Success" }),
-        User.countDocuments({ status: true }),
+        User.countDocuments({ status: true, isKycVerified: true }),
         servicesModal.countDocuments({ isActive: true }),
-        User.countDocuments({ role: "Retailer", status: true }),
-        User.countDocuments({ role: "Distributor", status: true }),
+        User.countDocuments({
+          role: "Retailer",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "Distributor",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "User",
+          status: true,
+          isKycVerified: true,
+        }),
+        User.countDocuments({
+          role: "User",
+        }),
       ]);
 
       const successRate =
@@ -1482,58 +2578,48 @@ const getDashboardStats = async (req, res, next) => {
           : "0.00";
 
       stats.common = {
-        users,
         todayEarning,
         todayCharges,
         totalUsers,
         totalRetailers,
         totalDistributors,
+        totalSpeUser,
         activeRetailers,
         activeDistributors,
-        totalAEPS: totalAepsTxns,
-        totalDMT: totalDmtTxns,
-        totalBBPS: totalBbpsTxns,
-        totalPayoutAmount: totalPayouts[0]?.total || 0,
-        totalPayInAmount: totalPayIn[0]?.total || 0,
-        totalWalletBalance: totalWalletBalance[0]?.total || 0,
+        activeUser,
         activeUsers,
         activeServices,
         today: {
-          payinCount: todayPayins,
-          payoutCount: todayPayouts,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
         },
         recentTransactions: last5Txns,
       };
     }
 
     // 🔹 Distributor Dashboard
+
     else if (role === "Distributor") {
+      const retailerIds = await User
+        .find({ distributorId: user.id })
+        .distinct("_id")
+      console.log(retailerIds)
       const [
         myRetailers,
-        aepsTxns,
-        dmtTxns,
-        totalWallet,
-        todayPayin,
-        todayPayout,
         todayTxns,
         failedTxns,
         successTxns,
         activeRetailers,
       ] = await Promise.all([
         User.countDocuments({ distributorId: user.id, role: "Retailer" }),
-        AEPSWithdrawal.countDocuments({ userId: user.id }),
-        DmtReport.countDocuments({ user_id: user.id }),
-        User.aggregate([
-          { $match: { distributorId: user.id } },
-          { $group: { _id: null, total: { $sum: "$eWallet" } } },
-        ]),
-        PayIn.countDocuments(matchTodayUser()),
-        PayOut.countDocuments(matchTodayUser()),
         Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              user_id: { $in: retailerIds },
+              status: "Success",
+            },
+          },
           {
             $facet: {
               byType: [
@@ -1545,7 +2631,6 @@ const getDashboardStats = async (req, res, next) => {
                   },
                 },
               ],
-              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
               overall: [
                 {
                   $group: {
@@ -1559,98 +2644,21 @@ const getDashboardStats = async (req, res, next) => {
           },
         ]),
         Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
+          createdAt: { $gte: startUTC, $lte: endUTC },
+          user_id: { $in: retailerIds },
           status: "Failed",
         }),
+
         Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
+          createdAt: { $gte: startUTC, $lte: endUTC },
+          user_id: { $in: retailerIds },
           status: "Success",
         }),
         User.countDocuments({
           distributorId: user.id,
           role: "Retailer",
           status: true,
-        }),
-      ]);
-
-      const successRate =
-        successTxns + failedTxns > 0
-          ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
-          : "0.00";
-
-      stats.common = {
-        users,
-        todayEarning,
-        todayCharges,
-        totalUsers: 0, // distributors ko total users nahi dikhana
-        totalRetailers: myRetailers,
-        totalDistributors: 0,
-        activeRetailers,
-        activeDistributors: 0,
-        totalRetailerWallet: totalWallet[0]?.total || 0,
-        totalAEPS: aepsTxns,
-        totalDMT: dmtTxns,
-        today: {
-          payinCount: todayPayin,
-          payoutCount: todayPayout,
-          transactionCount: todayTxns,
-          successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
-        },
-        recentTransactions: last5Txns,
-      };
-    }
-
-    // 🔹 Retailer/User Dashboard
-    else if (["Retailer", "User"].includes(role)) {
-      const [
-        aeps,
-        dmt,
-        bbps,
-        todayPayin,
-        todayPayout,
-        todayTxns,
-        failedTxns,
-        successTxns,
-      ] = await Promise.all([
-        AEPSWithdrawal.countDocuments({ userId: user.id }),
-        DmtReport.countDocuments({ user_id: user.id }),
-        BbpsHistory.countDocuments({ userId: user.id }),
-        PayIn.countDocuments(matchTodayUser()),
-        PayOut.countDocuments(matchTodayUser()),
-        Transaction.aggregate([
-          { $match: { createdAt: { $gte: startOfToday } } },
-          {
-            $facet: {
-              byType: [
-                {
-                  $group: {
-                    _id: "$transaction_type",
-                    totalAmount: { $sum: "$amount" },
-                    count: { $sum: 1 },
-                  },
-                },
-              ],
-              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
-              overall: [
-                {
-                  $group: {
-                    _id: null,
-                    totalTransactions: { $sum: 1 },
-                    totalAmount: { $sum: "$amount" },
-                  },
-                },
-              ],
-            },
-          },
-        ]),
-        Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
-          status: "Failed",
-        }),
-        Transaction.countDocuments({
-          ...matchTodayUser("user_id"),
-          status: "Success",
+          isKycVerified: true
         }),
       ]);
 
@@ -1663,45 +2671,123 @@ const getDashboardStats = async (req, res, next) => {
         todayEarning,
         todayCharges,
         totalUsers: 0,
-        totalRetailers: 0,
+        totalRetailers: myRetailers,
         totalDistributors: 0,
-        activeRetailers: 0,
-        activeDistributors: 0,
-        totalAEPS: aeps,
-        totalDMT: dmt,
-        totalBBPS: bbps,
+        activeRetailers,
         today: {
-          payinCount: todayPayin,
-          payoutCount: todayPayout,
           transactionCount: todayTxns,
           successRate: `${successRate}%`,
-          failedTransactions: failedTxns,
         },
         recentTransactions: last5Txns,
       };
     }
 
-    return res.status(200).json({
+    // 🔹 Retailer/User Dashboard
+    else if (["Retailer", "User"].includes(role)) {
+      const [
+        todayTxns,
+        failedTxns,
+        successTxns,
+      ] = await Promise.all([
+        Transaction.aggregate([
+          {
+            $match: {
+              createdAt: { $gte: startUTC, $lte: endUTC },
+              user_id: new mongoose.Types.ObjectId(user.id),
+              status: "Success",
+            },
+          },
+          {
+            $facet: {
+              byType: [
+                {
+                  $group: {
+                    _id: "$transaction_type",
+                    totalAmount: { $sum: "$amount" },
+                    count: { $sum: 1 },
+                  },
+                },
+              ],
+              byStatus: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+              overall: [
+                {
+                  $group: {
+                    _id: null,
+                    totalTransactions: { $sum: 1 },
+                    totalAmount: { $sum: "$amount" },
+                  },
+                },
+              ],
+            },
+          },
+        ]),
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Failed",
+        }),
+        Transaction.countDocuments({
+          ...matchTodayUser("user_id"),
+          status: "Success",
+        }),
+      ]);
+
+      const successRate =
+        successTxns + failedTxns > 0
+          ? ((successTxns / (successTxns + failedTxns)) * 100).toFixed(2)
+          : "0.00";
+
+      stats.common = {
+        todayEarning,
+        todayCharges,
+        today: {
+          transactionCount: todayTxns,
+          successRate: `${successRate}%`,
+        },
+        recentTransactions: last5Txns,
+      };
+    }
+
+
+    const responseData = {
       success: true,
       data: stats,
-    });
+    };
+    if (cacheKey && redis) {
+      try {
+        await redis.setex(
+          cacheKey,
+          120,
+          JSON.stringify(responseData),
+        );
+        // console.log("⚡DASHBOARD HIT FROM DB");
+      } catch (e) {
+        console.log("Redis dashboard set failed", e.message);
+      }
+    }
+
+    return res.status(200).json(responseData);
+
   } catch (err) {
     console.error("Dashboard Error:", err);
     return next(err);
   }
 };
 
-//get service usege
 
 const getServiceUsage = async (req, res) => {
   try {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
+    endOfMonth.setDate(0);
+    endOfMonth.setHours(23, 59, 59, 999);
     const user = req.user;
     let matchQuery = { status: "Success" };
 
-    if (user.role === "Admin") {
-      // ✅ pura system
-      matchQuery = { status: "Success" };
-    } else if (user.role === "Distributor") {
+    if (user.role === "Distributor") {
       const retailers = await User.find(
         { distributorId: user.id, role: "Retailer" },
         "_id"
@@ -1719,7 +2805,14 @@ const getServiceUsage = async (req, res) => {
     }
 
     const serviceUsage = await CommissionTransaction.aggregate([
-      { $match: matchQuery },
+      {
+        $match: {
+          ...matchQuery, createdAt: {
+            $gte: startOfMonth,
+            $lte: endOfMonth,
+          }
+        }
+      },
       {
         $group: {
           _id: "$service",
@@ -1732,7 +2825,7 @@ const getServiceUsage = async (req, res) => {
     // service populate karo
     const populatedUsage = await servicesModal.populate(serviceUsage, {
       path: "_id",
-      select: "name",
+      select: "name"
     });
 
     const formatted = populatedUsage.map((item) => ({
@@ -1809,56 +2902,6 @@ const getPayInPayOutReport = async (req, res) => {
   }
 };
 
-const CounterModal = require("../models/Counter.modal.js");
-const CommissionTransaction = require("../models/CommissionTransaction.js");
-const payOutModel = require("../models/payOutModel.js");
-const payInModel = require("../models/payInModel.js");
-const otpModel = require("../models/otpModel.js");
-const LoginHistory = require("../models/LoginHistory.js");
-const userModel = require("../models/userModel.js");
-const { generateToken } = require("./kycController.js");
-
-// const updateUserPermissions = async (req, res) => {
-//   try {
-//     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
-
-//     const Permission = mongoose.model("Permission");
-
-//     const resolveIdsFromKeys = async (items) => {
-//       // Agar item string aur ObjectId valid nahi hai, assume it's a key
-//       const docs = await Permission.find({
-//         $or: [
-//           { _id: { $in: items.filter(mongoose.Types.ObjectId.isValid) } },
-//           { key: { $in: items } },
-//         ],
-//       });
-
-//       return docs.map((p) => p._id.toString());
-//     };
-
-//     extraPermissions = await resolveIdsFromKeys(extraPermissions);
-//     restrictedPermissions = await resolveIdsFromKeys(restrictedPermissions);
-
-//     const user = await User.findByIdAndUpdate(
-//       req.params.id,
-//       { extraPermissions, restrictedPermissions },
-//       { new: true }
-//     );
-
-//     if (!user) return res.status(404).json({ message: "User not found" });
-
-//     res.json({
-//       ...user.toObject(),
-//       effectivePermissions: await user.getEffectivePermissions(),
-//     });
-//   } catch (err) {
-//     console.error("Error in updateUserPermissions:", err);
-//     return res.status(500).json({ message: err.message });
-//   }
-// };
-
-// GET /users/:id/permissions
-
 const updateUserPermissions = async (req, res) => {
   try {
     let { extraPermissions = [], restrictedPermissions = [] } = req.body;
@@ -1878,6 +2921,8 @@ const updateUserPermissions = async (req, res) => {
     );
 
     if (!user) return res.status(404).json({ message: "User not found" });
+    await invalidateProfileCache(req.params.id)
+    await invalidateUserPermissionsCache(req.params.id)
 
     res.json({
       success: true,
@@ -1894,6 +2939,8 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const getUserPermissions = async (req, res) => {
+  console.log("hitssss auth")
+
   try {
     // 1️⃣ DB se user nikal lo
     const user = await User.findById(req.params.id)
@@ -1930,6 +2977,7 @@ const updateProgress = async (req, res) => {
           lastUpdated: new Date(),
         };
         await user.save();
+        // await invalidateUsersCache()
       } else {
         console.log("User not found, skipping progress update");
       }
@@ -1949,11 +2997,748 @@ const updateProgress = async (req, res) => {
   }
 };
 
+const updateUserDocs = async (req, res) => {
+  try {
+    const role = req.user.role;
+
+    // 🛑 Only admin / superAdmin can update
+    if (role !== "Admin" && role !== "superAdmin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update documents",
+      });
+    }
+
+    const userId = req.params.id;
+
+    let user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const files = req.files || {};
+
+    // helper to return `/uploads/filename`
+    const getFile = (fieldName, oldValue) => {
+      return files[fieldName]
+        ? `/uploads/${files[fieldName][0].filename}`
+        : oldValue;
+    };
+
+    // SHOP PHOTO ARRAY (MULTIPLE APPEND)
+    let newShopPhotos = user.shopPhoto || [];
+    if (files.shopPhoto) {
+      const uploadedShopPhotos = files.shopPhoto.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newShopPhotos = [...newShopPhotos, ...uploadedShopPhotos];
+    }
+
+    // DIRECTOR KYC FILES (MULTIPLE)
+    let newDirectorKyc = user.directorKycFiles || [];
+    if (files.directorKycFiles) {
+      const uploadedKyc = files.directorKycFiles.map(
+        (f) => `/uploads/${f.filename}`
+      );
+      newDirectorKyc = [...newDirectorKyc, ...uploadedKyc];
+    }
+
+    const updateData = {
+      aadhaarFront: getFile("aadhaarFront", user.aadhaarFront),
+      aadhaarBack: getFile("aadhaarBack", user.aadhaarBack),
+      panCard: getFile("panCard", user.panCard),
+      bankDocument: getFile("bankDocument", user.bankDocument),
+      ownerPhoto: getFile("ownerPhoto", user.ownerPhoto),
+      shopAddressProof: getFile("shopAddressProof", user.shopAddressProof),
+      officeAddressProof: getFile(
+        "officeAddressProof",
+        user.officeAddressProof
+      ),
+      boardResolution: getFile("boardResolution", user.boardResolution),
+
+      // arrays
+      shopPhoto: newShopPhotos,
+      directorKycFiles: newDirectorKyc,
+    };
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    await invalidateProfileCache(userId)
+
+    res.json({
+      success: true,
+      message: "Documents updated successfully",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Document update error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Try again later",
+    });
+  }
+};
+
+const getCouponHistory = async (req, res) => {
+  try {
+    const { status, userId } = req.query;
+    const role = req.user.role;
+
+    let filter = {};
+
+    // 🔐 Role based filter
+    if (role === "User") {
+      filter.userId = new mongoose.Types.ObjectId(req.user.id);
+    } else if (role === "Admin") {
+      if (userId) {
+        filter.userId = new mongoose.Types.ObjectId(userId);
+      }
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    // Optional status filter (for list only)
+    if (status) {
+      filter.status = status;
+    }
+
+    // 📄 Coupon list
+    const query = scratchCouponModel.find(filter).sort({ createdAt: -1 });
+
+    if (role === "Admin") {
+      query.populate("userId", "name email mobileNumber");
+    }
+
+    const coupons = await query.select(
+      "serviceName baseAmount cashbackAmount status createdAt scratchedAt"
+    );
+
+    // 💰 TOTAL CASHBACK (only SCRATCHED)
+    const cashbackMatch = {
+      ...filter,
+      status: "SCRATCHED",
+    };
+
+    const cashbackAgg = await scratchCouponModel.aggregate([
+      { $match: cashbackMatch },
+      {
+        $group: {
+          _id: null,
+          totalCashback: { $sum: "$cashbackAmount" },
+        },
+      },
+    ]);
+
+    const totalCashback = cashbackAgg[0]?.totalCashback || 0;
+
+    res.json({
+      success: true,
+      role,
+      count: coupons.length,
+      totalCashback,
+      data: coupons,
+    });
+  } catch (err) {
+    console.error("Coupon history error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const scratchCashback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const userId = req.user.id;
+    const { couponId } = req.body;
+    const id = new mongoose.Types.ObjectId(couponId);
+    const user = new mongoose.Types.ObjectId(userId);
+
+    // 1️⃣ Find valid coupon
+    const coupon = await scratchCouponModel
+      .findOneAndUpdate({
+        _id: id,
+        userId: user,
+        status: "UNSCRATCHED",
+        expiresAt: { $gt: new Date() },
+      },
+        {
+          $set: {
+            status: "SCRATCHED",
+            scratchedAt: new Date(),
+          },
+        },
+        { new: true, session }
+      )
+    if (!coupon) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid, expired or already scratched coupon",
+      });
+    }
+    let walletBalance = null;
+    if (coupon.rewardType === "CASHBACK" && coupon.cashbackAmount > 0) {
+      // 2️⃣ Credit wallet (get UPDATED wallet)
+      const updatedUser = await userModel.findByIdAndUpdate(
+        userId,
+        { $inc: { eWallet: coupon.cashbackAmount } },
+        { new: true, session }
+      );
+
+      if (!updatedUser) {
+        await session.abortTransaction();
+        return res.status(404).json({ message: "User not found" });
+      }
+      walletBalance = updatedUser.eWallet;
+
+      await Transaction.create(
+        [
+          {
+            user_id: userId,
+            transaction_type: "credit",
+            type2: "CASHBACK",
+            amount: coupon.cashbackAmount,
+            totalCredit: coupon.cashbackAmount,
+            balance_after: updatedUser.eWallet,
+            payment_mode: "wallet",
+            transaction_reference_id: `CB-${coupon.serviceTxnId}`,
+            status: "Success",
+            description: `Scratch cashback for ${coupon.serviceName}`,
+          },
+        ],
+        { session }
+      );
+      await PayIn.create(
+        [
+          {
+            userId: userId,
+            fromUser: userId,
+            mobile: updatedUser.mobileNumber,
+            email: updatedUser.email,
+            reference: `CB-${coupon.serviceTxnId}`,
+            name: updatedUser.name,
+            source: "PayIn",
+            amount: Number(coupon.cashbackAmount),
+            type2: "CASHBACK",
+            charges: 0,
+            remark: "Cashback Reward",
+            status: "Success",
+          },
+        ],
+        { session }
+      );
+
+
+    }
+
+
+
+
+    await session.commitTransaction();
+
+    return res.json({
+      success: true,
+      rewardType: coupon.rewardType,
+      cashbackAmount: coupon.cashbackAmount,
+      couponCode: coupon.couponCode || null,
+      couponValue: coupon.couponValue || null,
+      walletBalance
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("❌ Scratch Cashback Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to scratch coupon",
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// lionies coupon code 
+const applyCoupon = async (req, res) => {
+  try {
+    const { mobileNumber, couponCode } = req.body;
+
+    // if (req.headers["x-api-key"] !== process.env.THIRD_PARTY_SECRET) {
+    //   return res.status(401).json({ message: "Unauthorized" });
+    // }
+
+    // 2️⃣ Find user by mobile
+    const user = await userModel.findOne({ mobileNumber });
+
+    if (!user) {
+      return res.json({ valid: false, message: "User not found" });
+    }
+
+    // 3️⃣ Find valid coupon
+    const coupon = await scratchCouponModel.findOne({
+      userId: user._id,
+      couponCode,
+      status: "SCRATCHED",
+      isUsed: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!coupon) {
+      return res.json({ valid: false, message: "Invalid coupon" });
+    }
+
+    return res.json({
+      valid: true,
+      rewardType: coupon.rewardType,
+      value: coupon.couponValue,
+    });
+
+  } catch (error) {
+    console.error("External Coupon Error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+// become ret
+
+const getUserActions = async (req, res) => {
+  try {
+    // 🔐 Admin check
+    if (!["Admin", "Sub Admin", "superAdmin"].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    let {
+      page = 1,
+      limit = 10,
+      search,
+      actionType,
+      status,
+    } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+    const skip = (page - 1) * limit;
+
+    const matchStage = {};
+
+    // 🔎 filter by actionType
+    if (actionType) {
+      matchStage.actionType = actionType;
+    }
+
+    // 🔎 filter by status
+    if (status) {
+      matchStage.status = status;
+    }
+
+    const pipeline = [
+      // 1️⃣ join user
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      // 2️⃣ search (UserId / mobile / email)
+      ...(search
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.UserId": { $regex: search, $options: "i" } },
+                { "user.mobileNumber": { $regex: search, $options: "i" } },
+                { "user.email": { $regex: search, $options: "i" } },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      // 3️⃣ action filters
+      { $match: matchStage },
+
+      // 4️⃣ sort latest first
+      { $sort: { createdAt: -1 } },
+
+      // 5️⃣ pagination
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                actionType: 1,
+                fromRole: 1,
+                toRole: 1,
+                status: 1,
+                createdAt: 1,
+                actedAt: 1,
+                user: {
+                  _id: "$user._id",
+                  UserId: "$user.UserId",
+                  name: "$user.name",
+                  mobileNumber: "$user.mobileNumber",
+                  email: "$user.email",
+                  role: "$user.role",
+                },
+              },
+            },
+          ],
+          totalCount: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const result = await userModalActionModal.aggregate(pipeline);
+
+    const actions = result[0].data;
+    const total = result[0].totalCount[0]?.count || 0;
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      data: actions,
+    });
+  } catch (error) {
+    console.error("getUserActions error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const createUserAction = async (req, res) => {
+  try {
+    const { actionType, toRole } = req.body;
+    const ALLOWED_ACTIONS = [
+      "BECOME_RETAILER",
+      "BECOME_DISTRIBUTOR",
+      "BECOME_API_PARTNER",
+      "ACCOUNT_SUSPEND",
+      "ACCOUNT_DEACTIVATE",
+      "ACCOUNT_REACTIVATE",
+    ];
+    if (!actionType) {
+      return res.status(400).json({
+        success: false,
+        message: "missing required fields (actionType)",
+      });
+    }
+    if (!ALLOWED_ACTIONS.includes(actionType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request type",
+      });
+    }
+    if (["BECOME_RETAILER", "BECOME_DISTRIBUTOR", "BECOME_API_PARTNER"].includes(actionType)) {
+      if (!toRole) {
+        return res.status(400).json({
+          success: false,
+          message: "missing required fields (toRole)",
+        });
+      }
+    }
+    const user = await userModel.findById(req.user.id).select({
+      _id: 1,
+      role: 1,
+      UserActionStatus: 1,
+    });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "user not found",
+      });
+    }
+
+    if (user.UserActionStatus === true) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Your request is already under review. Our admin team is currently verifying your details. You will be notified once a decision is made.",
+      });
+    }
+
+    const existing = await userModalActionModal.findOne({
+      userId: user._id,
+      actionType,
+      status: "PENDING",
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Request already submitted"
+      });
+    }
+    const payload = {
+      userId: user._id,
+      actionType,
+      fromRole: user.role,
+    };
+
+    if (toRole) payload.toRole = toRole;
+
+    const response = await userModalActionModal.create(payload);
+    user.UserActionStatus = true;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      response,
+      message: "request submitted successfully",
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message || "Please Try again Later",
+    });
+  }
+};
+
+const sendRoleApprovalEmail = async (user, role) => {
+  try {
+    const payload = {
+      recipients: [
+        {
+          to: [
+            {
+              name: user?.name || "User",
+              email: user?.email,
+              // email: "niranjan@7unique.in",
+            },
+          ],
+          variables: {
+            userName: user?.name ?? "User",
+            role: role ?? "User",
+            company_name: "Finunique Small Private Limited",
+            currentYear: new Date().getFullYear(),
+          },
+        },
+      ],
+      from: {
+        name: "Finunique Small Private Limited",
+        email: "info@sevenunique.com",
+      },
+      domain: "mail.sevenunique.com",
+      template_id: "user_notification",
+    };
+    const res = await axios.post(
+      "https://control.msg91.com/api/v5/email/send",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
+        },
+      }
+    );
+    console.log(" Role approval email sent:", res.data);
+  } catch (error) {
+    console.error(" Error sending role approval email:", error.message);
+  }
+};
+
+const approveUserAction = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { actionId, status } = req.body;
+
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false, message: "Invalid status value"
+      });
+    }
+
+    if (!["Admin", "Sub Admin", "superAdmin"].includes(req.user.role)) {
+      await session.abortTransaction();
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    const action = await userModalActionModal.findOneAndUpdate(
+      { _id: actionId, status: "PENDING" },
+      { status, actedAt: new Date(), actedBy: req.user.id },
+      { new: true, session }
+    );
+
+    if (!action) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Action already processed",
+      });
+    }
+
+    let user = null;
+
+    if (status === "APPROVED") {
+      user = await userModel.findById(action.userId).select({
+        role: 1,
+        forceLogout: 1,
+        isKycVerified: 1,
+        agreement: 1,
+        isVideoKyc: 1,
+        email: 1,
+        name: 1,
+        UserActionStatus: 1
+      }).session(session);
+
+
+      if (!user) {
+        await session.abortTransaction();
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+      if (action.actionType === "BECOME_DISTRIBUTOR") {
+        user.role = action.toRole;
+      }
+      if (action.actionType === "BECOME_RETAILER") {
+        user.role = action.toRole;
+      }
+      if (action.actionType === "ACCOUNT_DEACTIVATE") {
+        user.status = false;
+      }
+      user.forceLogout = true;
+      user.isKycVerified = true;
+      user.isVideoKyc = false;
+      user.agreement = false;
+      user.UserActionStatus = false
+      await user.save({ session });
+      if (redis) {
+        try {
+          await invalidateUsersCache();
+          await redis.del(`USER_SESSION:${action.userId || user._id || user.id}`);
+        } catch (error) {
+          console.log("Nothing")
+        }
+      }
+    } else if (status === "REJECTED") {
+      user = await userModel.findById(action.userId).select({
+        UserActionStatus: 1
+      }).session(session);
+
+      if (!user) {
+        await session.abortTransaction();
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+      user.UserActionStatus = false;
+      await user.save({ session });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    if (status === "APPROVED" && user) {
+      sendRoleApprovalEmail(user, action.toRole).catch(() => { });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message:
+        status === "APPROVED"
+          ? "Action approved successfully"
+          : "Action rejected successfully",
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Network busy please try after some time",
+    });
+  }
+};
+
+const getWalletBalance = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { mpin } = req.body;
+    let mPin = null
+    if (mpin) {
+      mPin = Number(mpin)
+    }
+    if (!mpin || !mPin || !/^\d{6}$/.test(mPin)) {
+      return res.status(400).json({
+        success: false,
+        message: "MPIN must be 6 digits"
+      });
+    }
+    const userr = await userModel.findById(userId).select("mpin eWallet");
+    if (!userr) {
+      return res.status(404).json({
+        success: false,
+        message: "user not found"
+      });
+    }
+
+    // 🔹 Plain text comparison
+    if (userr.mpin !== mPin) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid MPIN"
+      });
+    }
+
+    return res.json({
+      success: true,
+      balance: userr.eWallet
+    });
+
+  } catch (err) {
+    console.log(err)
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+
+
+
 module.exports = {
   sendOtpController,
   verifyOTPController,
   registerUser,
   loginController,
+  logoutController,
   updateProfileController,
   getUserController,
   getUsersWithFilters,
@@ -1969,4 +3754,13 @@ module.exports = {
   updateProgress,
   getLoginHistory,
   verifyEmail7Unique,
-};
+  updateUserDocs,
+  getCouponHistory,
+  scratchCashback,
+  createUserAction,
+  approveUserAction,
+  getUserActions,
+  applyCoupon,
+  getUserMobile,
+  getWalletBalance
+}

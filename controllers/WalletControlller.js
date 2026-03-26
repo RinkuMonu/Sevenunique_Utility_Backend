@@ -4,9 +4,12 @@ const User = require("../models/userModel.js");
 const { parse } = require("json2csv");
 const payInModel = require("../models/payInModel.js");
 const payOutModel = require("../models/payOutModel.js");
+// const { getISTDayRange } = require("../services/timeZone.js");
+const bbpsModel = require("../models/bbpsModel.js");
 
 exports.getWalletTransactions = async (req, res) => {
   try {
+    // const { startUTC, endUTC } = getISTDayRange()
     const {
       keyword,
       transaction_type,
@@ -27,9 +30,19 @@ exports.getWalletTransactions = async (req, res) => {
     if (status) match.status = status;
     if (payment_mode) match.payment_mode = payment_mode;
     if (fromDate || toDate) {
+
+      const start = fromDate
+        ? new Date(new Date(fromDate).setHours(0, 0, 0, 0))
+        : null;
+
+      const end = toDate
+        ? new Date(new Date(toDate).setHours(23, 59, 59, 999))
+        : null;
+
       match.createdAt = {};
-      if (fromDate) match.createdAt.$gte = new Date(fromDate);
-      if (toDate) match.createdAt.$lte = new Date(toDate);
+
+      if (start) match.createdAt.$gte = start;
+      if (end) match.createdAt.$lte = end;
     }
 
     const pipeline = [
@@ -82,6 +95,13 @@ exports.getWalletTransactions = async (req, res) => {
           transaction_reference_id: 1,
           description: 1,
           createdAt: 1,
+          gst: 1,
+          tds: 1,
+          charge: 1,
+          totalDebit: 1,
+          totalCredit: 1,
+          provider: 1,
+          type: 1,
         },
       },
       { $sort: { createdAt: -1 } }
@@ -111,6 +131,9 @@ exports.getWalletTransactions = async (req, res) => {
         "transaction_reference_id",
         "description",
         "createdAt",
+        "gst",
+        "tds",
+        "charge",
       ];
       const csv = parse(transactions, { fields });
       res.header("Content-Type", "text/csv");
@@ -166,6 +189,7 @@ exports.getWalletTransactions = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error(error);
     res
       .status(500)
       .json({ success: false, message: "Server error", error: error.message });
@@ -236,6 +260,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayIn across all users
     const totalPayInAgg = await payInModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -246,6 +271,7 @@ exports.getAdminSummary = async (req, res) => {
 
     // Total PayOut across all users
     const totalPayOutAgg = await payOutModel.aggregate([
+      { $match: { status: "Success" } },
       {
         $group: {
           _id: null,
@@ -257,7 +283,7 @@ exports.getAdminSummary = async (req, res) => {
     const totalPayIn = totalPayInAgg[0]?.totalPayIn || 0;
     const totalPayOut = totalPayOutAgg[0]?.totalPayOut || 0;
 
-    const currentBalance = admin.eWallet || 0; // Admin’s own balance
+    const currentBalance = admin.eWallet || 0;
 
     res.json({
       success: true,
@@ -279,78 +305,151 @@ exports.getAdminSummary = async (req, res) => {
 // 2️⃣ Get All Users under Admin (Distributors / Retailers)
 exports.getUsersUnderAdmin = async (req, res) => {
   try {
-    const { name, role, page = 1, limit = 10 } = req.query;
-    let query = {};
+    let {
+      name,
+      role,
+      page = 1,
+      limit = 10,
+      sortBy = "totalCredit",
+      sortOrder = "desc",
+    } = req.query;
 
-    if (req.user.role === "Admin") {
-      query = { role: { $in: ["Distributor", "Retailer"] } };
-    } else if (req.user.role === "Distributor") {
-      query = { role: "Retailer", distributorId: req.user.id };
-    } else {
-      return res.status(403).json({ success: false, message: "Access denied" });
+    // 🔐 sanitize pagination
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    // 🔐 allowed sort fields only
+    const allowedSortFields = ["totalCredit", "totalDebit"];
+    if (!allowedSortFields.includes(sortBy)) {
+      sortBy = "totalCredit";
     }
 
+    // 🔐 allowed sort order only
+    sortOrder = sortOrder === "asc" ? "asc" : "desc";
+
+    let matchStage = {};
+
+    // 🔒 role-based access
+    if (req.user.role === "Admin") {
+      matchStage.role = { $in: ["Distributor", "Retailer", "User"] };
+    } else if (req.user.role === "Distributor") {
+      matchStage.role = "Retailer";
+      matchStage.distributorId = new mongoose.Types.ObjectId(req.user.id);
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    // 🔍 search
     if (name) {
-      query.$or = [
+      matchStage.$or = [
         { name: { $regex: name, $options: "i" } },
         { UserId: { $regex: name, $options: "i" } },
       ];
     }
-    if (role) query.role = role;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const totalCount = await User.countDocuments(query);
+    if (role) {
+      matchStage.role = role;
+    }
 
-    const users = await User.find(query)
-      .select("name role UserId eWallet distributorId")
-      .skip(skip)
-      .limit(parseInt(limit))
-      .sort({ createdAt: -1 });
+    const skip = (page - 1) * limit;
 
-    const userData = await Promise.all(
-      users.map(async (user) => {
-        const payInAgg = await payInModel.aggregate([
-          { $match: { userId: user._id, status: "Success" } },
-          { $group: { _id: null, totalPayIn: { $sum: "$amount" } } },
-        ]);
+    const pipeline = [
+      { $match: matchStage },
 
-        // Total PayOut
-        const payOutAgg = await payOutModel.aggregate([
-          { $match: { userId: user._id, status: "Success" } },
-          { $group: { _id: null, totalPayOut: { $sum: "$amount" } } },
-        ]);
+      {
+        $lookup: {
+          from: "transactions",
+          localField: "_id",
+          foreignField: "user_id",
+          as: "txns",
+        },
+      },
 
-        const totalCredit = payInAgg[0]?.totalPayIn || 0;
-        const totalDebit = payOutAgg[0]?.totalPayOut || 0;
+      {
+        $addFields: {
+          totalCredit: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: "$txns",
+                    as: "t",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$t.transaction_type", "credit"] },
+                        { $eq: ["$$t.status", "Success"] },
+                      ],
+                    },
+                  },
+                },
+                as: "c",
+                in: "$$c.amount",
+              },
+            },
+          },
+          totalDebit: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: "$txns",
+                    as: "t",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$t.transaction_type", "debit"] },
+                        { $eq: ["$$t.status", "Success"] },
+                      ],
+                    },
+                  },
+                },
+                as: "d",
+                in: "$$d.amount",
+              },
+            },
+          },
+        },
+      },
 
-        return {
-          _id: user._id,
-          distributorId: user.distributorId,
-          UserId: user.UserId,
-          name: user.name,
-          role: user.role,
-          totalCredit,
-          totalDebit,
-          currentBalance: user.eWallet || 0,
-        };
-      })
-    );
+      { $project: { txns: 0 } },
+
+      // 🔥 SAFE SORT
+      {
+        $sort: {
+          [sortBy]: sortOrder === "asc" ? 1 : -1,
+        },
+      },
+
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const users = await User.aggregate(pipeline);
+    const totalCount = await User.countDocuments(matchStage);
 
     res.json({
       success: true,
-      users: userData,
+      users,
       pagination: {
         total: totalCount,
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         totalPages: Math.ceil(totalCount / limit),
       },
     });
   } catch (err) {
-    console.error("Error fetching user wallet report:", err);
-    res.status(500).json({ success: false, message: "Server Error" });
+    console.error("Wallet report error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
   }
 };
+
+
+
 
 // 3️⃣ Get Transactions for a User (with filters, pagination, search, CSV export)
 exports.getUserTransactions = async (req, res) => {
@@ -363,7 +462,7 @@ exports.getUserTransactions = async (req, res) => {
       fromDate,
       toDate,
       page = 1,
-      limit = 2,
+      limit = 10,
       exportCsv = "false",
     } = req.query;
 
@@ -448,7 +547,8 @@ exports.getUserTransactions = async (req, res) => {
           userEmail: "$user.email",
           UserId: "$user.UserId",
           serviceName: { $ifNull: ["$service.name", "$plan.name"] },
-          type2: 1,
+          serviceIcon: { $ifNull: ["$service.icon", "$plan.icon"] },
+          type2: { $ifNull: ["$type2", "N/A"] },
           transaction_type: 1,
           amount: 1,
           gst: 1,
@@ -462,6 +562,7 @@ exports.getUserTransactions = async (req, res) => {
           transaction_reference_id: 1,
           description: 1,
           createdAt: 1,
+          provider: 1,
         },
       },
       { $sort: { createdAt: -1 } }
@@ -523,6 +624,78 @@ exports.getUserTransactions = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Server Error", error: err.message });
+  }
+};
+
+
+exports.getLastTransactionsByService = async (req, res) => {
+  try {
+    const user_id = req.user.id;
+    const { type } = req.query;
+
+    if (!type) {
+      return res.status(400).json({
+        success: false,
+        message: "Service type is required",
+      });
+    }
+
+    const transactions = await Transaction.find({
+      user_id,
+      type,
+      status: "Success",
+    })
+      .select("transaction_reference_id")
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .lean();
+
+    const referenceIds = transactions.map(
+      (txn) => txn.transaction_reference_id
+    );
+
+    if (!referenceIds.length) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const reports = await bbpsModel.aggregate([
+      {
+        $match: {
+          transactionId: { $in: referenceIds },
+        },
+      },
+      {
+        $sort: { updatedAt: -1 },
+      },
+      {
+        $group: {
+          _id: "$customerNumber",
+          operator: { $first: "$operator" },
+          amount: { $first: "$amount" },
+          customerNumber: { $first: "$customerNumber" },
+          transactionId: { $first: "$transactionId" },
+          updatedAt: { $first: "$updatedAt" },
+        },
+      },
+      {
+        $limit: 5,
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: reports,
+    });
+
+  } catch (error) {
+    console.error("Last Transactions Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch transactions",
+    });
   }
 };
 

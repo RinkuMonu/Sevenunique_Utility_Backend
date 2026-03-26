@@ -2,18 +2,19 @@ const mongoose = require("mongoose");
 const DeviceModal = require("../models/Device.modal");
 const DeviceRequestModal = require("../models/DeviceRequest.modal");
 const userModel = require("../models/userModel");
+const Transaction = require("../models/transactionModel");
 
 /* --------- Devices (Admin) ---------- */
 
 // ✅ Create Device Controller
 exports.createDevice = async (req, res) => {
   try {
-    const { brand, model, price, warranty, description } = req.body;
+    const { brand, model, price, warranty, description, gst } = req.body;
 
-    if (!brand || !model || !price) {
+    if (!brand || !model || !price || !gst || !warranty) {
       return res.status(400).json({
         success: false,
-        message: "Brand, Model and Price are required",
+        message: "Brand, Model ,gst ,warranty and Price are required",
       });
     }
 
@@ -28,6 +29,7 @@ exports.createDevice = async (req, res) => {
       model,
       price,
       warranty,
+      gst,
       description,
       image: imagePath,
     });
@@ -87,10 +89,11 @@ exports.updateDevice = async (req, res) => {
         .json({ success: false, message: "Device not found" });
     }
 
-    const { brand, model, price, description, warranty } = req.body;
+    const { brand, model, price, description, warranty, gst } = req.body;
     if (brand) device.brand = brand;
     if (model) device.model = model;
     if (price) device.price = price;
+    if (gst) device.gst = gst;
     if (warranty) device.warranty = warranty;
     if (description) device.description = description;
 
@@ -120,23 +123,103 @@ exports.updateDevice = async (req, res) => {
 
 /* ------- Device Requests --------- */
 // Retailer creates a request
+const generateRequestId = () => {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `REQ-${datePart}-${randomPart}`;
+};
+
 exports.createDeviceRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { deviceId, quantity, address, remarks } = req.body;
-    const r = await DeviceRequestModal.create({
-      retailerId: req.user.id,
-      deviceId,
-      quantity,
-      address,
-      remarks,
-    });
 
-    res.json({ success: true, data: r });
-  } catch (e) {
-    console.log(e);
-    res.status(400).json({ success: false, message: e.message });
+    const device = await DeviceModal.findById(deviceId).session(session);
+    if (!device) throw new Error("Device not found");
+
+    const retailer = await userModel.findById(req.user.id).session(session);
+    if (!retailer) throw new Error("Retailer not found");
+
+
+    const baseAmount = device.price * quantity;
+    const gstAmount = (baseAmount * device.gst) / 100;
+    const totalCost = baseAmount + gstAmount;
+
+    // ✅ Balance check
+    if (retailer.eWallet < totalCost) {
+      throw new Error(
+        `Insufficient balance. Required ₹${totalCost}, Available ₹${retailer.eWallet}`
+      );
+    }
+
+    // ✅ CUT WALLET (IMMEDIATE)
+    retailer.eWallet -= totalCost;
+    await retailer.save({ session });
+
+    // ✅ Create Device Request (PENDING)
+    const request = await DeviceRequestModal.create(
+      [
+        {
+          retailerId: retailer._id,
+          deviceId,
+          requestID: generateRequestId(),
+          quantity,
+          address,
+          remarks,
+          status: "PENDING",
+          gstAmount,
+          amount: baseAmount,
+          totalCost,
+        },
+      ],
+      { session }
+    );
+
+    // ✅ Create Transaction Report (PENDING)
+    const [transaction] = await Transaction.create(
+      [
+        {
+          user_id: retailer._id,
+          transaction_type: "debit",
+          amount: baseAmount,
+          gst: gstAmount,
+          totalDebit: totalCost,
+          type2: "DEVICE Purchase",
+          balance_after: retailer.eWallet,
+          payment_mode: "wallet",
+          transaction_reference_id: `DEVICE-${request[0]._id}`,
+          description: `Device request placed`,
+          status: "Success",
+        },
+      ],
+      { session }
+    );
+
+    // 🔗 Link transaction
+    request[0].transactionId = transaction._id;
+    await request[0].save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      success: true,
+      message: "Device request submitted And Amount deducted.",
+      data: request[0],
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
 
 // Admin list (filters)
 exports.listDeviceRequests = async (req, res) => {
@@ -179,7 +262,7 @@ exports.listDeviceRequests = async (req, res) => {
           localField: "retailerId",
           foreignField: "_id",
           as: "retailer",
-          pipeline: [{ $project: { _id: 0, name: 1 } }],
+          pipeline: [{ $project: { _id: 0, name: 1, UserId: 1 } }],
         },
       },
       { $unwind: { path: "$retailer", preserveNullAndEmptyArrays: true } },
@@ -199,7 +282,9 @@ exports.listDeviceRequests = async (req, res) => {
           $or: [
             { remarks: new RegExp(q, "i") },
             { address: new RegExp(q, "i") },
+            { requestID: new RegExp(q, "i") },
             { "retailer.name": new RegExp(q, "i") },
+            { "retailer.UserId": new RegExp(q, "i") },
           ],
         },
       });
@@ -233,59 +318,93 @@ exports.listDeviceRequests = async (req, res) => {
 // Admin update status/note
 
 exports.updateDeviceRequest = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { status, adminNote } = req.body;
 
-    // Find request
-    const request = await DeviceRequestModal.findById(req.params.id).populate(
-      "deviceId"
-    );
-    if (!request) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Request not found" });
+    const request = await DeviceRequestModal
+      .findById(req.params.id)
+      .session(session);
+
+    if (!request) throw new Error("Request not found");
+
+    // 🔒 lock
+    if (["APPROVED", "REJECTED"].includes(request.status)) {
+      throw new Error("Final status already set. Cannot modify.");
     }
 
+    const retailer = await userModel.findById(request.retailerId).session(session);
+    const debitTxn = await Transaction.findById(request.transactionId).session(session);
+
+    if (!retailer || !debitTxn) {
+      throw new Error("Linked data missing");
+    }
+
+    // ✅ APPROVE
     if (status === "APPROVED") {
-      const device = request.deviceId;
-      if (!device) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Device not found" });
-      }
-
-      const totalCost = device.price * request.quantity;
-
-      const retailer = await userModel.findById(request.retailerId);
-      if (!retailer) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Retailer not found" });
-      }
-
-      if (retailer.eWallet < totalCost) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient balance. Required ₹${totalCost}, Available ₹${retailer.eWallet}`,
-        });
-      }
-
-      // Deduct money
-      retailer.eWallet -= totalCost;
-      await retailer.save();
+      request.status = "APPROVED";
+      // debitTxn.status = "Success";
+      debitTxn.description = "Device Request Approved";
     }
 
-    // Update request status and note
-    request.status = status;
-    request.adminNote = adminNote || request.adminNote;
-    await request.save();
+    // ❌ REJECT → REFUND
+    if (status === "REJECTED") {
+      // 🔁 wallet refund
+      retailer.eWallet += request.totalCost;
+      await retailer.save({ session });
 
-    res.json({ success: true, message: "Request updated", data: request });
+      // mark debit as failed
+      // ✅ CREATE SEPARATE CREDIT TRANSACTION
+      await Transaction.create(
+        [
+          {
+            user_id: retailer._id,
+            type2: "DEVICE Purchase",
+            transaction_type: "credit",
+            totalCredit: request.totalCost,
+            amount: request.totalCost,
+            balance_after: retailer.eWallet,
+            payment_mode: "wallet",
+            transaction_reference_id: `D-R-R-${Date.now()}`,
+            description: "Refund for rejected device request",
+            status: "Success",
+          },
+        ],
+        { session }
+      );
+
+      request.status = "REJECTED";
+    }
+
+    request.adminNote = adminNote || request.adminNote;
+
+    await request.save({ session });
+    await debitTxn.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      success: true,
+      message:
+        status === "APPROVED"
+          ? "Request approved successfully"
+          : "Request rejected and amount refunded",
+    });
   } catch (err) {
-    console.error("Error in updateDeviceRequest:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    await session.abortTransaction();
+    session.endSession();
+
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
+
 
 // delete device
 

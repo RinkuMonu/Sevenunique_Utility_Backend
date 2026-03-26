@@ -1,19 +1,19 @@
+
+require("dotenv").config();
 const crypto = require("crypto");
 const axios = require("axios");
 const qs = require("qs");
 
 
-const CLIENT_ID = process.env.ISU_CLIENT_ID;
-const CLIENT_SECRET = process.env.ISU_CLIENT_SECRET;
-const PASS_KEY = process.env.ISU_PASS_KEY;
+const CLIENT_ID = process.env.AEPS_CLIENT_ID;
+const CLIENT_SECRET = process.env.AEPS_CLIENT_SECRET;
+const PASS_KEY = process.env.AEPS_PASS_KEY;
 const API_BASE = process.env.ISU_BASE_URL;
 
 // Decode Base64 AES key from env
-const AES_KEY = Buffer.from(process.env.ISU_AES_KEY_BASE64, "base64");
+const AES_KEY = Buffer.from(process.env.AEPS_ENCR_KEY, "base64");
 
-// ========================
-// 🔐 AES ENCRYPT/DECRYPT
-// ========================
+
 function encryptAES256(text, key) {
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
@@ -86,16 +86,28 @@ exports.generateToken = async (req, res) => {
 
 const FormData = require("form-data");
 const userModel = require("../models/userModel");
+const withdrawRequestModel = require("../models/withdrawRequestModel");
+
 const { default: mongoose } = require("mongoose");
 const Transaction = require("../models/transactionModel");
 const payOutModel = require("../models/payOutModel");
 const { response } = require("express");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs } = require("../utils/chargeCaluate");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs, logApiCall } = require("../utils/chargeCaluate");
 const DmtReport = require('../models/dmtTransactionModel');
+
+const cleanName = (name = "") => {
+  return name
+    .replace(/\b(mr|mrs|ms|miss|shri|smt|dr)\b\.?/gi, "")
+    .replace(/[^a-zA-Z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 
 exports.initiatePayout = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
+  let transactionCommitted = false;
 
   try {
     const {
@@ -119,7 +131,15 @@ exports.initiatePayout = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const referenceId = `DMTEX${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+    const referenceId = `CW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+    if (Number(amount) <= 1000) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Minimum withdrawal amount is ₹1001",
+      });
+    }
 
     const user = await userModel.findOne({ _id: userId, status: true }).session(session);
 
@@ -129,11 +149,13 @@ exports.initiatePayout = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found or inactive" });
     }
 
-    
+
+
+
     if (user.mpin != mpin) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json({ success: false, message: "Please enter a vaild mpin" });
+      return res.status(401).json({ success: false, message: "Please enter a vaild mpin" });
     }
 
     if (!beneName || !beneAccountNo || !beneifsc || !amount) {
@@ -162,6 +184,26 @@ exports.initiatePayout = async (req, res) => {
       });
     }
 
+    // Deduct wallet
+    const updateUser = await userModel.findOneAndUpdate(
+      {
+        _id: userId,
+        eWallet: { $gte: required }
+      },
+      {
+        $inc: { eWallet: -required }
+      },
+      { new: true, session }
+    );
+
+    if (!updateUser) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient balance"
+      });
+    }
+
     // Create payout record
     const [payoutRecord] = await payOutModel.create(
       [
@@ -177,7 +219,7 @@ exports.initiatePayout = async (req, res) => {
           status: "Pending",
           account: beneAccountNo,
           ifsc: beneifsc,
-          remark: "DMT EX initiated",
+          remark: "Cash Withdraw for back account",
           charges: commission.charge,
           gst: commission.gst,
           tds: commission.tds,
@@ -200,10 +242,10 @@ exports.initiatePayout = async (req, res) => {
           charge: commission.charge,
           totalDebit: required,
           totalCredit: commission.retailer,
-          balance_after: user.eWallet - required,
+          balance_after: updateUser.eWallet,
           payment_mode: "wallet",
           transaction_reference_id: referenceId,
-          description: `DMT EX initiated for ${beneName}`,
+          description: `Cash Withdraw for ${beneName}`,
           status: "Pending",
         },
       ],
@@ -211,67 +253,72 @@ exports.initiatePayout = async (req, res) => {
     );
 
     // Create DMT report
-    const [dmtTransaction] = await DmtReport.create(
-      [
-        {
-          user_id: userId,
-          status: "Pending",
-          type: service._id,
-          referenceid: referenceId,
-          txn_status: "0",
-          benename: beneName,
-          remarks: "DMT EX initiated",
-          message: "DMT EX initiated",
-          remitter: benePhoneNo,
-          account_number: beneAccountNo,
-          gatewayCharges: {
-            txn_amount: parseFloat(amount),
-            customercharge: parseFloat(commission.charge),
-            gst: parseFloat(commission.gst),
-            tds: parseFloat(commission.tds),
-            netcommission: parseFloat(
-              commission.retailer + commission.distributor + commission.admin
-            ),
-          },
-          charges: commission.charge,
-          commission: { distributor: commission.distributor, admin: commission.admin },
-          gst: commission.gst,
-          tds: commission.tds,
-          amount,
-          totalDebit: required,
-        },
-      ],
-      { session }
-    );
+    // const [dmtTransaction] = await DmtReport.create(
+    //   [
+    //     {
+    //       user_id: userId,
+    //       status: "Pending",
+    //       type: service._id,
+    //       referenceid: referenceId,
+    //       txn_status: "0",
+    //       benename: beneName,
+    //       remarks: "Cash Withdraw",
+    //       message: "Cash Withdraw",
+    //       remitter: benePhoneNo,
+    //       account_number: beneAccountNo,
+    //       gatewayCharges: {
+    //         txn_amount: parseFloat(amount),
+    //         customercharge: parseFloat(commission.charge),
+    //         gst: parseFloat(commission.gst),
+    //         tds: parseFloat(commission.tds),
+    //         netcommission: parseFloat(
+    //           commission.retailer + commission.distributor + commission.admin
+    //         ),
+    //       },
+    //       charges: commission.charge,
+    //       commission: { distributor: commission.distributor, admin: commission.admin },
+    //       gst: commission.gst,
+    //       tds: commission.tds,
+    //       amount,
+    //       totalDebit: required,
+    //     },
+    //   ],
+    //   { session }
+    // );
 
-    // Deduct wallet
-    user.eWallet = Number(user.eWallet) - Number(required);
-    await user.save({ session });
+
+
 
     // 👉 COMMIT EVERYTHING BEFORE API CALL
     await session.commitTransaction();
+    transactionCommitted = true;
     session.endSession();
 
     // Now generate token (outside transaction)
+    const formDataToken = new FormData();
+    formDataToken.append("authKey", process.env.ZYNKR_AUTH_KEY);
+    formDataToken.append("authSecret", process.env.ZYNKR_AUTH_SECRET);
+
     const tokenResponse = await axios.post(
-      "https://instantpayco.com/api/v1.1/generateToken",
-      new URLSearchParams({
-        clientKey: "bbps456udfg6",
-        clientSecret: "bbps456udfg6",
-      }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      "https://zynkrpay.com/api/v1.1/t1/oauth/token",
+      formDataToken, {
+      headers: {
+        ...formDataToken.getHeaders()
+      }
+    }
     );
+    // console.log("tokenResponse", tokenResponse);
 
     const accessToken = tokenResponse?.data?.data?.access_token;
 
     if (!accessToken) {
+      const userRef = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: "Failed to fetch token" });
-      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: user.eWallet });
-      await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: userRef.eWallet });
+      // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
-      await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } });
 
       return res.status(400).json({ success: false, message: "Technical issue, try later" });
     }
@@ -280,104 +327,362 @@ exports.initiatePayout = async (req, res) => {
     const formData = new FormData();
     formData.append("amount", amount);
     formData.append("reference", referenceId);
-    formData.append("trans_mode", fundTransferType);
+    formData.append("trans_mode", fundTransferType || "imps");
     formData.append("account", beneAccountNo);
-    formData.append("beneBankName", beneBankName);
     formData.append("ifsc", beneifsc);
-    formData.append("name", beneName);
+    formData.append("name", cleanName(beneName));
     formData.append("email", paramA || "");
     formData.append("mobile", custMobNo);
     formData.append("address", paramB || "");
-    if (pincode) formData.append("pincode", pincode);
+
 
     // Hit payout API
     let response;
     try {
-      response = await axios.post("https://instantpayco.com/api/v1.1/payoutTransaction", formData, {
+      response = await axios.post("https://zynkrpay.com/api/v1.1/t1/withdrawal", formData, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          ...formData.getHeaders(),
+          ...formData.getHeaders()
         },
       });
+      console.log(response);
+
+
+      return res.status(response.status).json({
+        success: true,
+        data: response.data.data,
+      });
     } catch (err) {
-      response = { data: { success: false, message: err.message || "API failed" } };
+      console.log("err", err);
+
+      response = { data: { success: false, message: err.response.data.message || "API failed" } };
+      const refundedUser = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
+
+      // If token failed → mark records failed
+      await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: response.message || "Failed to fetch token" });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: refundedUser.eWallet });
+      // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
+
+      // Refund wallet
+      return res.status(400).json({
+        success: false,
+        data: err.response.data,
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: response.data,
-    });
-
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    if (!transactionCommitted) {
+      await session.abortTransaction();
+      session.endSession();
+    }
     console.error("Error:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 
+
+
+
+
 //  CALLBACK HANDLER
 exports.payoutCallback = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     console.log("📥 Callback Received:", req.query, req.body);
 
     const { status, message, utr, reference, amount } = req.query;
 
     if (!status || !reference) {
+      await session.abortTransaction();
       return res.status(400).json({ success: false, message: "Missing status or reference" });
     }
 
-    const payout = await payOutModel.findOne({ reference: reference });
-    const transaction = await Transaction.findOne({ transaction_reference_id: reference });
-    const dmtReport = await DmtReport.findOne({ referenceid: reference });
+    const payout = await payOutModel.findOne({ reference: reference }).session(session);
+    const transaction = await Transaction.findOne({ transaction_reference_id: reference }).session(session);
+    // const dmtReport = await DmtReport.findOne({ referenceid: reference }).session(session);;
 
 
 
-    if (!payout || !transaction || !dmtReport) {
+    if (!payout || !transaction) {
+      await session.abortTransaction();
       return res.status(404).json({ success: false, message: "Records not found for callback" });
     }
 
-    const user = await userModel.findById(payout.userId);
+    if (["Success", "Failed"].includes(payout.status)) {
+      await session.commitTransaction();
+      return res.json({
+        success: true,
+        message: "Callback already processed"
+      });
+    }
+
+    const user = await userModel.findById(payout.userId).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
     if (status.toLowerCase() == "success") {
       payout.status = "Success";
       transaction.status = "Success";
-      dmtReport.status = "Success";
-      dmtReport.txn_status = "1";
-      dmtReport.utr = utr || "";
-      dmtReport.remarks = message || "Transaction successful";
-      dmtReport.message = message || "Transaction successful";
+      transaction.utr = utr || "";
+      // dmtReport.status = "Success";
+      // dmtReport.txn_status = "1";
+      // dmtReport.utr = utr || "";
+      // dmtReport.remarks = message || "Transaction successful";
+      // dmtReport.message = message || "Transaction successful";
       payout.remark = message || "Transaction successful";
       transaction.description = message || "Transaction successful";
     } else if (status.toLowerCase() == "failed") {
-      if (user) {
-        user.eWallet = Number(user.eWallet) + Number(payout.totalDebit || 0);
-        await user.save();
-      }
+
+      const updatedUser = await userModel.findByIdAndUpdate(
+        user._id,
+        { $inc: { eWallet: Number(payout.totalDebit || 0) } },
+        { new: true, session }
+      );
+
       payout.status = "Failed";
       transaction.status = "Failed";
-      transaction.balance_after = user.eWallet,
-        dmtReport.status = "Failed";
-      dmtReport.remarks = message || "Transaction failed";
-      dmtReport.message = message || "Transaction failed";
+      transaction.balance_after = updatedUser.eWallet;
+      // dmtReport.status = "Failed";
+      // dmtReport.remarks = message || "Transaction failed";
+      // dmtReport.message = message || "Transaction failed";
       payout.remark = message || "Transaction failed";
       transaction.description = message || "Transaction failed";
       // Refund wallet
     } else {
       payout.status = "Pending";
       transaction.status = "Pending";
-      dmtReport.status = "Pending";
+      // dmtReport.status = "Pending";
     }
 
-    await payout.save();
-    await transaction.save();
-    await dmtReport.save();
+    await payout.save({ session });
+    await transaction.save({ session });
+    // await dmtReport.save({ session });
+
+    await session.commitTransaction();
 
     return res.status(200).json({ success: true, message: `Callback processed: ${status}` });
   } catch (error) {
+    await session.abortTransaction();
     console.error("❌ Callback Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error in callback" });
+  } finally {
+    session.endSession();
+  }
+};
+
+
+exports.createWithdrawRequest = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, message } = req.body;
+    const user = await userModel.findOne({ _id: userId, status: true });
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid withdraw amount",
+      });
+    }
+    if (Number(amount) > user.eWallet && Number(amount) < 10000) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance. Wallet balance is ${user.eWallet}`,
+      });
+    }
+
+    const request = await withdrawRequestModel.create({
+      user: userId,
+      amount,
+      message,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Withdraw request sent successfully. Admin will review it.",
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+exports.getAllWithdrawRequests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      // ✅ Retailer / User → sirf apni requests
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      // 🔍 Admin search
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $sort: { createdAt: -1 } },
+      { $skip: Number(skip) },
+      { $limit: Number(limit) },
+      {
+        $project: {
+          amount: 1,
+          status: 1,
+          message: 1,
+          createdAt: 1,
+
+          // 👇 sirf required user fields
+          user: {
+            _id: "$user._id",
+            UserId: "$user.UserId",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+          },
+        },
+      },
+    ];
+
+    const requests = await withdrawRequestModel.aggregate(pipeline);
+
+    // 🔢 Total count
+    const countPipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $count: "total" },
+    ];
+
+    const countResult = await withdrawRequestModel.aggregate(countPipeline);
+    const totalRecords = countResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: requests,
+      pagination: {
+        totalRecords,
+        currentPage: Number(page),
+        totalPages: Math.ceil(totalRecords / limit),
+        limit: Number(limit),
+      },
+    });
+  } catch (error) {
+    console.error("Withdraw request fetch error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch withdraw requests",
+    });
+  }
+};
+
+
+
+
+
+exports.updateWithdrawStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Approved", "Rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const request = await withdrawRequestModel.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: `Withdraw request ${status.toLowerCase()} successfully`,
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update withdraw request",
+    });
   }
 };
 
@@ -437,23 +742,31 @@ exports.payoutCallback = async (req, res) => {
 //     };
 
 //     const encPayload = encryptAES256(JSON.stringify(payload), AES_KEY);
+//     const decrypted1 = decryptAES256(encPayload, AES_KEY);
+//     console.log("RequestData:", encPayload);
+//     console.log("RequestData:", decrypted1);
 
+//     console.log("headers:", {
+//       header_secrets: encHeaderSecrets,
+//       pass_key: PASS_KEY
+//     });
+//     // return;
 //     // API Call
 //     const response = await axios.post(
-//       `${API_BASE}/w1w2-payout/w1/cashtransfer`,
+//       "https://api-prod.txninfra.com/encrV1/w1w2-payout/w1/cashtransfer",
 //       { RequestData: encPayload },
 //       {
 //         headers: {
-//           pass_key: PASS_KEY,
 //           header_secrets: encHeaderSecrets,
-//           "Content-Type": "application/json",
+//           pass_key: PASS_KEY
 //         },
 //       }
 //     );
 
-//     console.log("📥 Raw Response:", response.data);
+//     console.log("📥 Raw Response:", response);
 
 //     const decrypted = decryptAES256(response.data.ResponseData, AES_KEY);
+//     logApiCall({ url: "/isu-po", requestData: { payload }, responseData: { decrypted } });
 //     console.log("🔓 Decrypted Response:", decrypted);
 
 //     return res.json({ success: true, data: JSON.parse(decrypted) });
@@ -465,9 +778,286 @@ exports.payoutCallback = async (req, res) => {
 //   }
 // };
 
+
+// exports.initiatePayout = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+
+//     const {
+//       beneName,
+//       beneAccountNo,
+//       beneifsc,
+//       benePhoneNo,
+//       beneBankName,
+//       amount,
+//       fundTransferType = "IMPS",
+//       pincode,
+//       custName,
+//       custMobNo,
+//       custIpAddress,
+//       latlong,
+//       paramA,
+//       paramB,
+//       category,
+//       mpin,
+//     } = req.body;
+
+//     if (!beneName || !beneAccountNo || !beneifsc || !amount) {
+//       throw new Error("Missing required details");
+//     }
+//     const referenceId = `CW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+
+
+//     const payload = {
+//       beneName,
+//       beneAccountNo,
+//       beneifsc,
+//       benePhoneNo: Number(benePhoneNo),
+//       beneBankName,
+//       clientReferenceNo: referenceId,
+//       amount: Number(amount),
+//       fundTransferType,
+//       pincode: Number(pincode),
+//       custName,
+//       custMobNo: Number(custMobNo),
+//       custIpAddress,
+//       latlong,
+//       paramA: paramA || "",
+//       paramB: paramB || "",
+//     };
+
+//     const userId = req.user.id;
+
+//     const user = await userModel.findOne({ _id: userId, status: true }).session(session);
+//     if (!user) throw new Error("User not found or inactive");
+
+//     if (user.mpin != mpin) throw new Error("Invalid MPIN");
+
+
+//     const { commissions, service } = await getApplicableServiceCharge(userId, category);
+
+//     const commission = commissions?.slabs?.length
+//       ? calculateCommissionFromSlabs(amount, commissions)
+//       : { charge: 0, gst: 0, tds: 0, retailer: 0, distributor: 0, admin: 0 };
+
+//     const required =
+//       Number(amount) +
+//       commission.charge +
+//       commission.gst +
+//       commission.tds -
+//       commission.retailer;
+
+//     const debitAmount = Number(required.toFixed(2));
+//     const usableBalance = user.eWallet - (user.cappingMoney || 0);
+
+//     if (usableBalance < required) {
+//       return res.status(400).json({
+//         error: true,
+//         message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${required + user.cappingMoney}`,
+//       });
+//     }
+
+//     const updatedUser = await userModel.findOneAndUpdate(
+//       { _id: userId, eWallet: { $gte: debitAmount } },
+//       { $inc: { eWallet: -debitAmount } },
+//       { new: true, session }
+//     );
+
+//     if (!updatedUser) {
+//       throw new Error(`Insufficient balance. Required: ₹${debitAmount}, Available: ₹${user.eWallet}`);
+//     }
+
+//     await payOutModel.create(
+//       [
+//         {
+//           userId,
+//           amount,
+//           reference: referenceId,
+//           type: service?._id,
+//           trans_mode: fundTransferType,
+//           name: beneName,
+//           mobile: custMobNo,
+//           email: paramA || user.email,
+//           status: "Pending",
+//           account: beneAccountNo,
+//           ifsc: beneifsc,
+//           remark: "Cash Withdraw",
+//           charges: commission.charge,
+//           gst: commission.gst,
+//           tds: commission.tds,
+//           totalDebit: debitAmount,
+//         },
+//       ],
+//       { session }
+//     );
+
+//     await Transaction.create(
+//       [
+//         {
+//           user_id: userId,
+//           transaction_type: "debit",
+//           amount,
+//           type: service?._id || category,
+//           gst: commission.gst,
+//           tds: commission.tds,
+//           charge: commission.charge,
+//           totalDebit: debitAmount,
+//           totalCredit: commission.retailer,
+//           balance_after: updatedUser.eWallet,
+//           payment_mode: "wallet",
+//           transaction_reference_id: referenceId,
+//           description: `Cash Withdraw for ${beneName}`,
+//           status: "Pending",
+//         },
+//       ],
+//       { session }
+//     );
+
+//     await DmtReport.create(
+//       [
+//         {
+//           user_id: userId,
+//           status: "Pending",
+//           type: service._id,
+//           referenceid: referenceId,
+//           txn_status: "0",
+//           benename: beneName,
+//           remarks: "Cash Withdraw",
+//           message: "Cash Withdraw",
+//           remitter: benePhoneNo,
+//           account_number: beneAccountNo,
+//           gatewayCharges: {
+//             txn_amount: parseFloat(amount),
+//             customercharge: commission.charge,
+//             gst: commission.gst,
+//             tds: commission.tds,
+//             netcommission:
+//               commission.retailer + commission.distributor + commission.admin,
+//           },
+//           charges: commission.charge,
+//           commission: {
+//             distributor: commission.distributor,
+//             admin: commission.admin,
+//           },
+//           gst: commission.gst,
+//           tds: commission.tds,
+//           amount,
+//           totalDebit: debitAmount,
+//         },
+//       ],
+//       { session }
+//     );
+
+//     const headerSecrets = {
+//       client_id: CLIENT_ID,
+//       client_secret: CLIENT_SECRET,
+//       epoch: Math.floor(Date.now() / 1000).toString(),
+//     };
+
+//     const encHeaderSecrets = encryptAES256(JSON.stringify(headerSecrets), AES_KEY);
+//     const encPayload = encryptAES256(JSON.stringify(payload), AES_KEY);
+
+//     const apiResponse = await axios.post(
+//       "https://api-prod.txninfra.com/encrV1/w1w2-payout/w1/cashtransfer",
+//       { RequestData: encPayload },
+//       { headers: { header_secrets: encHeaderSecrets, pass_key: PASS_KEY } }
+//     );
+
+//     const decrypted = decryptAES256(apiResponse.data.ResponseData, AES_KEY);
+//     const result = JSON.parse(decrypted);
+
+
+//     let finalStatus = "Pending";
+//     let txnStatus = "0";
+//     let updateUserData = updatedUser;
+
+//     if (result.status === "SUCCESS") {
+//       finalStatus = "Success";
+//       txnStatus = "1";
+//     } else if (result.status === "FAILED") {
+//       finalStatus = "Failed";
+//       txnStatus = "2";
+//       updateUserData = await userModel.updateOne(
+//         { _id: userId },
+//         { $inc: { eWallet: debitAmount } },
+//         { session }
+//       );
+//     }
+
+//     await payOutModel.updateOne(
+//       { reference: referenceId },
+//       {
+//         $set: {
+//           status: finalStatus,
+//           subStatus: result.subStatus,
+//           statusDesc: result.statusDesc,
+//           utr: result.rrn || "",
+//           transactionId: result.transactionId || "",
+//           api_response: result,
+//         },
+//       },
+//       { session }
+//     );
+
+//     await Transaction.updateOne(
+//       { transaction_reference_id: referenceId },
+//       {
+//         $set: {
+//           status: finalStatus,
+//           balance_after: updateUserData.eWallet,
+//           bankRRN: result.rrn || "",
+//           "meta.apiresponse": result,
+//         },
+//       },
+//       { session }
+//     );
+
+//     await DmtReport.updateOne(
+//       { referenceid: referenceId },
+//       {
+//         $set: {
+//           status: finalStatus,
+//           txn_status: txnStatus,
+//           rrn: result.rrn || "",
+//           remarks: result.statusDesc,
+//           message: result.statusDesc
+//         },
+//       },
+//       { session }
+//     );
+
+
+//     await session.commitTransaction();
+//     session.endSession();
+
+//     return res.json({
+//       success: finalStatus === "Success",
+//       referenceId,
+//       status: finalStatus,
+//       apiResponse: result,
+//     });
+
+//   } catch (error) {
+//     await session.abortTransaction();
+//     session.endSession();
+//     console.error("🔥 Payout Error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: error.response?.data?.fault?.faultstring || error.message,
+//     });
+//   }
+// };
+
+
+
+
 // ========================
 // 🟢 2. Callback
 // ========================
+
 // exports.payoutCallback = async (req, res) => {
 //   try {
 //     console.log("📥 Callback Received Raw:", req.body);

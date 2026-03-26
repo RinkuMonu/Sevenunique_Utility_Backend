@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { format, min } = require("date-fns");
+const { invalidateProfileCache } = require("../middleware/redisValidation");
 
 const userSchema = new mongoose.Schema(
   {
@@ -18,8 +19,7 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     name: {
-      type: String,
-      required: true,
+      type: String
     },
     outletId: {
       type: String,
@@ -32,21 +32,24 @@ const userSchema = new mongoose.Schema(
     },
     aepsInstantPayBio: {
       type: String,
-      enum: ["Pending", "Progress", "Success"],
+      enum: ["Pending", "Progress", "Success", "Rejected"],
       default: "Pending",
     },
 
     callbackUrl: {
       type: String,
     },
+    callbackUrlOut: {
+      type: String,
+    },
 
     email: {
       type: String,
-      required: true,
       unique: true,
       trim: true,
       lowercase: true,
       match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      sparse: true,
     },
     password: {
       type: String,
@@ -61,7 +64,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     shopPhoto: {
-      type: [String], // ✅ Array of strings now
+      type: [String],
       trim: true,
     },
 
@@ -275,8 +278,7 @@ const userSchema = new mongoose.Schema(
 
     documents: [String],
     mpin: {
-      type: Number,
-      required: true,
+      type: Number
     },
     mobileNumber: {
       type: String,
@@ -329,7 +331,7 @@ const userSchema = new mongoose.Schema(
     },
     cappingMoney: {
       type: Number,
-      default: 500,
+      default: 0,
     },
     mainWallet: {
       type: Number,
@@ -359,6 +361,51 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    clientSource: {
+      type: String,
+      enum: ["APP", "PANEL"],
+      default: "PANEL",
+    },
+    referralCode: {
+      type: String,
+      unique: true
+    },
+
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+    referralRewardGiven: {
+      type: Boolean,
+      default: false,
+    },
+
+    referralCount: {
+      type: Number,
+      default: 0
+    },
+
+    referralEarnings: {
+      type: Number,
+      default: 0
+    },
+    forceLogout: {
+      type: Boolean,
+      default: false
+    },
+    UserActionStatus: {
+      type: Boolean,
+      default: false
+    },
+    hasPurchasedPlan: {
+      type: Boolean,
+      default: false
+    },
+    qrCode: {
+      type: String
+    }
+
   },
   {
     timestamps: true,
@@ -367,6 +414,29 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+const generateReferralCode = (name = "") => {
+  const prefix = name
+    .substring(0, 3)
+    .toUpperCase()
+    .padEnd(3, "X");
+
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random()
+    .toString(36)
+    .substring(2, 4)
+    .toUpperCase();
+
+  return prefix + timePart.slice(-5) + randomPart;
+};
+
+userSchema.pre("save", function (next) {
+  if (!this.isNew) return next();
+
+  this.referralCode = generateReferralCode(this.name);
+
+  next();
+});
+
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   const salt = await bcrypt.genSalt(10);
@@ -374,55 +444,98 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
+userSchema.pre("save", async function (next) {
+  if (this.isModified("role")) {
+    const PermissionByRole = mongoose.model("PermissionByRole");
+    const rolePerm = await PermissionByRole.findOne({ role: this.role });
+    this.rolePermissions = rolePerm ? rolePerm._id : null;
+    this.extraPermissions = [];
+    this.restrictedPermissions = [];
+  }
+  next();
+});
+
+
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
   const PermissionByRole = mongoose.model("PermissionByRole");
 
   let perms = new Set();
 
-  // 1️⃣ superAdmin
-  if (this.role === "superAdmin") {
-    const all = await Permission.find({});
-    return all.map((p) => p.key);
-  }
   if (this.role === "Admin") {
     const all = await Permission.find({});
-    return all.map((p) => p.key);
+    all.forEach(p => perms.add(p.key));
   }
 
-  // 2️⃣ GET ROLE PERMISSIONS BY ID (CORRECT)
-  // console.log("Role Permissions ID:", this.rolePermissions);
+  // ✅ 2️⃣ ADMIN / RETAILER → Role based permissions
   if (this.rolePermissions) {
-    const rolePermDoc = await PermissionByRole.findById(
-      this.rolePermissions
-    ).populate("permissions", "key");
+    const rolePermDoc = await PermissionByRole
+      .findById(this.rolePermissions)
+      .populate("permissions");
 
     if (rolePermDoc?.permissions?.length) {
-      rolePermDoc.permissions.forEach((p) => perms.add(p.key));
+      rolePermDoc.permissions.forEach(p => perms.add(p.key));
     }
   }
 
-  // 3️⃣ Add extraPermissions
-  // console.log("Extra Permissions IDs:", this.extraPermissions);
+  // ✅ 3️⃣ Extra permissions
   if (this.extraPermissions?.length) {
     const extras = await Permission.find({
       _id: { $in: this.extraPermissions },
     });
-    extras.forEach((p) => perms.add(p.key));
+    extras.forEach(p => perms.add(p.key));
   }
 
-  // 4️⃣ Remove restrictedPermissions
+  // ✅ 4️⃣ Restricted remove
   if (this.restrictedPermissions?.length) {
     const restricted = await Permission.find({
       _id: { $in: this.restrictedPermissions },
     });
-    restricted.forEach((p) => perms.delete(p.key));
+    restricted.forEach(p => perms.delete(p.key));
   }
+
+  // ✅ 5️⃣ AUTO ADD PARENT MENUS (🔥 ye sabse important step hai)
+  const finalKeys = Array.from(perms);
+
+  const childPerms = await Permission.find({
+    key: { $in: finalKeys },
+    parentKey: { $exists: true, $ne: null }
+  });
+
+  childPerms.forEach(p => {
+    if (p.parentKey) perms.add(p.parentKey);
+  });
 
   return Array.from(perms);
 };
 
+userSchema.pre("save", async function (next) {
+  if (this.isNew) return next();
+
+  const fields = [
+    "mobileNumber",
+    "plan",
+    "rolePermissions",
+    "eWallet",
+  ];
+
+  if (fields.some(f => this.isModified(f))) {
+    await invalidateProfileCache(this._id);
+  }
+
+  next();
+});
+
+
+
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
+userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ distributorId: 1 });
+userSchema.index({ status: 1 });
+userSchema.index({ isKycVerified: 1 });
+userSchema.index({ "address.state": 1 });
+userSchema.index({ "address.city": 1 });
+
 module.exports = mongoose.model("User", userSchema);
