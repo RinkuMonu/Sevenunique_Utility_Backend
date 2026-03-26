@@ -8,10 +8,9 @@ function getPaysprintHeaders() {
 
   console.log("Generated JWT nEw:", jwtToken);
   return {
-    Authorization: `Bearer ${jwtToken}`,
-    Token: `${jwtToken}`,
-    "Content-Type": "application/json",
-    authorisedkey:  process.env.PAYSPRINT_AUTH_KEY_P,
+    'Token': generatePaysprintJWT(),
+       Authorisedkey: process.env.PAYSPRINT_AUTH_KEY_P
+
   };
 }
 
@@ -29,12 +28,12 @@ export const creditCard = async (req, res) => {
 
     // Make the API call to PaySprint with the correct headers
     const response = await axios.post(
-      "https://sit.paysprint.in/service-api/api/v1/service/lead/creditcard/get_utm",
+      "https://api.paysprint.in/api/v1/service/lead/creditcard/get_utm",
       data,
-      { headers }
+      { headers },
     );
 
-    console.log(response, "response");
+    console.log("response", response);
     if (response.data || response.data.utmLink) {
       return res.status(200).json({
         data: response?.data,
@@ -46,10 +45,10 @@ export const creditCard = async (req, res) => {
       message: "Failed to generate UTM link",
     });
   } catch (error) {
-    console.error("Error in generating UTM:", error);
+    console.error("Error in generating UTM:", error.response.data);
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: error.message,
     });
   }
 };

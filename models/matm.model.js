@@ -19,6 +19,7 @@ const matmTransactionSchema = new mongoose.Schema({
   distributorCommission: Number,
   adminCommission: Number,
   description: String,
+  apiRes: Object,
   createdAt: { type: Date, default: Date.now }
 });
 

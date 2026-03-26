@@ -14,6 +14,8 @@ const { distributeCommission } = require("../../utils/distributerCommission");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const payInModel = require("../../models/payInModel");
 const AEPSTransaction = require("../../models/aepsModels/withdrawalEntry");
+const { default: admin } = require("../../firebase");
+const userMetaModel = require("../../models/userMetaModel");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -171,6 +173,7 @@ exports.outletLoginStatus = async (req, res, next) => {
 exports.outletLogin = async (req, res, next) => {
   try {
     const user = await userModel.findById(req.user.id)
+    const userMeta = await userMetaModel.findOne({ userId: req.user.id })
     const { outletId, aadhaar, pidData, latitude, longitude } = req.body;
     console.log("📥 Incoming Outlet Login Request:", req.body);
 
@@ -205,6 +208,20 @@ exports.outletLogin = async (req, res, next) => {
       },
     });
     console.log("✅ Outlet Login Response:", response.data);
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Outlet Login successful`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
 
     return res.json(response.data);
   } catch (err) {
@@ -244,6 +261,7 @@ exports.cashWithdrawal = async (req, res) => {
 
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId: userId }).session(session);
     if (!user) throw new Error("User not found");
 
     // Get commission details
@@ -277,7 +295,8 @@ exports.cashWithdrawal = async (req, res) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction
@@ -418,7 +437,21 @@ exports.cashWithdrawal = async (req, res) => {
       }], { session });
 
       await session.commitTransaction();
-      res.status(200).json({ status: true, message: "Cash Withdrawal successful", data: result });
+
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Withdrawal successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
+      res.status(200).json({ status: true, message: "AEPS Withdrawal successful", data: result });
 
     } else {
       // ❌ API Failed
@@ -518,7 +551,8 @@ exports.balanceEnquiry = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -729,7 +763,8 @@ exports.miniStatement = async (req, res, next) => {
       retailerCommission: required,
       gst: 0,
       tds: 0,
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     const [debitTxn] = await Transaction.create([{
@@ -862,6 +897,7 @@ exports.deposite = async (req, res, next) => {
       longitude } = req.body;
     const userId = req.user.id;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId: userId }).session(session);
     if (!user) throw new Error("User not found");
 
     const requiredFields = {
@@ -880,6 +916,8 @@ exports.deposite = async (req, res, next) => {
 
     const biometricParsed = await parsePidXML(pidData);
     const encryptedAadhaar = encrypt(aadhaar, encryptionKey);
+    const externalRef = `ACD${new mongoose.Types.ObjectId()}`;
+
     const payload = {
       // type: "DAILY_LOGIN",
       bankiin,
@@ -887,7 +925,7 @@ exports.deposite = async (req, res, next) => {
       longitude: user.aepsInstantPayLng || longitude,
       mobile,
       amount,
-      externalRef: `AEPS${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`,
+      externalRef,
       captureType: "FINGER",
       biometricData: {
         encryptedAadhaar,
@@ -919,7 +957,6 @@ exports.deposite = async (req, res, next) => {
       });
     }
 
-    const externalRef = `ACD-${new mongoose.Types.ObjectId()}`;
     // Create AEPS Report (Pending)
     const aepsReport = await AEPSTransaction.create([{
       userId,
@@ -939,7 +976,8 @@ exports.deposite = async (req, res, next) => {
       retailerCommission: Number(commission.retailer || 0),
       distributorCommission: Number(commission.distributor || 0),
       adminCommission: Number(commission.admin || 0),
-      status: "Pending"
+      status: "Pending",
+      provider: "instantPay"
     }], { session });
 
     // Create debit transaction
@@ -1030,6 +1068,20 @@ exports.deposite = async (req, res, next) => {
         status: "Success",
         sourceRetailerId: userId
       }], { session });
+
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: `AEPS Deposit successful`
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
 
       await session.commitTransaction();
       res.status(200).json({ status: true, message: "Cash Deposit successful", data: result });

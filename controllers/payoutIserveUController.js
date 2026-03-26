@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 const crypto = require("crypto");
 const axios = require("axios");
@@ -85,12 +86,23 @@ exports.generateToken = async (req, res) => {
 
 const FormData = require("form-data");
 const userModel = require("../models/userModel");
+const withdrawRequestModel = require("../models/withdrawRequestModel");
+
 const { default: mongoose } = require("mongoose");
 const Transaction = require("../models/transactionModel");
 const payOutModel = require("../models/payOutModel");
 const { response } = require("express");
 const { getApplicableServiceCharge, calculateCommissionFromSlabs, logApiCall } = require("../utils/chargeCaluate");
 const DmtReport = require('../models/dmtTransactionModel');
+
+const cleanName = (name = "") => {
+  return name
+    .replace(/\b(mr|mrs|ms|miss|shri|smt|dr)\b\.?/gi, "")
+    .replace(/[^a-zA-Z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 
 exports.initiatePayout = async (req, res) => {
   const session = await mongoose.startSession();
@@ -119,7 +131,15 @@ exports.initiatePayout = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const referenceId = `WD${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+    const referenceId = `CW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+    if (Number(amount) <= 1000) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Minimum withdrawal amount is ₹1001",
+      });
+    }
 
     const user = await userModel.findOne({ _id: userId, status: true }).session(session);
 
@@ -128,6 +148,8 @@ exports.initiatePayout = async (req, res) => {
       session.endSession();
       return res.status(404).json({ success: false, message: "User not found or inactive" });
     }
+
+
 
 
     if (user.mpin != mpin) {
@@ -240,8 +262,8 @@ exports.initiatePayout = async (req, res) => {
     //       referenceid: referenceId,
     //       txn_status: "0",
     //       benename: beneName,
-    //       remarks: "DMT EX initiated",
-    //       message: "DMT EX initiated",
+    //       remarks: "Cash Withdraw",
+    //       message: "Cash Withdraw",
     //       remitter: benePhoneNo,
     //       account_number: beneAccountNo,
     //       gatewayCharges: {
@@ -274,8 +296,8 @@ exports.initiatePayout = async (req, res) => {
 
     // Now generate token (outside transaction)
     const formDataToken = new FormData();
-    formDataToken.append("authKey", "BBPehk1wdz");
-    formDataToken.append("authSecret", "qkxwzvslxzhnkxej");
+    formDataToken.append("authKey", process.env.ZYNKR_AUTH_KEY);
+    formDataToken.append("authSecret", process.env.ZYNKR_AUTH_SECRET);
 
     const tokenResponse = await axios.post(
       "https://zynkrpay.com/api/v1.1/t1/oauth/token",
@@ -290,10 +312,10 @@ exports.initiatePayout = async (req, res) => {
     const accessToken = tokenResponse?.data?.data?.access_token;
 
     if (!accessToken) {
-      const user = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
+      const userRef = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: "Failed to fetch token" });
-      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: user.eWallet });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: "Failed to fetch token", balance_after: userRef.eWallet });
       // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
@@ -308,7 +330,7 @@ exports.initiatePayout = async (req, res) => {
     formData.append("trans_mode", fundTransferType || "imps");
     formData.append("account", beneAccountNo);
     formData.append("ifsc", beneifsc);
-    formData.append("name", beneName);
+    formData.append("name", cleanName(beneName));
     formData.append("email", paramA || "");
     formData.append("mobile", custMobNo);
     formData.append("address", paramB || "");
@@ -323,6 +345,8 @@ exports.initiatePayout = async (req, res) => {
           ...formData.getHeaders()
         },
       });
+      console.log(response);
+
 
       return res.status(response.status).json({
         success: true,
@@ -332,11 +356,11 @@ exports.initiatePayout = async (req, res) => {
       console.log("err", err);
 
       response = { data: { success: false, message: err.response.data.message || "API failed" } };
-      const user = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
+      const refundedUser = await userModel.findByIdAndUpdate(userId, { $inc: { eWallet: +required } }, { new: true });
 
       // If token failed → mark records failed
       await payOutModel.findOneAndUpdate({ reference: referenceId }, { status: "Failed", remark: response.message || "Failed to fetch token" });
-      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: user.eWallet });
+      await Transaction.findOneAndUpdate({ transaction_reference_id: referenceId }, { status: "Failed", description: response.message || "Failed to fetch token", balance_after: refundedUser.eWallet });
       // await DmtReport.findOneAndUpdate({ referenceid: referenceId }, { status: "Failed", remarks: "Failed to fetch token" });
 
       // Refund wallet
@@ -377,7 +401,7 @@ exports.payoutCallback = async (req, res) => {
 
     const payout = await payOutModel.findOne({ reference: reference }).session(session);
     const transaction = await Transaction.findOne({ transaction_reference_id: reference }).session(session);
-    // const dmtReport = await DmtReport.findOne({ referenceid: reference });
+    // const dmtReport = await DmtReport.findOne({ referenceid: reference }).session(session);;
 
 
 
@@ -407,6 +431,7 @@ exports.payoutCallback = async (req, res) => {
     if (status.toLowerCase() == "success") {
       payout.status = "Success";
       transaction.status = "Success";
+      transaction.utr = utr || "";
       // dmtReport.status = "Success";
       // dmtReport.txn_status = "1";
       // dmtReport.utr = utr || "";
@@ -425,10 +450,10 @@ exports.payoutCallback = async (req, res) => {
       payout.status = "Failed";
       transaction.status = "Failed";
       transaction.balance_after = updatedUser.eWallet;
-        //   dmtReport.status = "Failed";
-        // dmtReport.remarks = message || "Transaction failed";
-        // dmtReport.message = message || "Transaction failed";
-        payout.remark = message || "Transaction failed";
+      // dmtReport.status = "Failed";
+      // dmtReport.remarks = message || "Transaction failed";
+      // dmtReport.message = message || "Transaction failed";
+      payout.remark = message || "Transaction failed";
       transaction.description = message || "Transaction failed";
       // Refund wallet
     } else {
@@ -439,7 +464,7 @@ exports.payoutCallback = async (req, res) => {
 
     await payout.save({ session });
     await transaction.save({ session });
-    // await dmtReport.save();
+    // await dmtReport.save({ session });
 
     await session.commitTransaction();
 
@@ -450,6 +475,214 @@ exports.payoutCallback = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error in callback" });
   } finally {
     session.endSession();
+  }
+};
+
+
+exports.createWithdrawRequest = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, message } = req.body;
+    const user = await userModel.findOne({ _id: userId, status: true });
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid withdraw amount",
+      });
+    }
+    if (Number(amount) > user.eWallet && Number(amount) < 10000) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance. Wallet balance is ${user.eWallet}`,
+      });
+    }
+
+    const request = await withdrawRequestModel.create({
+      user: userId,
+      amount,
+      message,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Withdraw request sent successfully. Admin will review it.",
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+exports.getAllWithdrawRequests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      // ✅ Retailer / User → sirf apni requests
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      // 🔍 Admin search
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $sort: { createdAt: -1 } },
+      { $skip: Number(skip) },
+      { $limit: Number(limit) },
+      {
+        $project: {
+          amount: 1,
+          status: 1,
+          message: 1,
+          createdAt: 1,
+
+          // 👇 sirf required user fields
+          user: {
+            _id: "$user._id",
+            UserId: "$user.UserId",
+            name: "$user.name",
+            email: "$user.email",
+            mobileNumber: "$user.mobileNumber",
+          },
+        },
+      },
+    ];
+
+    const requests = await withdrawRequestModel.aggregate(pipeline);
+
+    // 🔢 Total count
+    const countPipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+
+      ...(userRole !== "Admin"
+        ? [{ $match: { "user._id": objectUserId } }]
+        : []),
+
+      ...(search && userRole === "Admin"
+        ? [
+          {
+            $match: {
+              $or: [
+                { "user.name": { $regex: search, $options: "i" } },
+                { "user.UserId": { $regex: search, $options: "i" } },
+                {
+                  "user.mobileNumber": {
+                    $regex: search,
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+        ]
+        : []),
+
+      { $count: "total" },
+    ];
+
+    const countResult = await withdrawRequestModel.aggregate(countPipeline);
+    const totalRecords = countResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: requests,
+      pagination: {
+        totalRecords,
+        currentPage: Number(page),
+        totalPages: Math.ceil(totalRecords / limit),
+        limit: Number(limit),
+      },
+    });
+  } catch (error) {
+    console.error("Withdraw request fetch error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch withdraw requests",
+    });
+  }
+};
+
+
+
+
+
+exports.updateWithdrawStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Approved", "Rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const request = await withdrawRequestModel.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: `Withdraw request ${status.toLowerCase()} successfully`,
+      data: request,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update withdraw request",
+    });
   }
 };
 
@@ -574,7 +807,7 @@ exports.payoutCallback = async (req, res) => {
 //     if (!beneName || !beneAccountNo || !beneifsc || !amount) {
 //       throw new Error("Missing required details");
 //     }
-//     const referenceId = `DMTEX${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+//     const referenceId = `CW${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
 
 
 //     const payload = {
@@ -650,7 +883,7 @@ exports.payoutCallback = async (req, res) => {
 //           status: "Pending",
 //           account: beneAccountNo,
 //           ifsc: beneifsc,
-//           remark: "DMT EX initiated",
+//           remark: "Cash Withdraw",
 //           charges: commission.charge,
 //           gst: commission.gst,
 //           tds: commission.tds,
@@ -675,7 +908,7 @@ exports.payoutCallback = async (req, res) => {
 //           balance_after: updatedUser.eWallet,
 //           payment_mode: "wallet",
 //           transaction_reference_id: referenceId,
-//           description: `DMT EX initiated for ${beneName}`,
+//           description: `Cash Withdraw for ${beneName}`,
 //           status: "Pending",
 //         },
 //       ],
@@ -691,8 +924,8 @@ exports.payoutCallback = async (req, res) => {
 //           referenceid: referenceId,
 //           txn_status: "0",
 //           benename: beneName,
-//           remarks: "DMT EX initiated",
-//           message: "DMT EX initiated",
+//           remarks: "Cash Withdraw",
+//           message: "Cash Withdraw",
 //           remitter: benePhoneNo,
 //           account_number: beneAccountNo,
 //           gatewayCharges: {
@@ -738,6 +971,7 @@ exports.payoutCallback = async (req, res) => {
 
 //     let finalStatus = "Pending";
 //     let txnStatus = "0";
+//     let updateUserData = updatedUser;
 
 //     if (result.status === "SUCCESS") {
 //       finalStatus = "Success";
@@ -745,6 +979,11 @@ exports.payoutCallback = async (req, res) => {
 //     } else if (result.status === "FAILED") {
 //       finalStatus = "Failed";
 //       txnStatus = "2";
+//       updateUserData = await userModel.updateOne(
+//         { _id: userId },
+//         { $inc: { eWallet: debitAmount } },
+//         { session }
+//       );
 //     }
 
 //     await payOutModel.updateOne(
@@ -767,8 +1006,9 @@ exports.payoutCallback = async (req, res) => {
 //       {
 //         $set: {
 //           status: finalStatus,
-//           utr: result.rrn || "",
-//           message: result.statusDesc,
+//           balance_after: updateUserData.eWallet,
+//           bankRRN: result.rrn || "",
+//           "meta.apiresponse": result,
 //         },
 //       },
 //       { session }
@@ -782,20 +1022,11 @@ exports.payoutCallback = async (req, res) => {
 //           txn_status: txnStatus,
 //           rrn: result.rrn || "",
 //           remarks: result.statusDesc,
-//           message: result.statusDesc,
-//           api_response: result,
+//           message: result.statusDesc
 //         },
 //       },
 //       { session }
 //     );
-
-//     if (finalStatus === "Failed") {
-//       await userModel.updateOne(
-//         { _id: userId },
-//         { $inc: { eWallet: debitAmount } },
-//         { session }
-//       );
-//     }
 
 
 //     await session.commitTransaction();
@@ -826,6 +1057,7 @@ exports.payoutCallback = async (req, res) => {
 // ========================
 // 🟢 2. Callback
 // ========================
+
 // exports.payoutCallback = async (req, res) => {
 //   try {
 //     console.log("📥 Callback Received Raw:", req.body);

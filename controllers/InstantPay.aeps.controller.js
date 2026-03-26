@@ -14,7 +14,7 @@ const getHeaders = () => {
 
     return {
         "Content-Type": "application/json",
-        "X-Ipay-Client-Id":process.env.INSTANTPAY_CLIENT_ID ,
+        "X-Ipay-Client-Id": process.env.INSTANTPAY_CLIENT_ID,
         "X-Ipay-Client-Secret": process.env.INSTANTPAY_CLIENT_SECRET,
         "X-Ipay-Auth-Code": process.env.IPAY_AUTH_CODE,
         "X-Ipay-Endpoint-Ip": "2401:4900:1c1a:3375:746d:e3a:7400:ecb0",
@@ -163,11 +163,11 @@ exports.signupValidate = async (req, res) => {
 exports.MerchantBiometric = async (req, res) => {
     try {
         const user = await userModel.findById(req.user.id);
-        const { outletId } = req.body;
+        const { outletId, spkey } = req.body;
 
         const response = await axios.post(
             `${INSTANTPAY_BASE_URL}/user/outlet/signup/biometricKycStatus`,
-            { spkey: "DMI" },
+            { spkey },
             {
                 headers: {
                     ...getHeaders(),
@@ -185,6 +185,8 @@ exports.MerchantBiometric = async (req, res) => {
             user.aepsInstantPayBio = "Progress";
         } else if (action == "NO-ACTION-REQUIRED" && status == "APPROVED") {
             user.aepsInstantPayBio = "Success";
+        } else if (action == "NO-ACTION-REQUIRED" && status == "REJECTED") {
+            user.aepsInstantPayBio = "Rejected";
         }
 
         await user.save();
@@ -197,7 +199,7 @@ exports.MerchantBiometric = async (req, res) => {
 
         res.status(200).json(response.data);
     } catch (error) {
-        console.error("Merchant Biometric Error:", error?.response?.data || error.message);
+        console.error("Merchant Biometric Error:-", error?.response?.data || error.message);
         res.status(400).json({
             status: false,
             message: error?.response?.data || error.message,

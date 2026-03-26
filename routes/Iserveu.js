@@ -10,6 +10,8 @@ const {
   sendBatchOnboardingMail,
   getOnboardingList,
   updateOnboardMailStatus,
+  checkIserveuTxnStatus,
+  aepsPreCheck,
 } = require("../controllers/Iserveu");
 const authenticateToken = require("../middleware/verifyToken");
 const authorizeRoles = require("../middleware/verifyRole");
@@ -20,6 +22,8 @@ router.get("/get-token", getToken);
 router.post("/callback", aepsCallback);
 router.get("/matm-report", authenticateToken, getMatmReports);
 router.post("/matm/callback", matmCallback);
+router.post("/pre-check", authenticateToken, aepsPreCheck);
+router.post("/statusCheck", authenticateToken, checkIserveuTxnStatus);
 
 router.get("/admin/onboarding-list", authenticateToken, authorizeRoles("Admin"), getOnboardingList);
 router.patch("/admin/onboarding/update-status/:id", authenticateToken, authorizeRoles("Admin"), updateOnboardMailStatus);

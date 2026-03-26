@@ -4,6 +4,10 @@ const ServicePlan = require("../models/servicePlanmodel");
 const userModel = require("../models/userModel");
 const servicesModal = require("../models/servicesModal");
 const { default: mongoose } = require("mongoose");
+const { processReferralCommission } = require("../middleware/referralCommission");
+const { invalidateUsersCache, invalidateProfileCache } = require("../middleware/redisValidation");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const createPlan = async (req, res) => {
   try {
@@ -242,6 +246,8 @@ const buyPlan = async (req, res) => {
         .status(404)
         .json({ success: false, message: "User not found" });
     }
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
+
     const today0 = new Date();
     today0.setHours(0, 0, 0, 0);
 
@@ -274,12 +280,12 @@ const buyPlan = async (req, res) => {
       });
     }
 
-    const cappingMoney = userfind.cappingMoney || 500;
+    const cappingMoney = userfind.cappingMoney || 0;
 
     const updatedUser = await userModel.findOneAndUpdate(
       {
         _id: userId,
-        eWallet: { $gte: planPrice + cappingMoney }, 
+        eWallet: { $gte: planPrice + cappingMoney },
       },
       { $inc: { eWallet: -planPrice } },
       { new: true, session }
@@ -341,10 +347,10 @@ const buyPlan = async (req, res) => {
 
     await userModel.updateOne({ _id: userId }, updates, { session });
 
-    const transactionRef = `PLAN-${Date.now()}`;
+    const transactionRef = `PLAN-${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const transaction = new Transaction({
       user_id: updatedUser._id,
-      sender_Id: updatedUser._id, // khud ka wallet debit hua
+      sender_Id: updatedUser._id,
       type2: "Plan Purchase",
       transaction_type: "debit",
       type: planId,
@@ -361,6 +367,19 @@ const buyPlan = async (req, res) => {
     });
     await transaction.save({ session });
 
+    await invalidateUsersCache();
+    await invalidateProfileCache(userId);
+
+    if (!userfind.hasPurchasedPlan) {
+      await processReferralCommission(userfind, transactionRef, planId, session);
+
+      await userModel.updateOne(
+        { _id: userfind._id },
+        { $set: { hasPurchasedPlan: true } },
+        { session }
+      );
+    }
+
     // 12. Commit transaction
     await session.commitTransaction();
     session.endSession();
@@ -368,8 +387,18 @@ const buyPlan = async (req, res) => {
     const remainingDays = Math.floor(
       (new Date(endDate).setHours(0, 0, 0, 0) -
         new Date().setHours(0, 0, 0, 0)) /
-        (1000 * 60 * 60 * 24)
+      (1000 * 60 * 60 * 24)
     );
+
+        if (userMeta) {
+      await admin.messaging().send({
+        token: userMeta.fcm_Token,
+        notification: {
+          title: "Finunique",
+          body: "Plan activated successfully"
+        }
+      })
+    }
 
     return res.status(200).json({
       success: true,
@@ -510,9 +539,8 @@ const buyPassPlan = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Plan '${plan.name}' assigned to ${
-        applyToAll ? "all users" : users.length + " user(s)"
-      }`,
+      message: `Plan '${plan.name}' assigned to ${applyToAll ? "all users" : users.length + " user(s)"
+        }`,
     });
   } catch (error) {
     console.error("Buy Pass Error:", error);
@@ -619,6 +647,7 @@ const getAllUsersPlanHistory = async (req, res) => {
         .select("name role email UserId mobileNumber status plan planHistory")
         .populate("planHistory")
         .populate("plan")
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
         .lean(),

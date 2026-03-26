@@ -16,6 +16,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 const axios = require("axios");
 const { verifyEmail7Unique } = require("../controllers/authController");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
+
 
 // 1. Request KYC
 // router.post("/request", async (req, res) => {
@@ -136,9 +139,24 @@ router.patch("/approve/:id", async (req, res, next) => {
     );
 
     const user = await User.findById(kyc.user);
+    const userMeta = await userMetaModel.findOne({ userId: kyc.user });
     if (user?.email) {
       await sendKYCApprovalEmail(user, scheduledTime);
     }
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `KYC approved. Scheduled Time: ${scheduledTime}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
     // console.log("user user", user);
     res.json({ success: true, message: "KYC approved and email sent", kyc });
   } catch (Error) {
@@ -167,6 +185,21 @@ router.patch("/verify", async (req, res, next) => {
       },
       { new: true }
     );
+    const userMeta = await userMetaModel.findOne({ userId });
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `KYC completed`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
 
     res.json({ message: "KYC completed", kyc });
   } catch (Error) {

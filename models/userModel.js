@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { format, min } = require("date-fns");
+const { invalidateProfileCache } = require("../middleware/redisValidation");
 
 const userSchema = new mongoose.Schema(
   {
@@ -18,8 +19,7 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     name: {
-      type: String,
-      required: true,
+      type: String
     },
     outletId: {
       type: String,
@@ -32,21 +32,24 @@ const userSchema = new mongoose.Schema(
     },
     aepsInstantPayBio: {
       type: String,
-      enum: ["Pending", "Progress", "Success"],
+      enum: ["Pending", "Progress", "Success", "Rejected"],
       default: "Pending",
     },
 
     callbackUrl: {
       type: String,
     },
+    callbackUrlOut: {
+      type: String,
+    },
 
     email: {
       type: String,
-      required: true,
       unique: true,
       trim: true,
       lowercase: true,
       match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      sparse: true,
     },
     password: {
       type: String,
@@ -387,8 +390,21 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-
-
+    forceLogout: {
+      type: Boolean,
+      default: false
+    },
+    UserActionStatus: {
+      type: Boolean,
+      default: false
+    },
+    hasPurchasedPlan: {
+      type: Boolean,
+      default: false
+    },
+    qrCode: {
+      type: String
+    }
 
   },
   {
@@ -421,24 +437,24 @@ userSchema.pre("save", function (next) {
   next();
 });
 
-
-
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+
 userSchema.pre("save", async function (next) {
-  if (!this.rolePermissions && this.role) {
+  if (this.isModified("role")) {
     const PermissionByRole = mongoose.model("PermissionByRole");
     const rolePerm = await PermissionByRole.findOne({ role: this.role });
-    if (rolePerm) {
-      this.rolePermissions = rolePerm._id;
-    }
+    this.rolePermissions = rolePerm ? rolePerm._id : null;
+    this.extraPermissions = [];
+    this.restrictedPermissions = [];
   }
   next();
 });
+
 
 userSchema.methods.getEffectivePermissions = async function () {
   const Permission = mongoose.model("Permission");
@@ -446,7 +462,6 @@ userSchema.methods.getEffectivePermissions = async function () {
 
   let perms = new Set();
 
-  // ✅ 1️⃣ SUPERADMIN → pehle sab permissions lo (but flat return mat karo)
   if (this.role === "Admin") {
     const all = await Permission.find({});
     all.forEach(p => perms.add(p.key));
@@ -494,8 +509,33 @@ userSchema.methods.getEffectivePermissions = async function () {
   return Array.from(perms);
 };
 
+userSchema.pre("save", async function (next) {
+  if (this.isNew) return next();
+
+  const fields = [
+    "mobileNumber",
+    "plan",
+    "rolePermissions",
+    "eWallet",
+  ];
+
+  if (fields.some(f => this.isModified(f))) {
+    await invalidateProfileCache(this._id);
+  }
+
+  next();
+});
+
+
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
+userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ distributorId: 1 });
+userSchema.index({ status: 1 });
+userSchema.index({ isKycVerified: 1 });
+userSchema.index({ "address.state": 1 });
+userSchema.index({ "address.city": 1 });
+
 module.exports = mongoose.model("User", userSchema);

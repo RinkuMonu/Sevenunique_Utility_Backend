@@ -18,6 +18,8 @@ const { distributeCommission } = require("../utils/distributerCommission");
 const matmModel = require("../models/matm.model");
 const onboardSendEmail = require("../models/onboardSendEmail");
 const CommissionTransaction = require("../models/CommissionTransaction");
+const userMetaModel = require("../models/userMetaModel");
+const { default: admin } = require("../firebase");
 
 const { AEPS_PASS_KEY, AEPS_CLIENT_ID, AEPS_CLIENT_SECRET, AEPS_ENCR_KEY } =
   process.env;
@@ -104,11 +106,13 @@ exports.aepsCallback = async (req, res) => {
       AUTH_FAILED: "Failed",
       FAILURE: "Failed",
       AUTH_DECLINE: "Failed",
+      REFUNDED: "Refunded",
     };
 
     const finalStatus = statusMap[status] || "Pending";
 
     const user = await userModel.findOne({ UserId: username }).session(session);
+    const userMeta = await userMetaModel.findOne({ UserId: user._id }).session(session);
     if (!user) throw new Error("User not found");
 
     let category = null;
@@ -217,6 +221,7 @@ exports.aepsCallback = async (req, res) => {
               distributorCommission: commission.distributor,
               adminCommission: commission.admin,
               apiResponse: req.body,
+              provider: "iserveu"
             },
           ],
           { session }
@@ -274,6 +279,7 @@ exports.aepsCallback = async (req, res) => {
             distributorCommission: commission.distributor,
             adminCommission: commission.admin,
             apiResponse: req.body,
+            provider: "iserveu"
           },
         ],
         { session }
@@ -353,6 +359,7 @@ exports.aepsCallback = async (req, res) => {
           distributorCommission: commission.distributor,
           adminCommission: commission.admin,
           apiResponse: req.body,
+          provider: "iserveu"
         },
       ],
       { session }
@@ -377,7 +384,7 @@ exports.aepsCallback = async (req, res) => {
         charge: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0,
         netAmount: required,
         roles: [
-          { userId, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
+          { userId: user._id, role: "Retailer", commission: commission.retailer || 0, chargeShare: Number(commission.charge) + Number(commission.gst) + Number(commission.tds) || 0 },
           { userId: user.distributorId, role: "Distributor", commission: commission.distributor || 0, chargeShare: 0 },
           { userId: process.env.ADMIN_USER_ID, role: "Admin", commission: commission.admin || 0, chargeShare: 0 }
         ],
@@ -390,6 +397,21 @@ exports.aepsCallback = async (req, res) => {
     }
 
     await session.commitTransaction();
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txnType} Success`
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
     res.status(200).json({ status: true, message: `${txnType} Success` });
   } catch (err) {
     console.log("Callback Error:", err);
@@ -419,6 +441,12 @@ exports.matmCallback = async (req, res) => {
     const user = await userModel
       .findOne({
         UserId: data.username,
+      })
+      .session(session);
+
+    const userMeta = await userMetaModel
+      .findOne({
+        userId: data.username,
       })
       .session(session);
 
@@ -626,6 +654,21 @@ exports.matmCallback = async (req, res) => {
     }], { session });
 
     await session.commitTransaction();
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `${txfinalTypenType, finalType} `
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
     return res.json({ status: 1, message: "Cash Withdrawal Success" });
   } catch (err) {
     console.error("mATM Callback Error:", err);
@@ -1115,3 +1158,197 @@ exports.updateOnboardMailStatus = async (req, res) => {
     });
   }
 };
+
+
+exports.checkIserveuTxnStatus = async (req, res) => {
+  try {
+    const { transactionDate, externalRef } = req.body;
+
+    // ✅ Basic validation
+    if (!transactionDate || !externalRef) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate and clientRefId are required",
+      });
+    }
+
+    // transactionDate must be YYYY-MM-DD
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(transactionDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "transactionDate must be in YYYY-MM-DD format",
+      });
+    }
+
+    // ✅ Build request payload (as per IServeU spec)
+    const payload = {
+      "$1": "UAeps_txn_status_api",
+      "$4": transactionDate,
+      "$5": transactionDate,
+      "$6": externalRef,
+    };
+
+    const response = await axios.post(
+      "https://apidev.iserveu.online/sandbox/statuscheck/txnreport",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          client_id: process.env.ISERVEU_CLIENT_ID,
+          client_secret: process.env.ISERVEU_CLIENT_SECRET,
+        },
+        timeout: 15000,
+      }
+    );
+
+    const data = response.data;
+
+    // ✅ SUCCESS with data
+    if (data.status === 200 && data.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Transaction status fetched",
+        data: data.results[0], // usually single record
+      });
+    }
+
+    // ✅ SUCCESS but NO DATA
+    if (data.status === 1 && data.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No record found for given transaction",
+        data: null,
+      });
+    }
+
+    // ❌ FAILED response
+    return res.status(400).json({
+      success: false,
+      message: data.message || "Transaction status query failed",
+      data,
+    });
+
+  } catch (error) {
+    console.error("IServeU Status API Error:", error?.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch transaction status",
+      error: error?.response?.data || error.message,
+    });
+  }
+};
+
+
+
+exports.aepsPreCheck = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { serviceId, txnType, amount } = req.body;
+
+    if (!serviceId || !txnType) {
+      return res.status(400).json({
+        status: false,
+        message: "serviceId and txnType are required",
+      });
+    }
+
+    const ALL_TXN_TYPES = [
+      "CASH_WITHDRAWAL",
+      "CASH_DEPOSIT",
+      "BALANCE_ENQUIRY",
+      "MINI_STATEMENT",
+    ];
+
+    if (!ALL_TXN_TYPES.includes(txnType)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid AEPS transaction type",
+      });
+    }
+
+    if (["BALANCE_ENQUIRY", "MINI_STATEMENT"].includes(txnType)) {
+      return res.json({
+        status: true,
+        allowed: true,
+        data: {
+          txnType,
+          note: "No amount or wallet validation required",
+        },
+      });
+    }
+
+    const amt = Number(amount);
+    if (amt < 150 || amt > 10000) {
+      return res.status(400).json({
+        status: false,
+        message: "Amount must be between 150 and 10,000",
+      });
+    }
+
+    // 🔹 Get commission config
+    const { commissions, service } =
+      await getApplicableServiceCharge(userId, serviceId);
+
+    const commission = commissions
+      ? calculateCommissionFromSlabs(amt, commissions)
+      : {
+        charge: 0,
+        gst: 0,
+        tds: 0,
+        retailer: 0,
+        distributor: 0,
+        admin: 0,
+      };
+    let grossDebit;
+    if (txnType === "CASH_WITHDRAWAL") {
+      grossDebit =
+        Number(commission.charge || 0) -
+        Number(commission.gst || 0) -
+        Number(commission.tds || 0)
+    } else if (txnType === "CASH_DEPOSIT") {
+      grossDebit =
+        amt +
+        Number(commission.charge || 0) +
+        Number(commission.gst || 0) +
+        Number(commission.tds || 0) -
+        Number(commission.retailer || 0);
+    }
+
+
+    const user = await userModel.findById(userId);
+
+    const availableBalance =
+      Number(user.eWallet || 0) - Number(user.cappingMoney || 0);
+
+    if (availableBalance < grossDebit) {
+      return res.status(400).json({
+        status: false,
+        allowed: false,
+        message: `Insufficient wallet balance. Maintain ₹${user.cappingMoney}. Available: ₹${user.eWallet}, Required: ₹${grossDebit}`,
+      });
+    }
+
+    return res.json({
+      status: true,
+      allowed: true,
+      data: {
+        amount: amt,
+        grossDebit,
+        charge: commission.charge,
+        gst: commission.gst,
+        tds: commission.tds,
+        retailerCommission: commission.retailer,
+        availableBalance,
+      },
+    });
+  } catch (err) {
+    console.error("AEPS Pre-check Error:", err);
+    return res.status(500).json({
+      status: false,
+      message: err.message || "AEPS pre-check failed",
+    });
+  }
+};
+

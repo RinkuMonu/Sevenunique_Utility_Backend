@@ -2,6 +2,7 @@ const UserMeta = require("../models/userMetaModel.js");
 const mongoose = require("mongoose");
 const User = require("../models/userModel.js");
 const servicesModal = require("../models/servicesModal.js");
+const { default: axios } = require("axios");
 
 // 🔹 Create or Update UserMeta
 
@@ -52,6 +53,86 @@ const servicesModal = require("../models/servicesModal.js");
 //     res.status(500).json({ success: false, message: "Internal Server Error" });
 //   }
 // };
+
+
+const sendTerm_and_conditionEmail = async (user) => {
+  try {
+
+    const todayDate = new Date();
+
+    const formattedDate = todayDate.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+
+    const payload = {
+      recipients: [
+        {
+          to: [
+            {
+              name: user?.name || "Partner",
+              email: user?.email,
+            },
+          ],
+          variables: {
+            effectiveDate: formattedDate,
+            documentVersion: "1.0",
+
+            companySignatoryName: "Authorized Director",
+            companySignatoryDesignation: "Director",
+
+            signatureDate: formattedDate,
+
+            partnerName: user?.name || "Partner",
+            partnerEntityName: user?.shopName || user?.name || "N/A",
+            partnerType: user?.role || "Retailer",
+
+            acceptanceDate: formattedDate,
+
+            currentYear: new Date().getFullYear(),
+          },
+        },
+      ],
+
+      from: {
+        name: "Finunique Small Private Limited",
+        email: "no-reply@finuniques.in",
+      },
+      // "attachments": [
+      //   {
+      //     "filePath": "Public path for file.",
+      //     "fileName": "File Name"
+      //   }
+      // ],
+
+      domain: "finuniques.in",
+
+      template_id: "term_and_condition",
+    };
+
+    const res = await axios.post(
+      "https://control.msg91.com/api/v5/email/send",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          authkey: process.env.MSG91_AUTH_KEY,
+        },
+      }
+    );
+
+    console.log("✅ Terms & Condition email sent to:", user.email);
+    console.log("✅ Terms & Condition email sent response:", res);
+
+  } catch (error) {
+    console.error("❌ Error sending Terms email:", error.response);
+  }
+};
+
+
+
 
 exports.upsertUserMeta = async (req, res) => {
   // console.log(".............", req.body);
@@ -254,6 +335,10 @@ exports.acceptAgreement = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    // if (user) {
+    //   await sendTerm_and_conditionEmail(user)
+    // }
 
     res.json({
       message: "Agreement accepted successfully",

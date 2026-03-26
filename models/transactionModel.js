@@ -56,7 +56,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Success", "Pending", "Failed"],
+      enum: ["Success", "Pending", "Failed", "Refunded"],
       default: "Pending",
     },
     bankRRN: {
@@ -68,9 +68,19 @@ const TransactionSchema = new mongoose.Schema(
     },
     transaction_reference_id: {
       type: String,
+
+    },
+    utr: {
+      type: String,
+      default: ""
     },
     description: {
       type: String,
+      default: "",
+    },
+    provider: {
+      type: String,
+      enum: ["instantPay", "paySprint", "iserveu", ""],
       default: "",
     },
     meta: {
@@ -82,6 +92,13 @@ const TransactionSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+TransactionSchema.index({ createdAt: -1 });
+TransactionSchema.index({ user_id: 1, createdAt: -1 });
+TransactionSchema.index({ status: 1, createdAt: -1 });
+TransactionSchema.index(
+  { transaction_reference_id: 1 },
+  { unique: true, sparse: true }
 );
 
 const Transaction = mongoose.model("Transaction", TransactionSchema);

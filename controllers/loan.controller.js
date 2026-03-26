@@ -95,40 +95,50 @@ exports.getMyLeads = async (req, res) => {
   }
 };
 
-// Admin: list all losn leads with advanced filters + pagination
 exports.listLeads = async (req, res) => {
   try {
     const filter = {};
 
-    // if (req.user.role !== "Admin") {
-    //   filter.retailerId = req.user.id;
-    // }
+    // Role based filter
     if (req.user.role !== "Admin") {
-      filter.retailerId = new mongoose.Types.ObjectId(req.user.id);
+      filter.userId = new mongoose.Types.ObjectId(req.user.id);
     }
+
+    // 🔎 search
     if (req.query.q) {
       const regex = new RegExp(req.query.q, "i");
+
       filter.$or = [
-        { customerName: regex },
-        { customerMobile: regex },
-        { customerEmail: regex },
+        { name: regex },
+        { mobile: regex },
+        { email: regex },
+        { refId: regex },
       ];
     }
 
-    if (req.query.loanType) {
-      filter.loanTypeId = req.query.loanType;
+    // Product filter
+    if (req.query.product) {
+      filter.product = req.query.product;
     }
 
-    if (req.query.status || req.query.statuses) {
-      filter.status = req.query.status || req.query.statuses;
+    // Executive status filter
+    if (req.query.executive_status) {
+      filter.executive_status = req.query.executive_status;
     }
 
-    // ✅ date range
+    // Provider filter
+    if (req.query.provider) {
+      filter.provider = req.query.provider;
+    }
+
+    // 📅 date range filter
     if (req.query.from || req.query.to) {
       filter.createdAt = {};
+
       if (req.query.from) {
         filter.createdAt.$gte = new Date(req.query.from);
       }
+
       if (req.query.to) {
         const end = new Date(req.query.to);
         end.setHours(23, 59, 59, 999);
@@ -136,19 +146,21 @@ exports.listLeads = async (req, res) => {
       }
     }
 
-    // ✅ pagination + sorting
+    // Pagination
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+
+    // Sorting
     const sortBy = req.query.sortBy || "createdAt";
     const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
 
     const [items, total] = await Promise.all([
       LoanLeadModal.find(filter)
-        .populate("retailerId", "name mobileNumber email UserId")
-        .populate("loanTypeId", "name svgicon")
+        .populate("retailerId", "name email mobile UserId")
         .sort({ [sortBy]: sortOrder })
         .skip((page - 1) * limit)
         .limit(limit),
+
       LoanLeadModal.countDocuments(filter),
     ]);
 
@@ -161,8 +173,12 @@ exports.listLeads = async (req, res) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (e) {
-    console.error(e);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("Loan Leads List Error:", e);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -355,11 +371,13 @@ exports.getLeadById = async (req, res) => {
   try {
     const lead = await LoanLeadModal.findById(req.params.id)
       .populate("retailerId", "name mobileNumber email")
-      .populate("loanTypeId", "name");
+      // .populate("loanTypeId", "name");
     if (!lead)
       return res.status(404).json({ success: false, message: "Not found" });
     return res.json({ success: true, data: lead });
   } catch (e) {
+    console.log(e);
+
     return res.status(500).json({ success: false });
   }
 };
@@ -409,7 +427,7 @@ exports.updateLead = async (req, res) => {
 // Admin: categories
 exports.getCategories = async (req, res) => {
   try {
-    const cats = await LoanCategoryModal.find({ isActive: true }).sort({
+    const cats = await LoanCategoryModal.find().sort({
       name: 1,
     });
     return res.json({ success: true, data: cats });
@@ -444,5 +462,92 @@ exports.createCategory = async (req, res) => {
         .json({ success: false, message: "Category already exists" });
     }
     return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.toggleStatus = async (req, res) => {
+  const category = await LoanCategoryModal.findById(req.params.id);
+
+  category.isActive = !category.isActive;
+
+  await category.save();
+
+  res.send({
+    status: true,
+    message: "Status updated",
+  });
+};
+
+exports.updateLoanCategory = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+    const { name, svgicon, requiredDocs } = req.body;
+
+    const category = await LoanCategoryModal.findById(id);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Loan category not found"
+      });
+    }
+
+    // update fields
+    if (name) category.name = name;
+    if (svgicon) category.svgicon = svgicon;
+    if (requiredDocs) category.requiredDocs = requiredDocs;
+
+    await category.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Loan category updated successfully",
+      data: category
+    });
+
+  } catch (error) {
+
+    console.log("Update category error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+
+  }
+};
+
+
+exports.deleteLoanCategory = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const category = await LoanCategoryModal.findById(id);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Loan category not found"
+      });
+    }
+
+    await LoanCategoryModal.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Loan category deleted successfully"
+    });
+
+  } catch (error) {
+
+    console.log("Delete category error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+
   }
 };

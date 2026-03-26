@@ -3,57 +3,9 @@ const Service = require("../models/servicesModal.js");
 const mongoose = require("mongoose");
 const Transaction = require("../models/transactionModel.js");
 const userModel = require("../models/userModel.js");
+const { invalidateUserProfileCacheByService } = require("../middleware/redisValidation.js");
+const redis = require("../middleware/redis.js");
 
-// exports.upsertService = async (req, res) => {
-//   const {
-//     name,
-//     description,
-//     icon,
-//     serviceFor,
-//     defaultSwitch,
-//     providers,
-//   } = req.body;
-
-//   try {
-//     let service = await Service.findOne({ name });
-
-//     if (service) {
-//       service.description = description || service.description;
-//       service.icon = icon || service.icon;
-//       service.serviceFor = serviceFor || service.serviceFor;
-//       service.defaultSwitch = defaultSwitch || service.defaultSwitch;
-
-//       const providerMap = service.providers.reduce((acc, p) => {
-//         acc[p.providerName] = p;
-//         return acc;
-//       }, {});
-
-//       for (const incoming of providers) {
-//         if (providerMap[incoming.providerName]) {
-//           Object.assign(providerMap[incoming.providerName], incoming);
-//         } else {
-//           service.providers.push(incoming);
-//         }
-//       }
-
-//       await service.save();
-//     } else {
-//       service = await Service.create({
-//         name,
-//         description,
-//         icon,
-//         serviceFor,
-//         defaultSwitch,
-//         providers,
-//       });
-//     }
-
-//     res.json({ success: true, data: service });
-//   } catch (err) {
-//     console.error("Error in upsertService:", err);
-//     res.status(500).json({ success: false, message: "Internal Server Error" });
-//   }
-// };
 
 exports.upsertService = async (req, res) => {
   try {
@@ -61,47 +13,56 @@ exports.upsertService = async (req, res) => {
       name,
       description,
       icon,
-      serviceFor,
       defaultSwitch,
       isActive,
       category,
-      providers, // this can be an array of provider names from your form
+      providers,
     } = req.body;
 
-    // normalize providers (if user sends string instead of array)
     const providerList = Array.isArray(providers)
       ? providers
-      : providers
-      ? [providers]
-      : [];
+      : providers ? [providers] : [];
+
     let service;
+
     if (req.query.id) {
-      service = await Service.findOne({
-        _id: new mongoose.Types.ObjectId(req.query.id),
-      });
+      service = await Service.findById(req.query.id);
 
-      if (service) {
-        // update existing
-        service.name = name || service.name;
-        service.description = description || service.description;
-        service.icon = icon || service.icon;
-        // service.serviceFor = serviceFor || service.serviceFor;
-        service.defaultSwitch = defaultSwitch || service.defaultSwitch;
-        service.isActive = isActive || service.isActive;
-        service.category = category || service.category;
+      if (!service) {
+        return res.status(404).json({
+          success: false,
+          message: "Service not found",
+        });
+      }
 
-        // Replace providers fully from form input
-        service.providers = providerList;
+      // 🔹 store old values
+      const oldDefault = service.defaultSwitch;
+      const oldActive = service.isActive;
 
-        await service.save();
+      // 🔹 safe updates
+      service.name = name ?? service.name;
+      service.description = description ?? service.description;
+      service.icon = icon ?? service.icon;
+      service.defaultSwitch = defaultSwitch ?? service.defaultSwitch;
+      service.isActive = isActive ?? service.isActive;
+      service.category = category ?? service.category;
+      service.providers = providerList;
+
+      await service.save();
+
+      // 🔥 cache invalidation only if needed
+      if (
+        oldDefault !== service.defaultSwitch ||
+        oldActive !== service.isActive
+      ) {
+        console.log("xxxxxxxxxx")
+        await invalidateUserProfileCacheByService(service._id);
       }
     } else {
-      // create new
       service = await Service.create({
         name,
         description,
         icon,
-        // serviceFor,
         defaultSwitch,
         isActive,
         category,
@@ -109,83 +70,27 @@ exports.upsertService = async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: service,
       message: "Service updated successfully",
     });
   } catch (err) {
     console.error("Error in upsertService:", err);
-    if (err.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Service with this name already exists.",
-      });
-    }
-    res.status(500).json({ success: false, message: "Please try again later" });
-  }
-};
-
-exports.getAllServices = async (req, res) => {
-  try {
-    let { page = 1, limit, isActive, providerName, name } = req.query;
-
-    const filter = {};
-
-    if (name) filter.name = new RegExp(name, "i");
-    if (isActive !== undefined) filter.isActive = isActive === "true";
-
-    if (providerName) {
-      filter.defaultSwitch = { $regex: providerName, $options: "i" };
-    }
-
-    page = parseInt(page);
-    limit = limit ? parseInt(limit) : null;
-
-    const skip = limit ? (page - 1) * limit : 0;
-
-    const total = await Service.countDocuments(filter);
-    console.log("Total services found:", total);
-    let query = Service.find(filter).sort({ createdAt: -1 });
-
-    if (limit) {
-      query = query.skip(skip).limit(limit);
-    }
-
-    const services = await query;
-
-    res.json({
-      success: true,
-      total,
-      page,
-      pages: limit ? Math.ceil(total / limit) : 1,
-      data: services,
+    res.status(500).json({
+      success: false,
+      message: "Please try again later",
     });
-  } catch (err) {
-    console.error("Error in getAllServices:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
-exports.getServiceById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const service = await Service.findById(id);
-    if (!service) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Service not found" });
-    }
-    res.json({ success: true, data: service });
-  } catch (err) {
-    console.error("Error in getServiceById:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
-  }
-};
+
+
 
 exports.deleteService = async (req, res) => {
   try {
     const { id } = req.params;
+    await invalidateUserProfileCacheByService(id);
     await Service.findByIdAndDelete(id);
     res.json({ success: true, message: "Service deleted" });
   } catch (err) {
@@ -217,6 +122,7 @@ exports.setServiceStatus = async (req, res) => {
     if (defaultSwitch) {
       service.defaultSwitch = defaultSwitch;
     }
+    await invalidateUserProfileCacheByService(id);
     await service.save();
 
     return res.status(200).json({
@@ -230,6 +136,84 @@ exports.setServiceStatus = async (req, res) => {
   }
 };
 
+
+exports.getAllServices = async (req, res) => {
+  try {
+    let { page = 1, limit, isActive, providerName, name } = req.query;
+
+    const filter = {};
+
+    if (name) filter.name = new RegExp(name, "i");
+    if (isActive !== undefined) filter.isActive = isActive === "true";
+
+    if (providerName) {
+      filter.defaultSwitch = { $regex: providerName, $options: "i" };
+    }
+
+    page = parseInt(page);
+    limit = limit ? parseInt(limit) : null;
+
+    const skip = limit ? (page - 1) * limit : 0;
+    let serviceKey = `services:user:${req.user.id}`;
+    if (redis) {
+      try {
+        const data = await redis.get(serviceKey);
+        if (data) {
+          console.log("Redis hit for services");
+          return res.status(200).json(JSON.parse(data));
+        }
+      } catch (err) {
+        console.error("Redis error in getAllServices:", err);
+      }
+    }
+
+    const total = await Service.countDocuments(filter);
+    // console.log("Total services found:", total);
+    let query = Service.find(filter).sort({ createdAt: -1 });
+
+    if (limit) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const services = await query;
+    const responseData = {
+      success: true,
+      total,
+      page,
+      pages: limit ? Math.ceil(total / limit) : 1,
+      data: services,
+    }
+
+    if (redis && serviceKey) {
+      try {
+        await redis.setex(serviceKey, 60 * 60 * 24, JSON.stringify(responseData))
+      } catch (err) {
+        console.error("Redis set error in getAllServices:", err);
+      }
+    }
+
+    res.json( responseData );
+  } catch (err) {
+    console.error("Error in getAllServices:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+exports.getServiceById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const service = await Service.findById(id);
+    if (!service) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
+    }
+    res.json({ success: true, data: service });
+  } catch (err) {
+    console.error("Error in getServiceById:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
 exports.getCreditScore = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -246,7 +230,7 @@ exports.getCreditScore = async (req, res) => {
       throw new Error("User not found");
     }
 
-    const chargeAmount = 30;
+    const chargeAmount = 0;
     if (user.eWallet < chargeAmount) {
       throw new Error("Insufficient wallet balance");
     }
@@ -306,7 +290,7 @@ exports.getCreditScore = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "CIBIL score fetched successfully",
-      data: apiResponse.data, 
+      data: apiResponse.data,
       wallet_balance: updatedBalance,
       transaction_ref: transactionRef,
     });

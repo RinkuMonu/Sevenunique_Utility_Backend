@@ -1,6 +1,7 @@
 const { default: axios } = require("axios");
 const User = require("../models/userModel");
 const jwt = require("jsonwebtoken");
+const userModel = require("../models/userModel");
 require("dotenv").config();
 
 function generateToken() {
@@ -192,7 +193,7 @@ const verifyPAN = async (req, res) => {
 
     const nameFromPAN = response.data.data;
     user.panDetails = nameFromPAN.data;
-    if (user.clientSource === "APP") {
+    if (user.clientSource === "APP" && user.role == "User" && userId != "6970f793e59ebf5abae7769e") {
       user.isKycVerified = true
     }
     await user.save();
@@ -407,14 +408,20 @@ const updateBankAccount = async (req, res) => {
 
 const verifyEmail7UniqueVerify = async (req, res) => {
   const { email } = req.body;
-  console.log("📧 Verifying Email:", email);
+  // console.log("📧 Verifying Email:", email);
 
   if (!email) {
     return res
       .status(201)
       .json({ success: false, message: "Email is required" });
   }
-
+  const findUser = await userModel.findOne({ email }).select("email")
+  console.log("Verifying Email", findUser)
+  if (findUser) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Email already exist please use different email" });
+  }
   try {
     const payload = { email };
 
@@ -435,7 +442,7 @@ const verifyEmail7UniqueVerify = async (req, res) => {
     const result = api?.data;
     // MSG91 → api.data.valid, api.data.reason, api.data.did_you_mean
 
-    console.log("✅ MSG91 Verification Response:", result);
+    console.log("✅ MSG91 Verification Response:", api);
     const normalizedResponse = {
       emailvalid:
         result?.result?.result?.toString().toLowerCase() === "deliverable"

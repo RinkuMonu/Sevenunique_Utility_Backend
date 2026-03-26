@@ -9,10 +9,9 @@ import scratchCouponModel from "../models/scratchCoupon.model.js";
 export const planCheckCronJob = () => {
   // cron.schedule("*/30 * * * * *", async () => {
   cron.schedule("0 0 * * *", async () => {
-    console.log("🔄 Running daily plan expiry check...");
+    // console.log("🔄 Running daily plan expiry check...");
 
     try {
-      
       const now = new Date();
 
       // Sabhi users jinka plan endDate nikal gaya hai
@@ -34,7 +33,7 @@ export const planCheckCronJob = () => {
           userModel.plan = null;
 
           await userModel.save();
-          console.log(`✅ Plan expired for user ${userModel.name}`);
+          // console.log(`✅ Plan expired for user ${userModel.name}`);
         }
       }
     } catch (err) {
@@ -43,10 +42,10 @@ export const planCheckCronJob = () => {
   });
 
   cron.schedule("* * * * *", async () => {
-    console.log("⏱️ [CRON] Checking for expired pending wallets...");
+    // console.log("⏱️ [CRON] Checking for expired pending wallets...");
 
     try {
-      const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000);
       const expired = await payInModel.find({
         status: "Pending",
         createdAt: { $lte: cutoff },
@@ -71,9 +70,9 @@ export const planCheckCronJob = () => {
           }
         );
 
-        console.log(
-          `❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`
-        );
+        // console.log(
+        //   `❌ [AUTO-FAIL] PayIn ${p.reference} marked as FAILED (timeout)`
+        // );
       }
     } catch (err) {
       console.error("❌ [ERROR] Auto-fail PayIn CRON:", err.message);

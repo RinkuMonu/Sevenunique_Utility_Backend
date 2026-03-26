@@ -5,13 +5,15 @@ const createError = require("http-errors");
 const Joi = require("joi");
 const BbpsHistory = require("../../models/bbpsModel");
 const mongoose = require("mongoose");
-const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback } = require("../../utils/chargeCaluate");
+const { getApplicableServiceCharge, calculateCommissionFromSlabs, generateRandomCashback, logApiCall } = require("../../utils/chargeCaluate");
 const userModel = require("../../models/userModel");
 const Transaction = require("../../models/transactionModel");
 const payOutModel = require("../../models/payOutModel");
 const CommissionTransaction = require("../../models/CommissionTransaction");
 const { distributeCommission } = require("../../utils/distributerCommission");
 const scratchCouponModel = require("../../models/scratchCoupon.model");
+const userMetaModel = require("../../models/userMetaModel");
+const { default: admin } = require("../../firebase");
 
 const instantpay = axios.create({
   baseURL: "https://api.instantpay.in",
@@ -38,6 +40,7 @@ function normalizePayloadForEnquiry(body) {
 function normalizePayloadForPayment(body) {
   return {
     ...body,
+    paymentMode: "Cash",
     // initChannel: body.initChannel || "AGT",
     deviceInfo: {
       ip: "103.254.205.164",
@@ -97,6 +100,7 @@ exports.circleLookup = async (req, res, next) => {
       {},   // 👈 empty body
       { headers: buildHeaders({ withOutlet: true }) }  // 👈 outlet include
     );
+    logApiCall({ url: "/circleLookup", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) {
     console.error("Circle Lookup Error:", err.response?.data || err.message);
@@ -123,6 +127,7 @@ exports.getPlans = async (req, res, next) => {
       body,                                        // ✅ body pass
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getPlans", requestData: body, responseData: data });
 
     forward(res, data);
   } catch (err) {
@@ -138,6 +143,7 @@ exports.getCategories = async (_req, res, next) => {
       "/marketplace/utilityPayments/category",
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getCategories", requestData: {}, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -161,6 +167,7 @@ exports.listBillers = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/listBillers", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -175,6 +182,7 @@ exports.getBillerDetails = async (req, res, next) => {
       body,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/getBillerDetails", requestData: body, responseData: data });
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -197,6 +205,8 @@ exports.prePaymentEnquiry = async (req, res, next) => {
       payload,
       { headers: buildHeaders({ withOutlet: true }) }
     );
+    logApiCall({ url: "/prePaymentEnquiry", requestData: payload, responseData: data });
+
     forward(res, data);
   } catch (err) { onErr(next, err); }
 };
@@ -210,14 +220,13 @@ exports.makePayment = async (req, res, next) => {
     // ✅ Validate incoming request
     const schema = Joi.object({
       billerId: Joi.object().required(),
-      externalRef: Joi.string().required(),
       enquiryReferenceId: Joi.string().required(),
       inputParameters: Joi.object().unknown(true).required(),
       transactionAmount: Joi.number().required(),
       paymentMode: Joi.string().default("Cash"),
       paymentInfo: Joi.object().unknown(true).default({ Remarks: "CashPayment" }),
       initChannel: Joi.string().required(),
-      paymentMode: Joi.string().required(),
+      // externalRef: Joi.string().required(),
       user_id: Joi.string().required(),
       mpin: Joi.string().required(),
       category: Joi.string().required(),
@@ -225,11 +234,12 @@ exports.makePayment = async (req, res, next) => {
 
     const body = await schema.validateAsync(req.body);
 
-    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, externalRef, category, initChannel, paymentMode } = req.body;
+    const { billerId, inputParameters, transactionAmount, user_id, mpin, enquiryReferenceId, category, initChannel, paymentMode } = req.body;
     const userId = req.user?.id || user_id;
 
     const referenceid = `REF${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
     const user = await userModel.findById(userId).session(session);
+    const userMeta = await userMetaModel.findOne({ userId }).session(session);
     if (!user) throw new Error("User not found");
 
     // ✅ MPIN check
@@ -293,6 +303,7 @@ exports.makePayment = async (req, res, next) => {
       transaction_reference_id: referenceid,
       description: `Bill Payment for ${inputParameters.param1} (${billerId.billerName})`,
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
@@ -314,11 +325,12 @@ exports.makePayment = async (req, res, next) => {
       transactionId: referenceid,
       extraDetails: { mobileNumber: inputParameters.param1 },
       status: "Pending",
+      provider: "instantPay",
     }], { session });
 
 
     // ✅ Prepare payload and call InstantPay API
-    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, paymentMode, initChannel, transactionAmount, enquiryReferenceId, externalRef });
+    const payload = normalizePayloadForPayment({ billerId: billerId.billerId, inputParameters, initChannel, transactionAmount, enquiryReferenceId, externalRef: referenceid });
     console.log(payload);
     const { data } = await instantpay.post(
       "/marketplace/utilityPayments/payment",
@@ -326,9 +338,12 @@ exports.makePayment = async (req, res, next) => {
       { headers: buildHeaders({ withOutlet: true }) }
     );
 
+    logApiCall({ url: "/makePayment", requestData: payload, responseData: data });
+
+
     // ✅ Determine transaction status
     let statusUpdate = "Failed";
-    if (data?.statuscode === "TXN" || data?.status === "Transaction Successful") {
+    if (data?.statuscode === "TXN" && data?.status === "Transaction Successful") {
       statusUpdate = "Success";
     } else if (data?.status === "Transaction Under Process") {
       statusUpdate = "Pending";
@@ -496,7 +511,7 @@ exports.makePayment = async (req, res, next) => {
         {
           $set: {
             status: statusUpdate,
-            apiResponse: data,
+            "meta.apiResponse": data,
             balance_after: finalUser.eWallet,
           },
         },
@@ -515,12 +530,29 @@ exports.makePayment = async (req, res, next) => {
 
 
     await session.commitTransaction();
+
+    if (userMeta?.fcm_Token) {
+      try {
+        await admin.messaging().send({
+          token: userMeta.fcm_Token,
+          notification: {
+            title: "Finunique",
+            body: `Recharge ${statusUpdate} ₹ ${transactionAmount}`,
+          },
+        });
+      } catch (err) {
+        console.error("❌ FCM Send Error:", err.message);
+      }
+    }
+
     forward(res, { ...data, scratchCoupon });
 
   } catch (err) {
 
     console.error("❌ makePayment Error:", err || err.message);
-    await session.abortTransaction();
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     next(err);
   } finally {
     session.endSession();

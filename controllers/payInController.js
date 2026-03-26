@@ -10,6 +10,8 @@ const Transaction = require("../models/transactionModel.js");
 const payInModel = require("../models/payInModel.js");
 const servicesModal = require("../models/servicesModal.js");
 const { logApiCall } = require("../utils/chargeCaluate.js");
+const userMetaModel = require("../models/userMetaModel.js");
+const { default: admin } = require("../firebase.js");
 
 
 const merchant_identifier = process.env.ZAAKPAY_MERCHANT_CODE || "b19e8f103bce406cbd3476431b6b7973"
@@ -266,7 +268,7 @@ exports.createPayIn = async (req, res, next) => {
 };
 
 
-// zacapay
+// zackpay
 exports.generatePayment = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -336,6 +338,7 @@ exports.generatePayment = async (req, res, next) => {
           user_id: user._id,
           transaction_type: "credit",
           amount: Number(amount),
+          totalCredit: Number(amount),
           type: service._id,
           balance_after: user.eWallet,
           payment_mode: "wallet",
@@ -355,7 +358,7 @@ exports.generatePayment = async (req, res, next) => {
           mobile: user.mobileNumber,
           email: user.email,
           reference: reference || referenceId,
-          name: user.name,
+          name: user.name || "",
           source: "PayIn",
           amount: Number(amount),
           type: service._id,
@@ -415,9 +418,9 @@ exports.generatePayment = async (req, res, next) => {
     const responseEx = `https://api.zaakpay.com/api/paymentTransact/V8?${qs.stringify(payload2)}`;
 
 
-    console.log(responseUpi.data);
-    payIn.remark = "Redirect to Zaakpay for payment";
-    transaction.description = "Redirect to Zaakpay for payment";
+    // console.log(responseUpi.data);
+    payIn.remark = "Redirect to payment page";
+    transaction.description = "Redirect to payment page";
 
     await user.save({ session });
     await payIn.save({ session });
@@ -609,11 +612,8 @@ exports.generatePayment = async (req, res, next) => {
 //       message: error.message || "Something went wrong while processing payment",
 //     });
 //   }
-// };
-
+// }
 exports.callbackPayIn = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
 
     let data;
@@ -670,54 +670,22 @@ exports.callbackPayIn = async (req, res) => {
           updatedAt: new Date(),
         },
       },
-      { new: true, session }
+      { new: true }
     );
     console.log("payIn found", payIn);
+    const PayInData = await PayIn.findOne({ reference: data?.orderId });
+    const userMeta = await userMetaModel.findOne({ userId: PayInData?.userId });
 
-    if (!payIn) {
-      await session.commitTransaction();
-      return res.status(404).send("Invalid callback reference");
+
+    let redirectUrl = null;
+
+    if (
+      userMeta?.redirect_url &&
+      typeof userMeta.redirect_url === "string" &&
+      userMeta.redirect_url.trim() !== ""
+    ) {
+      redirectUrl = userMeta.redirect_url.trim();
     }
-
-    // 👤 Find the related user
-    let user = null;
-    if (isSuccess && payIn && payIn.userId) {
-      const amount = Number(data?.amount) / 100 || 0;
-
-      user = await User.findOneAndUpdate(
-        { _id: payIn.userId },
-        { $inc: { eWallet: amount } },
-        { new: true, session }
-      );
-    } else {
-      user = await User.findById(payIn.userId).session(session);
-    }
-
-    if (!user) {
-      await session.abortTransaction();
-      return res.status(404).send("User not found");
-    }
-
-    // 💳 Update Transaction report
-    await Transaction.findOneAndUpdate(
-      {
-        transaction_reference_id: data?.orderId,
-        status: { $ne: "Success" }
-      },
-      {
-        $set: {
-          status: isSuccess ? "Success" : "Failed",
-          balance_after: user.eWallet,
-          gatewayResponse: data,
-          payment_mode: data?.paymentMode,
-          description: data?.responseDescription,
-          updatedAt: new Date(),
-          "meta.apiResponse": data
-        },
-      },
-      { new: true, session }
-    )
-    await session.commitTransaction();
 
     const successHTML = `
       <!DOCTYPE html>
@@ -726,6 +694,8 @@ exports.callbackPayIn = async (req, res) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Payment Successful</title>
+          ${redirectUrl ? `<meta http-equiv="refresh" content="5;url=${redirectUrl}" />` : ""}
+
         <style>
           body { font-family: Arial, sans-serif; background-color: #f6fffa; padding: 40px; color: #333; }
           .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; padding: 30px; }
@@ -748,6 +718,11 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
           </div>
+               ${redirectUrl
+        ? `<p>You will be redirected in 5 seconds...</p>`
+        : ``
+      }
+
           <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED</div>
         </div>
       </body>
@@ -761,6 +736,8 @@ exports.callbackPayIn = async (req, res) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Payment Failed</title>
+          ${redirectUrl ? `<meta http-equiv="refresh" content="5;url=${redirectUrl}" />` : ""}
+
         <style>
           body { font-family: Arial, sans-serif; background-color: #fff6f6; padding: 40px; color: #333; }
           .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; padding: 30px; }
@@ -782,12 +759,60 @@ exports.callbackPayIn = async (req, res) => {
             <strong>Transaction ID:</strong> ${data?.pgTransId || "N/A"}<br/>
             <strong>Payment Mode:</strong> ${data?.paymentMode || "N/A"}<br/>
             <strong>Time:</strong> ${data?.pgTransTime || "N/A"}<br/>
+                ${redirectUrl
+        ? `<p>You will be redirected in 5 seconds...</p>`
+        : ``
+      }
           </div>
+            
           <div class="footer">© ${new Date().getFullYear()} FINUNIQUE SMALL PRIVATE LIMITED </div>
         </div>
       </body>
       </html>
     `;
+
+
+    // 👤 Find the related user
+    let user = null;
+    if (isSuccess && payIn && payIn.userId) {
+      const amount = Number(data?.amount) / 100 || 0;
+
+      user = await User.findOneAndUpdate(
+        { _id: payIn.userId },
+        { $inc: { eWallet: amount } },
+        { new: true }
+      );
+    } else {
+      user = await User.findById(PayInData.userId);
+    }
+
+    if (!user) {
+      return res.status(404).send("User not found");
+    }
+
+    // 💳 Update Transaction report
+    await Transaction.findOneAndUpdate(
+      {
+        transaction_reference_id: data?.orderId,
+        status: { $ne: "Success" }
+      },
+      {
+        $set: {
+          status: isSuccess ? "Success" : "Failed",
+          balance_after: user.eWallet,
+          gatewayResponse: data,
+          payment_mode: data?.paymentMode,
+          description: data?.responseDescription,
+          updatedAt: new Date(),
+          "meta.apiResponse": data
+        },
+      },
+      { new: true }
+    )
+
+
+
+
 
     if (user && user.callbackUrl) {
       try {
@@ -804,10 +829,25 @@ exports.callbackPayIn = async (req, res) => {
       }
     } else {
 
+      if (userMeta?.fcm_Token) {
+        try {
+          await admin.messaging().send({
+            token: userMeta.fcm_Token,
+            notification: {
+              title: "Finunique",
+              body: isSuccess
+                ? `₹ ${(data?.amount / 100).toFixed(2)} added to your wallet`
+                : "Transaction failed",
+            },
+          });
+        } catch (err) {
+          console.error("❌ FCM Send Error:", err.message);
+        }
+      }
+
       return res.status(200).send(isSuccess ? successHTML : failureHTML);
     }
   } catch (error) {
-    await session.abortTransaction();
     console.error("🔥 Error in callback handler:", error.message);
     res.status(500).send(`
       <html>
@@ -818,9 +858,10 @@ exports.callbackPayIn = async (req, res) => {
       </html>
     `);
   } finally {
-    session.endSession();
   }
 };
+
+
 
 exports.callbackGet = async (req, res) => {
   try {
