@@ -16,7 +16,7 @@ jobs:
           host: ${{ secrets.BACKEND_SSH_HOST }}
           username: ${{ secrets.BACKEND_SSH_USERNAME }}
           password: ${{ secrets.BACKEND_SSH_PASSWORD }}
-          port: ${{ secrets.PORT }}
+          port: 22527
           script: |
             cd /home/servefi/public_html/Bbbps_Backend
             git fetch origin
