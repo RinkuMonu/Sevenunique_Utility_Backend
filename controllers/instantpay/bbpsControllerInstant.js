@@ -543,9 +543,13 @@ exports.makePayment = async (req, res, next) => {
       } catch (err) {
         console.error("❌ FCM Send Error:", err.message);
       }
+    } 
+    
+    if (data.statuscode === "IAB") {
+      return forward(res, { status: "Finunique service is under maintenance. Kindly try again after some time." });
     }
 
-    forward(res, { ...data, scratchCoupon });
+    return forward(res, { ...data, scratchCoupon });
 
   } catch (err) {
 
