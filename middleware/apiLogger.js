@@ -11,6 +11,7 @@ const apiLogger = (req, res, next) => {
     const duration = `${Date.now() - start}ms`;
 
     logger.info({
+      
       method,
       statusCode: res.statusCode,
       requestBody: body,

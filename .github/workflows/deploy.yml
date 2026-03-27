@@ -1,0 +1,29 @@
+name: Deploy using Password
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run SSH commands using password
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.BACKEND_SSH_HOST }}
+          username: ${{ secrets.BACKEND_SSH_USERNAME }}
+          password: ${{ secrets.BACKEND_SSH_PASSWORD }}
+          port: 22527
+          script: |
+            cd /home/servefi/public_html/Bbbps_Backend
+            git fetch origin
+            git reset --hard origin/main
+            echo "Installing dependencies..."
+            npm install --production
+
+            echo "Restarting PM2..."
+            pm2 restart Bbbps_Backend || pm2 start server.js --name Bbbps_Backend
+            pm2 save
