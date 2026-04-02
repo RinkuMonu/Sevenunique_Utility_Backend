@@ -565,7 +565,15 @@ exports.walletTransfer = async (req, res) => {
       );
     }
 
-    await Promise.all(notifications);
+if (notifications.length > 0) {
+  Promise.allSettled(notifications).then((results) => {
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`❌ FCM Error [${index}]`, result.reason?.message);
+      }
+    });
+  });
+}
 
     return res.status(200).json({
       success: true,
