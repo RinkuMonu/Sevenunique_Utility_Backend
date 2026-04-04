@@ -16,6 +16,7 @@ const onboardTransactionSchema = new mongoose.Schema({
     partnerid: { type: String },
     bank: {
         Bank1: { type: Number },
+        
         Bank2: { type: Number }
     },
     callbackReceivedAt: { type: Date },
