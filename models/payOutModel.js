@@ -46,7 +46,6 @@ const payOutSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      required: true,
       trim: true, // Trimming whitespace
     },
     mobile: {

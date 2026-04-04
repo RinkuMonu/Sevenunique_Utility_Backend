@@ -590,7 +590,7 @@ const loginController = async (req, res) => {
     // ✅ OTP login
     if (otp) {
       let verificationResult;
-      if (user._id === "69535953eb3444f0c8567a2d" && otp === "123456") {
+      if (user._id.toString() === "69535953eb3444f0c8567a2d" && otp === "123456") {
         verificationResult = { success: true, message: "OTP verified successfully" };
       } else {
         verificationResult = await verifyOtp(mobileNumber, otp);
