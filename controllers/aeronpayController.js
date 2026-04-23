@@ -218,7 +218,6 @@ exports.transfer = async (req, res) => {
         "https://api.sevenunique.com/aeronpay/transfer",
         payload,
       );
-
     } catch (error) {
       console.log("API FAILED:", error.response?.data);
 
@@ -226,18 +225,17 @@ exports.transfer = async (req, res) => {
       const updated = await userModel.findByIdAndUpdate(
         { _id: userId },
         { $inc: { eWallet: required } },
-        { new: true }
+        { new: true },
       );
       await payOutModel.updateOne(
         { reference: referenceId },
-        { status: "Failed" }
+        { status: "Failed" },
       );
 
       await Transaction.updateOne(
         { transaction_reference_id: referenceId },
-        { status: "Failed", balance_after: updated.eWallet, }
+        { status: "Failed", balance_after: updated.eWallet },
       );
-
 
       return res.status(400).json({
         success: false,
@@ -279,7 +277,7 @@ exports.transfer1 = async (req, res) => {
 
     const { amount, beneAccountNo, beneifsc, referenceId } = req.body;
 
-    const category = "69280136fa5562e190cdf90f";
+    const category = "69e9f127b9ed8fdd7498e847";
     const userId = req.user.id;
     const requiredField = [
       "amount",
@@ -426,10 +424,38 @@ exports.transfer1 = async (req, res) => {
       },
     };
 
-    const aeronpayRes = await axios.post(
-      "https://api.sevenunique.com/aeronpay/transfer",
-      payload,
-    );
+    let aeronpayRes;
+
+    try {
+      aeronpayRes = await axios.post(
+        "https://api.sevenunique.com/aeronpay/transfer",
+        payload,
+      );
+    } catch (error) {
+      console.log("API FAILED:", error.response?.data);
+      // 💰 Refund wallet
+      const updated = await userModel.findByIdAndUpdate(
+        { _id: userId },
+        { $inc: { eWallet: required } },
+        { new: true },
+      );
+      await payOutModel.updateOne(
+        { reference: referenceId },
+        { status: "Failed" },
+      );
+
+      await Transaction.updateOne(
+        { transaction_reference_id: referenceId },
+        { status: "Failed", balance_after: updated.eWallet },
+      );
+
+      return res.status(400).json({
+        success: false,
+        message: "Transfer failed & refunded",
+      });
+
+    }
+
     logApiCall({
       url: "https://api.sevenunique.com/aeronpay/transfer",
       requestData: { payload },
@@ -657,12 +683,17 @@ exports.checkTransactionStatus = async (req, res) => {
       });
     }
 
+    const formatted = new Date(payout.createdAt)
+      .toLocaleDateString("en-GB") // DD/MM/YYYY format
+      .replace(/\//g, "-");
+
     // 2️⃣ Call AeronPay Status API
     const aeronpayRes = await axios.post(
       "https://api.sevenunique.com/aeronpay/status",
       {
         client_referenceId,
         mobile: "9783640502",
+        date_of_transaction: formatted,
       },
     );
 

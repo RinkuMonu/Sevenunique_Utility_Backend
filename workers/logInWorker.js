@@ -16,7 +16,8 @@ if (redis) {
       // analytics
 
     },
-    { connection: redis }
+    {
+       connection: redis }
   );
   worker.on("completed", job => {
     console.log(`Job ${job.id} completed`);

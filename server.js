@@ -29,11 +29,12 @@ const aeronpayRouter = require("./routes/aeronpayRoutes.js");
 const licRouter = require("./routes/LIC_Router.js");
 const loanLeadRouter = require("./routes/LoanLead.js");
 const msg91Router = require("./routes/msg91Routes.js");
+const BannerTickerRouter = require("./routes/bannerTickerRoutes.js");
+const ecuzenBbpsRouter = require("./routes/ecuzen/bbps/ecuzenBbpsRoutes.js");
 const app = express();
 planCheckCronJob();
 
-
-const allowedOrigins = [
+const allowedOrigins = [ 
   "http://localhost:3000",
   "http://localhost:3001",
   "https://utility.finuniques.in",
@@ -44,9 +45,8 @@ app.use(
   cors({
     origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  })
+  }),
 );
-
 
 app.use(bodyParser.json());
 app.use("/uploads", express.static("/var/www/uploads"));
@@ -54,7 +54,7 @@ app.use("/uploads", express.static("/var/www/uploads"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// app.use(apiLogger); 
+// app.use(apiLogger);
 // app.use((req, res, next) => {
 //   const start = Date.now();
 //   res.on("finish", () => {
@@ -67,7 +67,6 @@ app.use(express.urlencoded({ extended: true }));
 //   });
 //   next();
 // });
-
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/user", require("./routes/userMetaRoutes.js"));
@@ -100,13 +99,19 @@ app.use("/api/v1/loanLead", loanLeadRouter);
 app.use("/api/v1/news", NewsRouter);
 app.use("/api/v1/getallrole", getAllRole);
 app.use("/api/loans", loan);
-app.use("/api/assets", require("./routes/device.routes")); 
+app.use("/api/assets", require("./routes/device.routes"));
 app.use("/api/banners", bannerRoutes);
+app.use("/api/banner_ticker", BannerTickerRouter);
 app.use("/api/blog", blogRoutes);
 app.use("/api/pan", panroute);
 app.use("/api/msg91", msg91Router);
+
+// ecuzen api's
+
+app.use("/api/v1/bbps", ecuzenBbpsRouter);
+
 app.get("/health", (req, res) =>
-  res.json({ ip: req.ip, message: "Welcome to the FINUNIQUE api's" })
+  res.json({ ip: req.ip, message: "Welcome to the FINUNIQUE api's" }),
 );
 
 app.get("/health/redis", async (req, res) => {
@@ -118,7 +123,7 @@ app.get("/health/redis", async (req, res) => {
     await redis.ping();
     res.json({
       redis: "up",
-      latency: `${Date.now() - start}ms`
+      latency: `${Date.now() - start}ms`,
     });
   } catch {
     res.status(503).json({ redis: "DOWN" });
@@ -130,19 +135,18 @@ app.use(
   express.static(path.join(__dirname, "build"), {
     maxAge: "1y",
     immutable: true,
-  })
+  }),
 );
 
 app.get("*", (req, res) => {
   res.setHeader(
-    "Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
-
-
-
 
 mongoose
   .connect(process.env.MONGO_URI)
