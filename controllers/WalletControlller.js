@@ -30,7 +30,6 @@ exports.getWalletTransactions = async (req, res) => {
     if (status) match.status = status;
     if (payment_mode) match.payment_mode = payment_mode;
     if (fromDate || toDate) {
-
       const start = fromDate
         ? new Date(new Date(fromDate).setHours(0, 0, 0, 0))
         : null;
@@ -104,13 +103,13 @@ exports.getWalletTransactions = async (req, res) => {
           type: 1,
         },
       },
-      { $sort: { createdAt: -1 } }
+      { $sort: { createdAt: -1 } },
     );
 
     if (exportCsv !== "true") {
       pipeline.push(
         { $skip: (page - 1) * parseInt(limit) },
-        { $limit: parseInt(limit) }
+        { $limit: parseInt(limit) },
       );
     }
 
@@ -139,7 +138,7 @@ exports.getWalletTransactions = async (req, res) => {
       res.header("Content-Type", "text/csv");
       res.header(
         "Content-Disposition",
-        "attachment; filename=transactions.csv"
+        "attachment; filename=transactions.csv",
       );
       return res.send(csv);
     }
@@ -448,9 +447,6 @@ exports.getUsersUnderAdmin = async (req, res) => {
   }
 };
 
-
-
-
 // 3️⃣ Get Transactions for a User (with filters, pagination, search, CSV export)
 exports.getUserTransactions = async (req, res) => {
   try {
@@ -476,7 +472,11 @@ exports.getUserTransactions = async (req, res) => {
     if (fromDate || toDate) {
       match.createdAt = {};
       if (fromDate) match.createdAt.$gte = new Date(fromDate);
-      if (toDate) match.createdAt.$lte = new Date(toDate);
+      if (toDate) {
+        const to = new Date(toDate);
+        to.setDate(to.getDate() + 1); 
+        match.createdAt.$lt = to;
+      }
     }
 
     const pipeline = [
@@ -513,7 +513,7 @@ exports.getUserTransactions = async (req, res) => {
           as: "plan",
         },
       },
-      { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } }
+      { $unwind: { path: "$plan", preserveNullAndEmptyArrays: true } },
     );
 
     const totalCountPipeline = [{ $match: match }];
@@ -537,6 +537,59 @@ exports.getUserTransactions = async (req, res) => {
       pipeline.push(keywordMatch);
       totalCountPipeline.push(keywordMatch);
     }
+
+    const statusSummaryPipeline = [{ $match: match }];
+    if (keyword) {
+      const regex = new RegExp(keyword, "i");
+      const numVal = parseFloat(keyword);
+
+      statusSummaryPipeline.push({
+        $match: {
+          $or: [
+            { description: { $regex: regex } },
+            { transaction_reference_id: { $regex: regex } },
+            ...(isNaN(numVal) ? [] : [{ amount: numVal }]),
+          ],
+        },
+      });
+    }
+    statusSummaryPipeline.push({
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+
+        // 🔥 AMOUNT CALCULATION
+        totalAmount: { $sum: "$amount" },
+
+        // optional (better accuracy for debit/credit system)
+        totalCredit: { $sum: "$totalCredit" },
+        totalDebit: { $sum: "$totalDebit" },
+      },
+    });
+
+    const statusResult = await Transaction.aggregate(statusSummaryPipeline);
+    const summary = {
+      success: { count: 0, amount: 0 },
+      pending: { count: 0, amount: 0 },
+      failed: { count: 0, amount: 0 },
+    };
+
+    statusResult.forEach((item) => {
+      if (item._id === "Success") {
+        summary.success.count = item.count;
+        summary.success.amount = item.totalAmount;
+      }
+
+      if (item._id === "Pending") {
+        summary.pending.count = item.count;
+        summary.pending.amount = item.totalAmount;
+      }
+
+      if (item._id === "Failed") {
+        summary.failed.count = item.count;
+        summary.failed.amount = item.totalAmount;
+      }
+    });
 
     pipeline.push(
       {
@@ -565,13 +618,13 @@ exports.getUserTransactions = async (req, res) => {
           provider: 1,
         },
       },
-      { $sort: { createdAt: -1 } }
+      { $sort: { createdAt: -1 } },
     );
 
     if (exportCsv !== "true") {
       pipeline.push(
         { $skip: (page - 1) * parseInt(limit) },
-        { $limit: parseInt(limit) }
+        { $limit: parseInt(limit) },
       );
     }
 
@@ -597,7 +650,7 @@ exports.getUserTransactions = async (req, res) => {
       res.header("Content-Type", "text/csv");
       res.header(
         "Content-Disposition",
-        "attachment; filename=transactions.csv"
+        "attachment; filename=transactions.csv",
       );
       return res.send(csv);
     }
@@ -612,6 +665,7 @@ exports.getUserTransactions = async (req, res) => {
     res.json({
       success: true,
       data: transactions,
+      summary,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -626,7 +680,6 @@ exports.getUserTransactions = async (req, res) => {
       .json({ success: false, message: "Server Error", error: err.message });
   }
 };
-
 
 exports.getLastTransactionsByService = async (req, res) => {
   try {
@@ -651,7 +704,7 @@ exports.getLastTransactionsByService = async (req, res) => {
       .lean();
 
     const referenceIds = transactions.map(
-      (txn) => txn.transaction_reference_id
+      (txn) => txn.transaction_reference_id,
     );
 
     if (!referenceIds.length) {
@@ -689,7 +742,6 @@ exports.getLastTransactionsByService = async (req, res) => {
       success: true,
       data: reports,
     });
-
   } catch (error) {
     console.error("Last Transactions Error:", error);
     res.status(500).json({
