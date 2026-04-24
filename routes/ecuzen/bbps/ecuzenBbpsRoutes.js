@@ -1,7 +1,9 @@
 const express = require("express");
-const { getBbpsServices } = require("../../../controllers/ecuzen/bbps/ecuzenBbpsController");
+const { getBbpsServices, getBbpsBillerDetails, getBbpsBillerParams } = require("../../../controllers/ecuzen/bbps/ecuzenBbpsController");
 const ecuzenBbpsRouter = express.Router();
 
-ecuzenBbpsRouter.get("/getBbps-services",getBbpsServices);
+ecuzenBbpsRouter.get("/get-services", getBbpsServices);
+ecuzenBbpsRouter.post("/biller-details", getBbpsBillerDetails);
+ecuzenBbpsRouter.post("/biller-params", getBbpsBillerParams);
 
 module.exports = ecuzenBbpsRouter;

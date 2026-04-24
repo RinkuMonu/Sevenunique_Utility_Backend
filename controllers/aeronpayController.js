@@ -453,7 +453,6 @@ exports.transfer1 = async (req, res) => {
         success: false,
         message: "Transfer failed & refunded",
       });
-
     }
 
     logApiCall({
@@ -606,10 +605,14 @@ exports.callBack = async (req, res) => {
     );
 
     if (user.callbackUrlOut) {
-      const response = await axios.post(user.callbackUrlOut, data, {
-        headers: { "Content-Type": "application/json" },
-      });
-      console.log("Callback sent to merchant successfully");
+      try {
+        const response = await axios.post(user.callbackUrlOut, data, {
+          headers: { "Content-Type": "application/json" },
+        });
+        console.log("Callback sent to merchant successfully");
+      } catch (err) {
+        console.error("❌ Callback Error:", err.message);
+      }
     }
 
     await session.commitTransaction();
@@ -683,6 +686,15 @@ exports.checkTransactionStatus = async (req, res) => {
       });
     }
 
+    // 2️⃣ Fetch user
+    const user = await userModel.findById(payout.userId).session(session);
+    const userMeta = await userMetaModel
+      .findOne({ userId: payout.userId })
+      .session(session);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
     const formatted = new Date(payout.createdAt)
       .toLocaleDateString("en-GB") // DD/MM/YYYY format
       .replace(/\//g, "-");
@@ -758,6 +770,17 @@ exports.checkTransactionStatus = async (req, res) => {
       },
       { session },
     );
+
+    if (user.callbackUrlOut) {
+      try {
+        const response = await axios.post(user.callbackUrlOut, data, {
+          headers: { "Content-Type": "application/json" },
+        });
+        console.log("Status Check Callback sent to merchant successfully");
+      } catch (err) {
+        console.error("❌ Status Check Callback Error:", err.message);
+      }
+    }
 
     // ✅ Commit
     await session.commitTransaction();
